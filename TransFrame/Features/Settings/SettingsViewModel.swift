@@ -487,7 +487,9 @@ final class SettingsViewModel {
         Task {
             await credentialAuth.refreshCredentialPresence()
             let unlocked = await credentialAuth.authenticate()
-            if !unlocked, case .failed(let message) = credentialAuth.state {
+            if unlocked {
+                loadVLMEditingState(for: vlmProvider)
+            } else if case .failed(let message) = credentialAuth.state {
                 errorMessage = message
                 showErrorAlert = true
             }

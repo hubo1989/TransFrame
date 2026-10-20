@@ -31,6 +31,12 @@ final class CredentialAuthManager {
 
     private init() {}
 
+    #if DEBUG
+    func setAuthStateForTesting(_ newState: AuthState) {
+        state = newState
+    }
+    #endif
+
     func refreshCredentialPresence() async {
         hasStoredCredentials = await KeychainService.shared.hasAnyCredentials()
         if !hasStoredCredentials {
