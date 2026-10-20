@@ -98,7 +98,7 @@ struct ImageExporter: Sendable {
         context.setLineJoin(.round)
 
         for annotation in annotations {
-            renderAnnotation(annotation, in: context, imageHeight: CGFloat(height))
+            renderAnnotation(annotation, in: context, imageHeight: CGFloat(height), sourceImage: image)
         }
 
         guard let result = context.makeImage() else {

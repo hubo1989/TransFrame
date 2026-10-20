@@ -13,6 +13,8 @@ final class AsyncProcessRunner: @unchecked Sendable {
     private let lock = NSLock()
     private var isCancelled = false
     private var didResume = false
+    private var stdoutBuffer = Data()
+    private var stderrBuffer = Data()
 
     init(process: Process, stdoutPipe: Pipe = Pipe(), stderrPipe: Pipe = Pipe()) {
         self.process = process
@@ -25,6 +27,22 @@ final class AsyncProcessRunner: @unchecked Sendable {
     func run() async throws -> AsyncProcessOutput {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return }
+                    self?.lock.withLock {
+                        self?.stdoutBuffer.append(data)
+                    }
+                }
+
+                stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return }
+                    self?.lock.withLock {
+                        self?.stderrBuffer.append(data)
+                    }
+                }
+
                 process.terminationHandler = { [weak self] process in
                     self?.complete(process: process, continuation: continuation)
                 }
@@ -32,6 +50,8 @@ final class AsyncProcessRunner: @unchecked Sendable {
                 do {
                     try process.run()
                 } catch {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
                     resumeOnce(continuation, result: .failure(error))
                 }
             }
@@ -53,13 +73,28 @@ final class AsyncProcessRunner: @unchecked Sendable {
         process: Process,
         continuation: CheckedContinuation<AsyncProcessOutput, Error>
     ) {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+        let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+        let (finalStdout, finalStderr, wasCancelled) = lock.withLock {
+            if !remainingStdout.isEmpty {
+                stdoutBuffer.append(remainingStdout)
+            }
+            if !remainingStderr.isEmpty {
+                stderrBuffer.append(remainingStderr)
+            }
+            return (stdoutBuffer, stderrBuffer, isCancelled)
+        }
+
         let output = AsyncProcessOutput(
             terminationStatus: process.terminationStatus,
-            stdoutData: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-            stderrData: stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            stdoutData: finalStdout,
+            stderrData: finalStderr
         )
 
-        let wasCancelled = lock.withLock { isCancelled }
         if wasCancelled {
             resumeOnce(continuation, result: .failure(CancellationError()))
         } else {

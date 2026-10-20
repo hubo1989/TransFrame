@@ -118,11 +118,20 @@ final class BilingualResultViewModel {
             return
         }
 
-        do {
-            try ImageExporter.shared.save(image, annotations: [], to: url, format: .png, quality: 1.0)
-            showSaveSuccess()
-        } catch {
-            errorMessage = String(localized: "bilingualResult.saveFailed")
+        let imageToSave = image
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try ImageExporter.shared.save(imageToSave, annotations: [], to: url, format: .png, quality: 1.0)
+                }.value
+                await MainActor.run {
+                    showSaveSuccess()
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = String(localized: "bilingualResult.saveFailed")
+                }
+            }
         }
     }
 

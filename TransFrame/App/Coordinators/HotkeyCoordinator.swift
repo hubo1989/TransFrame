@@ -46,6 +46,7 @@ final class HotkeyCoordinator {
 
     /// Registered hotkey references by type
     private var registrations: [HotkeyType: HotkeyManager.Registration] = [:]
+    private var updateTask: Task<Void, Never>?
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "HotkeyCoordinator")
 
@@ -134,7 +135,8 @@ final class HotkeyCoordinator {
 
     /// Updates hotkeys when settings change
     func updateHotkeys() {
-        Task {
+        updateTask?.cancel()
+        updateTask = Task {
             logger.info("Hotkey settings changed, re-registering")
             await registerAllHotkeys()
         }

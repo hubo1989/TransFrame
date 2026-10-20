@@ -209,6 +209,39 @@ final class PipelineSmokeTests: XCTestCase {
         XCTAssertTrue(PerformanceBudget(stage: .render, p95Milliseconds: 100).allows(try XCTUnwrap(summaries[.render])))
     }
 
+    func testPaddleOCRPythonDictToJsonHandlesApostrophesAndQuotedKeywords() throws {
+        let engine = PaddleOCREngine.shared
+        let pythonDict = #"  {'res': {'rec_texts': ["don't", 'it\'s "great"', 'True story', 'None of {this}'], 'flag': True, 'empty': None, 'valid': False, 'score': 8.}}"#.trimmingCharacters(in: .whitespaces)
+
+        let braceEnd = try XCTUnwrap(engine.findMatchingBrace(in: pythonDict))
+        XCTAssertEqual(braceEnd, pythonDict.count - 1)
+
+        let jsonString = engine.convertPythonDictToJson(pythonDict)
+        let data = try XCTUnwrap(jsonString.data(using: .utf8))
+        let parsed = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let res = try XCTUnwrap(parsed["res"] as? [String: Any])
+
+        XCTAssertEqual(res["rec_texts"] as? [String], ["don't", #"it's "great""#, "True story", "None of {this}"])
+        XCTAssertEqual(res["flag"] as? Bool, true)
+        XCTAssertTrue(res["empty"] is NSNull)
+        XCTAssertEqual(res["valid"] as? Bool, false)
+        XCTAssertEqual(res["score"] as? Double, 8.0)
+    }
+
+    func testAsyncProcessRunnerDrainsLargePipesWithoutDeadlock() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Write >128KB to both stdout and stderr to exceed standard 64KB OS pipe buffer
+        process.arguments = ["-c", "dd if=/dev/zero bs=1024 count=160 2>/dev/null | tr '\\0' 'a'; dd if=/dev/zero bs=1024 count=160 2>/dev/null | tr '\\0' 'b' >&2"]
+
+        let runner = AsyncProcessRunner(process: process)
+        let output = try await runner.run()
+
+        XCTAssertEqual(output.terminationStatus, 0)
+        XCTAssertEqual(output.stdoutData.count, 160 * 1024)
+        XCTAssertEqual(output.stderrData.count, 160 * 1024)
+    }
+
     private static func makeImage() -> CGImage? {
         guard let context = CGContext(
             data: nil,
@@ -225,6 +258,49 @@ final class PipelineSmokeTests: XCTestCase {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
         return context.makeImage()
+    }
+
+    func testVLMJSONExtractorHandlesMarkdownAndSurroundingText() {
+        let rawMarkdown = """
+        ```json
+        {
+            "segments": [
+                {
+                    "text": "Hello World",
+                    "boundingBox": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+                    "confidence": 0.98
+                }
+            ]
+        }
+        ```
+        """
+        let extracted1 = VLMJSONExtractor.extractJSON(from: rawMarkdown)
+        XCTAssertTrue(extracted1.hasPrefix("{"))
+        XCTAssertTrue(extracted1.hasSuffix("}"))
+        XCTAssertFalse(extracted1.contains("```"))
+
+        let surroundingText = """
+        I analyzed the screenshot, here is the result:
+        {
+            "segments": []
+        }
+        Let me know if you need more assistance!
+        """
+        let extracted2 = VLMJSONExtractor.extractJSON(from: surroundingText)
+        XCTAssertEqual(extracted2, "{\n    \"segments\": []\n}")
+    }
+
+    func testMosaicCacheStoreAndRetrieve() throws {
+        let image = try XCTUnwrap(Self.makeImage())
+        let cache = MosaicCache.shared
+        let key = cache.key(rect: CGRect(x: 10, y: 10, width: 50, height: 50), blockSize: 10, imageID: ObjectIdentifier(image))
+
+        XCTAssertNil(cache.image(for: key))
+        cache.setImage(image, for: key)
+        XCTAssertNotNil(cache.image(for: key))
+
+        cache.clear()
+        XCTAssertNil(cache.image(for: key))
     }
 }
 

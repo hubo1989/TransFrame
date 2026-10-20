@@ -179,15 +179,19 @@ private struct PinnedWindowContent: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
 
+                    let displayedWidth = imageSize.width * scale
+                    let displayedHeight = imageSize.height * scale
+
                     // Annotations overlay
                     AnnotationCanvas(
                         annotations: annotations,
                         currentAnnotation: nil,
-                        canvasSize: CGSize(width: CGFloat(image.width), height: CGFloat(image.height)),
-                        scale: scale * scaleFactor,
+                        canvasSize: CGSize(width: displayedWidth, height: displayedHeight),
+                        scale: scale,
                         selectedIndex: nil,
                         sourceImage: image
                     )
+                    .frame(width: displayedWidth, height: displayedHeight)
                     .aspectRatio(contentMode: .fit)
                 }
             }

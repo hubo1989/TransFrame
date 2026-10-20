@@ -127,6 +127,37 @@ actor KeychainService {
         try deleteRaw(account: compatibleId)
     }
 
+    /// Save credentials for a specific VLM provider
+    func saveVLMCredentials(apiKey: String, for provider: VLMProviderType) throws {
+        let account = "vlm_api_key_\(provider.rawValue)"
+        let credentials = StoredCredentials(apiKey: apiKey)
+        guard let encodedData = try? JSONEncoder().encode(credentials) else {
+            throw KeychainError.invalidData
+        }
+        try saveRaw(data: encodedData, account: account)
+    }
+
+    /// Retrieve credentials for a specific VLM provider
+    func getVLMCredentials(for provider: VLMProviderType) async throws -> StoredCredentials? {
+        let account = "vlm_api_key_\(provider.rawValue)"
+        if let data = try await loadRaw(account: account) {
+            return try JSONDecoder().decode(StoredCredentials.self, from: data)
+        }
+        if provider == .openai {
+            return try await getCredentials(forCompatibleId: "vlm_api_key")
+        }
+        return nil
+    }
+
+    /// Delete credentials for a specific VLM provider
+    func deleteVLMCredentials(for provider: VLMProviderType) throws {
+        let account = "vlm_api_key_\(provider.rawValue)"
+        try deleteRaw(account: account)
+        if provider == .openai {
+            _ = try? deleteCredentials(forCompatibleId: "vlm_api_key")
+        }
+    }
+
     /// Delete all stored credentials
     func deleteAllCredentials() throws {
         try deleteAllRaw()
@@ -368,6 +399,51 @@ actor KeychainService {
     }
 
     // MARK: - Synchronous Keychain Access for AppSettings (Non-isolated static helpers)
+
+    @MainActor
+    static func vlmAccount(for provider: VLMProviderType) -> String {
+        "vlm_api_key_\(provider.rawValue)"
+    }
+
+    @MainActor
+    static func loadVLMAPIKeySynchronously(for provider: VLMProviderType) -> String {
+        guard CredentialAuthManager.shared.isUnlocked else { return "" }
+        let account = vlmAccount(for: provider)
+
+        #if DEBUG
+        let key = "com.transframe.credentials.debug.\(account)"
+        if let data = UserDefaults.standard.data(forKey: key),
+           let credentials = try? JSONDecoder().decode(StoredCredentials.self, from: data) {
+            return credentials.apiKey
+        }
+        if provider == .openai {
+            return loadVLMAPIKeySynchronously()
+        }
+        return ""
+        #else
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainService.serviceIdentifier,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let credentials = try? JSONDecoder().decode(StoredCredentials.self, from: data) {
+            return credentials.apiKey
+        }
+
+        if provider == .openai {
+            return loadVLMAPIKeySynchronously()
+        }
+        return ""
+        #endif
+    }
 
     @MainActor
     static func loadVLMAPIKeySynchronously() -> String {

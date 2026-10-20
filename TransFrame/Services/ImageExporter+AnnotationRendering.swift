@@ -19,7 +19,8 @@ extension ImageExporter {
     func renderAnnotation(
         _ annotation: Annotation,
         in context: CGContext,
-        imageHeight: CGFloat
+        imageHeight: CGFloat,
+        sourceImage: CGImage? = nil
     ) {
         switch annotation {
         case .rectangle(let rect):
@@ -35,7 +36,7 @@ extension ImageExporter {
         case .highlight(let highlight):
             renderHighlight(highlight, in: context, imageHeight: imageHeight)
         case .mosaic(let mosaic):
-            renderMosaic(mosaic, in: context, imageHeight: imageHeight)
+            renderMosaic(mosaic, in: context, imageHeight: imageHeight, sourceImage: sourceImage)
         case .text(let text):
             renderText(text, in: context, imageHeight: imageHeight)
         case .numberLabel(let numberLabel):
@@ -263,7 +264,8 @@ extension ImageExporter {
     func renderMosaic(
         _ annotation: MosaicAnnotation,
         in context: CGContext,
-        imageHeight: CGFloat
+        imageHeight: CGFloat,
+        sourceImage: CGImage? = nil
     ) {
         let rect = CGRect(
             x: annotation.rect.origin.x,
@@ -273,7 +275,7 @@ extension ImageExporter {
         )
         
         // Try to use real pixelation if source image is available
-        if let cgImage = context.makeImage() {
+        if let cgImage = sourceImage ?? context.makeImage() {
             let imageSize = CGFloat(cgImage.height)
             // Convert rect to image coordinates (origin at bottom-left for Core Image)
             let imageRect = CGRect(

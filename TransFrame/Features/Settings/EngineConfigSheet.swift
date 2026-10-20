@@ -28,6 +28,9 @@ struct EngineConfigSheet: View {
     @State private var isFetchingModels = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
+    @State private var originalCredentials: (apiKey: String, additionalData: [String: String]?)?
+    @State private var hasModifiedCredentialsForTesting = false
+    @State private var isSaved = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -120,11 +123,13 @@ struct EngineConfigSheet: View {
                 Spacer()
 
                 Button(localized("button.cancel")) {
+                    rollbackTemporaryCredentialsIfNeeded()
                     dismiss()
                 }
                 .buttonStyle(.bordered)
 
                 Button(localized("button.save")) {
+                    isSaved = true
                     saveConfig()
                     dismiss()
                 }
@@ -354,6 +359,7 @@ struct EngineConfigSheet: View {
                 apiKey = credentials.apiKey
                 appID = credentials.appID ?? ""
                 secretKey = credentials.additional?["secretKey"] ?? ""
+                originalCredentials = (credentials.apiKey, credentials.additional)
             }
         }
     }
@@ -397,6 +403,7 @@ struct EngineConfigSheet: View {
         do {
             // Save credentials temporarily for testing
             if engine.requiresAPIKey {
+                hasModifiedCredentialsForTesting = true
                 if engine == .baidu {
                     try await KeychainService.shared.saveCredentials(
                         apiKey: secretKey,
@@ -420,10 +427,28 @@ struct EngineConfigSheet: View {
                 isTesting = false
             }
         } catch {
+            rollbackTemporaryCredentialsIfNeeded()
             await MainActor.run {
                 testSuccess = false
                 testResult = error.localizedDescription
                 isTesting = false
+            }
+        }
+    }
+
+    private func rollbackTemporaryCredentialsIfNeeded() {
+        guard hasModifiedCredentialsForTesting && !isSaved else { return }
+        hasModifiedCredentialsForTesting = false
+
+        Task {
+            if let original = originalCredentials {
+                _ = try? await KeychainService.shared.saveCredentials(
+                    apiKey: original.apiKey,
+                    for: engine,
+                    additionalData: original.additionalData
+                )
+            } else if engine.requiresAPIKey {
+                _ = try? await KeychainService.shared.deleteCredentials(for: engine)
             }
         }
     }

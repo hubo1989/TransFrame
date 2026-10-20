@@ -195,3 +195,38 @@ extension VLMAnalysisResponse {
         return ScreenAnalysisResult(segments: textSegments, imageSize: imageSize)
     }
 }
+
+// MARK: - VLM JSON Extractor
+
+/// Shared helper for extracting clean JSON from LLM/VLM text responses.
+enum VLMJSONExtractor {
+    /// Extracts JSON string from potentially markdown-wrapped or free-form text response.
+    static func extractJSON(from content: String) -> String {
+        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle markdown code blocks
+        if text.hasPrefix("```json") {
+            text = String(text.dropFirst(7))
+        } else if text.hasPrefix("```") {
+            text = String(text.dropFirst(3))
+        }
+
+        if text.hasSuffix("```") {
+            text = String(text.dropLast(3))
+        }
+
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle case where response has leading text before JSON
+        if let jsonStart = text.firstIndex(of: "{") {
+            text = String(text[jsonStart...])
+        }
+
+        // Handle case where there's trailing text after JSON
+        if let jsonEnd = text.lastIndex(of: "}") {
+            text = String(text[...jsonEnd])
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

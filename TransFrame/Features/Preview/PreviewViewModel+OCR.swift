@@ -22,8 +22,13 @@ extension PreviewViewModel {
                 languages: [.english, .chineseSimplified]
             )
             ocrResult = result
+            if result.observations.isEmpty {
+                errorMessage = String(localized: "error.ocr.no.text")
+            }
         } catch {
-            ocrTranslationError = "OCR failed: \(error.localizedDescription)"
+            let message = "\(String(localized: "error.ocr.failed")) \(error.localizedDescription)"
+            ocrTranslationError = message
+            errorMessage = message
         }
     }
 }

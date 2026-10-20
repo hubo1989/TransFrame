@@ -37,6 +37,11 @@ struct PreviewContentView: View {
                     .background(.bar)
             }
         }
+        .onChange(of: viewModel.hasOCRResults) { _, hasResults in
+            if hasResults {
+                isResultsPanelExpanded = true
+            }
+        }
         .alert(
             String(localized: "error.title"),
             isPresented: .constant(viewModel.errorMessage != nil),

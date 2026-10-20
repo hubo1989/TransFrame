@@ -51,23 +51,30 @@ enum OCREngineType: String, CaseIterable, Sendable, Codable {
 
 /// Helper to check if PaddleOCR is available on the system
 enum PaddleOCRChecker {
-    private nonisolated(unsafe) static var _isAvailable: Bool = false
-    private nonisolated(unsafe) static var _executablePath: String?
-    private nonisolated(unsafe) static var _version: String?
-    private nonisolated(unsafe) static var _checkCompleted: Bool = false
+    private struct State {
+        var isAvailable: Bool = false
+        var executablePath: String?
+        var version: String?
+        var checkCompleted: Bool = false
+    }
 
-    static var isAvailable: Bool { _isAvailable }
-    static var executablePath: String? { _executablePath }
-    static var version: String? { _version }
-    static var checkCompleted: Bool { _checkCompleted }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var state = State()
+
+    static var isAvailable: Bool { lock.withLock { state.isAvailable } }
+    static var executablePath: String? { lock.withLock { state.executablePath } }
+    static var version: String? { lock.withLock { state.version } }
+    static var checkCompleted: Bool { lock.withLock { state.checkCompleted } }
 
     static func checkAvailabilityAsync() {
         Task.detached(priority: .userInitiated) {
             let result = await performFullCheck()
-            _isAvailable = result.available
-            _executablePath = result.path
-            _version = result.version
-            _checkCompleted = true
+            lock.withLock {
+                state.isAvailable = result.available
+                state.executablePath = result.path
+                state.version = result.version
+                state.checkCompleted = true
+            }
         }
     }
 
@@ -115,9 +122,8 @@ enum PaddleOCRChecker {
     }
 
     static func resetCache() {
-        _isAvailable = false
-        _executablePath = nil
-        _version = nil
-        _checkCompleted = false
+        lock.withLock {
+            state = State()
+        }
     }
 }

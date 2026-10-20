@@ -164,8 +164,8 @@ final class TranslationPopoverWindow: NSPanel {
         let buttonSize: CGFloat = 28
         let margin: CGFloat = 8
         let button = NSButton(frame: NSRect(
-            x: contentView?.bounds.width ?? 400 - buttonSize - margin,
-            y: contentView?.bounds.height ?? 200 - buttonSize - margin,
+            x: (contentView?.bounds.width ?? 400) - buttonSize - margin,
+            y: (contentView?.bounds.height ?? 200) - buttonSize - margin,
             width: buttonSize,
             height: buttonSize
         ))

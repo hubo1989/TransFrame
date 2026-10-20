@@ -269,11 +269,13 @@ final class TranslationFlowController {
     private func handleCancellation() {
         currentPhase = .failed(.cancelled)
         lastError = .cancelled
+        BilingualResultWindowController.shared.close()
     }
 
     private func handleError(_ error: TranslationFlowError) {
         currentPhase = .failed(error)
         lastError = error
+        BilingualResultWindowController.shared.close()
         showErrorAlert(error)
     }
 

@@ -129,22 +129,21 @@ actor ScreenCoderEngine {
     
     /// Creates a provider instance for the given type using current settings.
     private func createProvider(for type: VLMProviderType) async throws -> any VLMProvider {
-        let (apiKey, baseURLString, modelName, glmOCRMode) = await MainActor.run {
+        let (apiKey, baseURLString, modelName, openAIMode) = await MainActor.run {
             let settings = AppSettings.shared
-            return (settings.vlmAPIKey, settings.vlmBaseURL, settings.vlmModelName, settings.glmOCRMode)
+            return (
+                settings.vlmAPIKey(for: type),
+                settings.vlmBaseURL(for: type),
+                settings.vlmModelName(for: type),
+                settings.vlmOpenAIMode
+            )
         }
         
-        let effectiveBaseURL = baseURLString.isEmpty ? type.defaultBaseURL(glmOCRMode: glmOCRMode) : baseURLString
-        let effectiveModel = modelName.isEmpty ? type.defaultModelName(glmOCRMode: glmOCRMode) : modelName
+        let effectiveBaseURL = baseURLString.isEmpty ? type.defaultBaseURL : baseURLString
+        let effectiveModel = modelName.isEmpty ? type.defaultModelName : modelName
         
         guard let baseURL = URL(string: effectiveBaseURL) else {
             throw ScreenCoderEngineError.invalidConfiguration("Invalid base URL: \(effectiveBaseURL)")
-        }
-        
-        if type.requiresAPIKey(glmOCRMode: glmOCRMode) && apiKey.isEmpty {
-            throw ScreenCoderEngineError.invalidConfiguration(
-                "\(type.localizedName) requires an API key. Please configure it in Settings."
-            )
         }
         
         let configuration = VLMProviderConfiguration(
@@ -155,11 +154,11 @@ actor ScreenCoderEngine {
         
         switch type {
         case .openai:
-            return OpenAIVLMProvider(configuration: configuration)
+            return OpenAIVLMProvider(configuration: configuration, apiMode: openAIMode)
         case .claude:
             return ClaudeVLMProvider(configuration: configuration)
-        case .glmOCR:
-            return GLMOCRVLMProvider(configuration: configuration, mode: glmOCRMode)
+        case .gemini:
+            return GeminiVLMProvider(configuration: configuration)
         case .ollama:
             return OllamaVLMProvider(configuration: configuration)
         case .paddleocr:
@@ -169,17 +168,23 @@ actor ScreenCoderEngine {
     
     /// Computes a hash of the current configuration for cache invalidation.
     private func configurationHash() async -> Int {
-        let (providerType, apiKey, baseURL, modelName, glmOCRMode) = await MainActor.run {
+        let (providerType, apiKey, baseURL, modelName, openAIMode) = await MainActor.run {
             let settings = AppSettings.shared
-            return (settings.vlmProvider, settings.vlmAPIKey, settings.vlmBaseURL, settings.vlmModelName, settings.glmOCRMode)
+            return (
+                settings.vlmProvider,
+                settings.vlmAPIKey(for: settings.vlmProvider),
+                settings.vlmBaseURL(for: settings.vlmProvider),
+                settings.vlmModelName(for: settings.vlmProvider),
+                settings.vlmOpenAIMode
+            )
         }
         
         var hasher = Hasher()
         hasher.combine(providerType)
-        hasher.combine(glmOCRMode)
         hasher.combine(apiKey)
         hasher.combine(baseURL)
         hasher.combine(modelName)
+        hasher.combine(openAIMode)
         return hasher.finalize()
     }
 }

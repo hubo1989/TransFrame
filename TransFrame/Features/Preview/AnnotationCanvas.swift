@@ -3,6 +3,32 @@ import AppKit
 import CoreImage
 import os
 
+/// Cache for pixelated mosaic CGImages to avoid recomputing CIPixellate every frame during gestures
+final class MosaicCache: @unchecked Sendable {
+    static let shared = MosaicCache()
+    private let cache = NSCache<NSString, CGImage>()
+
+    init() {
+        cache.countLimit = 64
+    }
+
+    func key(rect: CGRect, blockSize: Int, imageID: ObjectIdentifier) -> NSString {
+        "\(imageID)-\(Int(rect.origin.x))_\(Int(rect.origin.y))_\(Int(rect.width))_\(Int(rect.height))_\(blockSize)" as NSString
+    }
+
+    func image(for key: NSString) -> CGImage? {
+        cache.object(forKey: key)
+    }
+
+    func setImage(_ image: CGImage, for key: NSString) {
+        cache.setObject(image, forKey: key)
+    }
+
+    func clear() {
+        cache.removeAllObjects()
+    }
+}
+
 /// SwiftUI Canvas view for drawing and displaying annotations.
 /// Renders existing annotations and in-progress drawing.
 struct AnnotationCanvas: View {
@@ -354,18 +380,33 @@ struct AnnotationCanvas: View {
                 height: scaledRect.size.height / scale
             )
 
-            // Create pixelated version by drawing scaled down then scaled up
-            if let pixelatedCI = createPixelatedImage(
+            guard imageRect.width > 0 && imageRect.height > 0 else { return }
+
+            let cacheKey = MosaicCache.shared.key(
+                rect: imageRect,
+                blockSize: annotation.blockSize,
+                imageID: ObjectIdentifier(cgImage)
+            )
+
+            let outputCGImage: CGImage?
+            if let cached = MosaicCache.shared.image(for: cacheKey) {
+                outputCGImage = cached
+            } else if let pixelatedCI = createPixelatedImage(
                 from: cgImage,
                 rect: imageRect,
                 blockSize: blockSize / scale,
                 canvasSize: CGSize(width: imageWidth, height: imageHeight)
-            ) {
-                if let outputImage = Self.sharedCIContext.createCGImage(pixelatedCI, from: pixelatedCI.extent) {
-                    let nsImage = NSImage(cgImage: outputImage, size: NSSize(width: imageWidth, height: imageHeight))
-                    context.draw(Image(nsImage: nsImage), in: scaledRect)
-                    return
-                }
+            ), let rendered = Self.sharedCIContext.createCGImage(pixelatedCI, from: pixelatedCI.extent) {
+                MosaicCache.shared.setImage(rendered, for: cacheKey)
+                outputCGImage = rendered
+            } else {
+                outputCGImage = nil
+            }
+
+            if let outputCGImage {
+                let nsImage = NSImage(cgImage: outputCGImage, size: NSSize(width: outputCGImage.width, height: outputCGImage.height))
+                context.draw(Image(nsImage: nsImage), in: scaledRect)
+                return
             }
         }
 

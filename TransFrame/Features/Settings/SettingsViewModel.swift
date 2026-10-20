@@ -351,62 +351,85 @@ final class SettingsViewModel {
 
     // MARK: - VLM Configuration
 
+    /// Temporary editing fields for VLM configuration (saved on click)
+    var vlmEditingAPIKey: String = ""
+    var vlmEditingBaseURL: String = ""
+    var vlmEditingModelName: String = ""
+    var vlmEditingOpenAIMode: OpenAIAPIMode = .chat
+    var vlmJustSaved: Bool = false
+
     var vlmProvider: VLMProviderType {
         get { settings.vlmProvider }
         set {
             settings.vlmProvider = newValue
-            vlmBaseURL = newValue == .glmOCR
-                ? (settings.storedGLMOCRBaseURL(for: settings.glmOCRMode)
-                    ?? newValue.defaultBaseURL(glmOCRMode: settings.glmOCRMode))
-                : newValue.defaultBaseURL(glmOCRMode: settings.glmOCRMode)
-
-            vlmModelName = newValue == .glmOCR
-                ? (settings.storedGLMOCRModelName(for: settings.glmOCRMode)
-                    ?? newValue.defaultModelName(glmOCRMode: settings.glmOCRMode))
-                : newValue.defaultModelName(glmOCRMode: settings.glmOCRMode)
+            loadVLMEditingState(for: newValue)
             vlmTestResult = nil
             vlmTestSuccess = false
         }
     }
 
     var vlmAPIKey: String {
-        get { settings.vlmAPIKey }
-        set { settings.vlmAPIKey = newValue; settings.save(newValue, forKey: AppSettings.Keys.vlmAPIKey) }
+        get { vlmEditingAPIKey }
+        set { vlmEditingAPIKey = newValue }
     }
 
     var vlmBaseURL: String {
-        get { settings.vlmBaseURL }
-        set { settings.vlmBaseURL = newValue; settings.save(newValue, forKey: AppSettings.Keys.vlmBaseURL) }
+        get { vlmEditingBaseURL }
+        set { vlmEditingBaseURL = newValue }
     }
 
     var vlmModelName: String {
-        get { settings.vlmModelName }
-        set { settings.vlmModelName = newValue; settings.save(newValue, forKey: AppSettings.Keys.vlmModelName) }
+        get { vlmEditingModelName }
+        set { vlmEditingModelName = newValue }
     }
 
-    var glmOCRMode: GLMOCRMode {
-        get { settings.glmOCRMode }
-        set {
-            settings.glmOCRMode = newValue
-            settings.save(newValue.rawValue, forKey: AppSettings.Keys.glmOCRMode)
+    var vlmOpenAIMode: OpenAIAPIMode {
+        get { vlmEditingOpenAIMode }
+        set { vlmEditingOpenAIMode = newValue }
+    }
 
-            guard settings.vlmProvider == .glmOCR else {
-                return
-            }
+    var hasUnsavedVLMChanges: Bool {
+        let savedBaseURL = settings.vlmBaseURL(for: vlmProvider)
+        let savedAPIKey = settings.vlmAPIKey(for: vlmProvider)
+        let savedModelName = settings.vlmModelName(for: vlmProvider)
+        if vlmEditingBaseURL != savedBaseURL || vlmEditingAPIKey != savedAPIKey || vlmEditingModelName != savedModelName {
+            return true
+        }
+        if vlmProvider == .openai && vlmEditingOpenAIMode != settings.vlmOpenAIMode {
+            return true
+        }
+        return false
+    }
 
-            vlmBaseURL = settings.storedGLMOCRBaseURL(for: newValue) ?? newValue.defaultBaseURL
-            vlmModelName = settings.storedGLMOCRModelName(for: newValue) ?? newValue.defaultModelName
-            vlmTestResult = nil
-            vlmTestSuccess = false
+    func loadVLMEditingState(for provider: VLMProviderType) {
+        vlmEditingBaseURL = settings.vlmBaseURL(for: provider)
+        vlmEditingAPIKey = settings.vlmAPIKey(for: provider)
+        vlmEditingModelName = settings.vlmModelName(for: provider)
+        if provider == .openai {
+            vlmEditingOpenAIMode = settings.vlmOpenAIMode
+        }
+    }
+
+    func saveVLMConfig() {
+        settings.setVLMBaseURL(vlmEditingBaseURL, for: vlmProvider)
+        settings.setVLMAPIKey(vlmEditingAPIKey, for: vlmProvider)
+        settings.setVLMModelName(vlmEditingModelName, for: vlmProvider)
+        if vlmProvider == .openai {
+            settings.vlmOpenAIMode = vlmEditingOpenAIMode
+        }
+        vlmJustSaved = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            self.vlmJustSaved = false
         }
     }
 
     var currentVLMRequiresAPIKey: Bool {
-        settings.vlmProvider.requiresAPIKey(glmOCRMode: settings.glmOCRMode)
+        settings.vlmProvider.requiresAPIKey
     }
 
     var currentVLMProviderDescription: String {
-        settings.vlmProvider.providerDescription(glmOCRMode: settings.glmOCRMode)
+        settings.vlmProvider.providerDescription
     }
 
     // MARK: - Translation Workflow Configuration
@@ -451,6 +474,7 @@ final class SettingsViewModel {
     init(settings: AppSettings = .shared, appDelegate: AppDelegate? = nil) {
         self.settings = settings
         self.appDelegate = appDelegate
+        loadVLMEditingState(for: settings.vlmProvider)
         refreshPaddleOCRStatus()
         Task {
             await credentialAuth.refreshCredentialPresence()
@@ -848,25 +872,20 @@ final class SettingsViewModel {
 
         Task {
             do {
-                // Validate configuration
-                let effectiveBaseURL = vlmBaseURL.isEmpty ? vlmProvider.defaultBaseURL(glmOCRMode: glmOCRMode) : vlmBaseURL
-                let effectiveModel = vlmModelName.isEmpty ? vlmProvider.defaultModelName(glmOCRMode: glmOCRMode) : vlmModelName
+                let effectiveBaseURL = vlmEditingBaseURL.isEmpty ? vlmProvider.defaultBaseURL : vlmEditingBaseURL
+                let effectiveModel = vlmEditingModelName.isEmpty ? vlmProvider.defaultModelName : vlmEditingModelName
 
                 guard let parsedBaseURL = URL(string: effectiveBaseURL) else {
                     throw ScreenCoderEngineError.invalidConfiguration("Invalid base URL: \(effectiveBaseURL)")
                 }
                 let baseURL = parsedBaseURL.resolvingLocalhost
 
-                if currentVLMRequiresAPIKey && vlmAPIKey.isEmpty {
-                    throw ScreenCoderEngineError.invalidConfiguration("API key is required for \(vlmProvider.localizedName)")
-                }
-
-                // Test API connectivity
                 let testResult = try await performVLMConnectivityTest(
                     provider: vlmProvider,
                     baseURL: baseURL,
-                    apiKey: vlmAPIKey,
-                    modelName: effectiveModel
+                    apiKey: vlmEditingAPIKey,
+                    modelName: effectiveModel,
+                    openAIMode: vlmEditingOpenAIMode
                 )
 
                 await MainActor.run {
@@ -902,17 +921,18 @@ final class SettingsViewModel {
         provider: VLMProviderType,
         baseURL: URL,
         apiKey: String,
-        modelName: String
+        modelName: String,
+        openAIMode: OpenAIAPIMode
     ) async throws -> (success: Bool, message: String) {
         switch provider {
         case .openai:
-            return try await testOpenAIConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName)
+            return try await testOpenAIConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName, mode: openAIMode)
+        case .gemini:
+            return try await testGeminiConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName)
         case .claude:
             return try await testClaudeConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName)
-        case .glmOCR:
-            return try await testGLMOCRConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName, mode: glmOCRMode)
         case .ollama:
-            return try await testOllamaConnection(baseURL: baseURL, modelName: modelName)
+            return try await testLocalConnection(baseURL: baseURL, apiKey: apiKey, modelName: modelName)
         case .paddleocr:
             return try await testPaddleOCRConnection()
         }
@@ -969,33 +989,50 @@ final class SettingsViewModel {
         }
     }
 
-    /// Tests OpenAI API connection by sending a tiny placeholder image request
-    private func testOpenAIConnection(baseURL: URL, apiKey: String, modelName: String) async throws -> (success: Bool, message: String) {
-        var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
+    /// Tests OpenAI API connection by sending a tiny test request
+    private func testOpenAIConnection(
+        baseURL: URL,
+        apiKey: String,
+        modelName: String,
+        mode: OpenAIAPIMode
+    ) async throws -> (success: Bool, message: String) {
+        let endpointPath = mode == .response ? "responses" : "chat/completions"
+        let requestURL = baseURL.path.hasSuffix(endpointPath) ? baseURL : baseURL.appendingPathComponent(endpointPath)
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10
 
-        let body: [String: Any] = [
-            "model": modelName,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": [
-                        ["type": "text", "text": "Test connection."],
-                        [
-                            "type": "image_url",
-                            "image_url": [
-                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAE0lEQVR4nGP8//8/AwwwwVl4OQCWbgMF7ZjH1AAAAABJRU5ErkJggg=="
+        let body: [String: Any]
+        if mode == .response {
+            body = [
+                "model": modelName,
+                "input": "Test connection."
+            ]
+        } else {
+            body = [
+                "model": modelName,
+                "messages": [
+                    [
+                        "role": "user",
+                        "content": [
+                            ["type": "text", "text": "Test connection."],
+                            [
+                                "type": "image_url",
+                                "image_url": [
+                                    "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAE0lEQVR4nGP8//8/AwwwwVl4OQCWbgMF7ZjH1AAAAABJRU5ErkJggg=="
+                                ]
                             ]
                         ]
                     ]
-                ]
-            ],
-            "stream": false,
-            "max_tokens": 10
-        ]
+                ],
+                "stream": false,
+                "max_tokens": 10
+            ]
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (_, response) = try await URLSession.shared.data(for: request)
@@ -1016,11 +1053,66 @@ final class SettingsViewModel {
         }
     }
 
+    /// Tests Gemini connection
+    private func testGeminiConnection(baseURL: URL, apiKey: String, modelName: String) async throws -> (success: Bool, message: String) {
+        let endpoint: URL
+        if baseURL.absoluteString.contains("googleapis.com") {
+            var components = URLComponents(url: baseURL.appendingPathComponent("v1beta/models/\(modelName):generateContent"), resolvingAgainstBaseURL: true)
+            if !apiKey.isEmpty {
+                components?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+            }
+            endpoint = components?.url ?? baseURL
+        } else {
+            endpoint = baseURL.appendingPathComponent("models/\(modelName):generateContent")
+        }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        }
+        request.timeoutInterval = 10
+
+        let body: [String: Any] = [
+            "contents": [
+                [
+                    "parts": [
+                        ["text": "Test connection."]
+                    ]
+                ]
+            ],
+            "generationConfig": [
+                "maxOutputTokens": 10
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw VLMProviderError.invalidResponse("Invalid HTTP response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
+        case 400, 401, 403:
+            throw VLMProviderError.authenticationFailed
+        case 429:
+            throw VLMProviderError.rateLimited(retryAfter: nil, message: "Rate limited. Please try again later.")
+        default:
+            throw VLMProviderError.invalidResponse("HTTP \(httpResponse.statusCode)")
+        }
+    }
+
     /// Tests Claude API connection by sending a tiny placeholder image request
     private func testClaudeConnection(baseURL: URL, apiKey: String, modelName: String) async throws -> (success: Bool, message: String) {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10
@@ -1066,77 +1158,52 @@ final class SettingsViewModel {
         }
     }
 
-    /// Tests GLM-OCR connectivity with a tiny inline PNG payload.
-    private func testGLMOCRConnection(
-        baseURL: URL,
-        apiKey: String,
-        modelName: String,
-        mode: GLMOCRMode
-    ) async throws -> (success: Bool, message: String) {
-        let request: URLRequest
-        switch mode {
-        case .cloud:
-            request = try GLMOCRVLMProvider.makeLayoutParsingRequest(
-                baseURL: baseURL,
-                apiKey: apiKey,
-                modelName: modelName,
-                fileDataURI: GLMOCRVLMProvider.connectionTestImageDataURI,
-                timeout: 10
-            )
-        case .local:
-            request = try GLMOCRVLMProvider.makeLocalChatRequest(
-                baseURL: baseURL,
-                apiKey: apiKey,
-                modelName: modelName,
-                fileDataURI: GLMOCRVLMProvider.connectionTestImageDataURI,
-                timeout: 10
-            )
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw VLMProviderError.invalidResponse("Invalid HTTP response")
-        }
-
-        switch httpResponse.statusCode {
-        case 200:
-            switch mode {
-            case .cloud:
-                _ = try GLMOCRVLMProvider.parseResponse(data, fallbackImageSize: .zero)
-            case .local:
-                _ = try GLMOCRVLMProvider.parseLocalResponse(data, fallbackImageSize: .zero)
-            }
-            return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
-        case 401, 403:
-            throw VLMProviderError.authenticationFailed
-        case 429:
-            throw VLMProviderError.rateLimited(retryAfter: nil, message: "Rate limited. Please try again later.")
-        default:
-            throw VLMProviderError.invalidResponse("HTTP \(httpResponse.statusCode)")
-        }
-    }
-
-    /// Tests Ollama connection by sending a tiny placeholder image request to test generation
-    private func testOllamaConnection(baseURL: URL, modelName: String) async throws -> (success: Bool, message: String) {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
+    /// Tests local model provider connection (compatible with Ollama, LM Studio, vLLM, LocalAI)
+    private func testLocalConnection(baseURL: URL, apiKey: String, modelName: String) async throws -> (success: Bool, message: String) {
+        // First try standard OpenAI chat completions endpoint
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/chat/completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 8
 
-        let body: [String: Any] = [
+        let chatBody: [String: Any] = [
+            "model": modelName,
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 5
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: chatBody)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
+            }
+        } catch {
+            // Fall through to Ollama native endpoint
+        }
+
+        // Try Ollama native endpoint: api/generate
+        var nativeRequest = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
+        nativeRequest.httpMethod = "POST"
+        nativeRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            nativeRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        nativeRequest.timeoutInterval = 8
+
+        let nativeBody: [String: Any] = [
             "model": modelName,
             "prompt": "Test connection.",
             "images": ["iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAE0lEQVR4nGP8//8/AwwwwVl4OQCWbgMF7ZjH1AAAAABJRU5ErkJggg=="],
             "stream": false,
-            "options": [
-                "num_predict": 10
-            ]
+            "options": ["num_predict": 5]
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        nativeRequest.httpBody = try JSONSerialization.data(withJSONObject: nativeBody)
 
-        let (_, response) = try await URLSession.shared.data(for: request)
-
+        let (_, response) = try await URLSession.shared.data(for: nativeRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw VLMProviderError.invalidResponse("Invalid HTTP response")
         }
@@ -1145,7 +1212,7 @@ final class SettingsViewModel {
         case 200:
             return (true, String(format: NSLocalizedString("settings.vlm.test.ollama.success", comment: ""), modelName))
         case 404:
-            throw VLMProviderError.modelUnavailable("\(modelName). Run 'ollama pull \(modelName)' first.")
+            throw VLMProviderError.modelUnavailable("\(modelName). Ensure endpoint and model name are correct.")
         default:
             throw VLMProviderError.invalidResponse("HTTP \(httpResponse.statusCode)")
         }
@@ -1178,7 +1245,7 @@ final class SettingsViewModel {
                 MTranServerChecker.resetCache()
 
                 // Check availability
-                let isAvailable = MTranServerChecker.isAvailable
+                let isAvailable = await MTranServerChecker.checkAvailability()
 
                 // Restore original settings if test is just for checking
                 settings.mtranServerHost = originalHost
