@@ -15,7 +15,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     // MARK: - Properties
 
     let id: String = "ollama"
-    let name: String = "Ollama Vision"
+    let name: String = "Local Model"
     let configuration: VLMProviderConfiguration
 
     /// Default Ollama API base URL (local server)
@@ -99,35 +99,62 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         }
     }
 
-    /// Builds the URLRequest for Ollama Generate API
+    /// Builds the URLRequest for local server (Ollama /api/generate or OpenAI /chat/completions)
     private func buildRequest(base64Image: String) throws -> URLRequest {
-        let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("api/generate")
+        let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
+        let endpoint: URL
+        if isChatCompletions {
+            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("chat/completions")
+        } else {
+            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("api/generate")
+        }
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let key = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = timeout
 
-        let prompt = """
-            \(VLMPromptTemplate.systemPrompt)
+        if isChatCompletions {
+            let body: [String: Any] = [
+                "model": configuration.modelName,
+                "messages": [
+                    [
+                        "role": "user",
+                        "content": [
+                            ["type": "text", "text": "\(VLMPromptTemplate.systemPrompt)\n\n\(VLMPromptTemplate.userPrompt)"],
+                            ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
+                        ]
+                    ]
+                ],
+                "temperature": 0.1
+            ]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } else {
+            let prompt = """
+                \(VLMPromptTemplate.systemPrompt)
 
-            \(VLMPromptTemplate.userPrompt)
-            """
+                \(VLMPromptTemplate.userPrompt)
+                """
 
-        let requestBody = OllamaGenerateRequest(
-            model: configuration.modelName,
-            prompt: prompt,
-            images: [base64Image],
-            stream: false,
-            options: OllamaOptions(
-                temperature: 0.1,
-                numPredict: 4096
+            let requestBody = OllamaGenerateRequest(
+                model: configuration.modelName,
+                prompt: prompt,
+                images: [base64Image],
+                stream: false,
+                options: OllamaOptions(
+                    temperature: 0.1,
+                    numPredict: 4096
+                )
             )
-        )
 
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        request.httpBody = try encoder.encode(requestBody)
+            let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase
+            request.httpBody = try encoder.encode(requestBody)
+        }
 
         return request
     }
@@ -197,23 +224,31 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         return errorResponse.error
     }
 
-    /// Parses Ollama response and extracts VLM analysis
+    /// Parses local server response (Ollama or OpenAI-compatible) and extracts VLM analysis
     private func parseOllamaResponse(_ data: Data) throws -> VLMAnalysisResponse {
+        // 1. Try decoding OpenAI-compatible format
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let choices = json["choices"] as? [[String: Any]],
+           let first = choices.first,
+           let message = first["message"] as? [String: Any],
+           let content = message["content"] as? String {
+            return try parseVLMContent(content)
+        }
+
+        // 2. Try decoding standard Ollama format
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-
-        let ollamaResponse: OllamaGenerateResponse
-        do {
-            ollamaResponse = try decoder.decode(OllamaGenerateResponse.self, from: data)
-        } catch {
-            throw VLMProviderError.parsingFailed("Failed to decode Ollama response: \(error.localizedDescription)")
+        if let ollamaResponse = try? decoder.decode(OllamaGenerateResponse.self, from: data),
+           !ollamaResponse.response.isEmpty {
+            return try parseVLMContent(ollamaResponse.response)
         }
 
-        guard !ollamaResponse.response.isEmpty else {
-            throw VLMProviderError.invalidResponse("Empty response from Ollama")
+        // 3. Fallback: try raw string content
+        if let raw = String(data: data, encoding: .utf8), !raw.isEmpty {
+            return try parseVLMContent(raw)
         }
 
-        return try parseVLMContent(ollamaResponse.response)
+        throw VLMProviderError.parsingFailed("Failed to decode local model response")
     }
 
     /// Parses the VLM JSON content from assistant message
@@ -236,27 +271,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
 
     /// Extracts JSON from potentially markdown-wrapped content
     private func extractJSON(from content: String) -> String {
-        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Handle markdown code blocks
-        if text.hasPrefix("```json") {
-            text = String(text.dropFirst(7))
-        } else if text.hasPrefix("```") {
-            text = String(text.dropFirst(3))
-        }
-
-        if text.hasSuffix("```") {
-            text = String(text.dropLast(3))
-        }
-
-        // Try to find JSON object boundaries if still not valid
-        if let startIndex = text.firstIndex(of: "{"),
-           let endIndex = text.lastIndex(of: "}")
-        {
-            text = String(text[startIndex ... endIndex])
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        VLMJSONExtractor.extractJSON(from: content)
     }
 }
 

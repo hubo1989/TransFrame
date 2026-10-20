@@ -11,7 +11,7 @@ import Foundation
 enum VLMProviderType: String, CaseIterable, Sendable, Codable, Identifiable {
     case openai = "openai"
     case claude = "claude"
-    case glmOCR = "glm_ocr"
+    case gemini = "gemini"
     case ollama = "ollama"
     case paddleocr = "paddleocr"
     
@@ -21,41 +21,41 @@ enum VLMProviderType: String, CaseIterable, Sendable, Codable, Identifiable {
     var localizedName: String {
         switch self {
         case .openai:
-            return NSLocalizedString("vlm.provider.openai", comment: "OpenAI")
+            return "OpenAI"
         case .claude:
-            return NSLocalizedString("vlm.provider.claude", comment: "Claude")
-        case .glmOCR:
-            return NSLocalizedString("vlm.provider.glmocr", comment: "GLM OCR")
+            return "Claude"
+        case .gemini:
+            return "Gemini"
         case .ollama:
-            return NSLocalizedString("vlm.provider.ollama", comment: "Ollama")
+            let str = NSLocalizedString("vlm.provider.local", comment: "Local Model")
+            return (str.isEmpty || str == "vlm.provider.local") ? "本地模型" : str
         case .paddleocr:
-            return NSLocalizedString("vlm.provider.paddleocr", comment: "PaddleOCR")
+            return "PaddleOCR"
         }
     }
     
     /// Description of the provider
     var providerDescription: String {
-        providerDescription(glmOCRMode: .cloud)
-    }
-
-    func providerDescription(glmOCRMode: GLMOCRMode) -> String {
         switch self {
         case .openai:
             return NSLocalizedString(
                 "vlm.provider.openai.description",
-                comment: "OpenAI GPT-4 Vision API"
+                comment: "OpenAI GPT-4 Vision / Compatible API"
             )
         case .claude:
             return NSLocalizedString(
                 "vlm.provider.claude.description",
                 comment: "Anthropic Claude Vision API"
             )
-        case .glmOCR:
-            return glmOCRMode.providerDescription
+        case .gemini:
+            return NSLocalizedString(
+                "vlm.provider.gemini.description",
+                comment: "Google Gemini Vision API"
+            )
         case .ollama:
             return NSLocalizedString(
-                "vlm.provider.ollama.description",
-                comment: "Local Ollama server"
+                "vlm.provider.local.description",
+                comment: "Local model server (Ollama, LM Studio, vLLM, LocalAI, etc.)"
             )
         case .paddleocr:
             return NSLocalizedString(
@@ -67,17 +67,13 @@ enum VLMProviderType: String, CaseIterable, Sendable, Codable, Identifiable {
     
     /// Default base URL for this provider
     var defaultBaseURL: String {
-        defaultBaseURL(glmOCRMode: .cloud)
-    }
-
-    func defaultBaseURL(glmOCRMode: GLMOCRMode) -> String {
         switch self {
         case .openai:
             return "https://api.openai.com/v1"
         case .claude:
             return "https://api.anthropic.com/v1"
-        case .glmOCR:
-            return glmOCRMode.defaultBaseURL
+        case .gemini:
+            return "https://generativelanguage.googleapis.com/v1beta"
         case .ollama:
             return "http://localhost:11434"
         case .paddleocr:
@@ -87,17 +83,13 @@ enum VLMProviderType: String, CaseIterable, Sendable, Codable, Identifiable {
     
     /// Default model name for this provider
     var defaultModelName: String {
-        defaultModelName(glmOCRMode: .cloud)
-    }
-
-    func defaultModelName(glmOCRMode: GLMOCRMode) -> String {
         switch self {
         case .openai:
             return "gpt-4o"
         case .claude:
             return "claude-sonnet-4-20250514"
-        case .glmOCR:
-            return glmOCRMode.defaultModelName
+        case .gemini:
+            return "gemini-2.0-flash"
         case .ollama:
             return "llava"
         case .paddleocr:
@@ -105,21 +97,51 @@ enum VLMProviderType: String, CaseIterable, Sendable, Codable, Identifiable {
         }
     }
     
-    /// Whether this provider requires an API key
-    var requiresAPIKey: Bool {
-        requiresAPIKey(glmOCRMode: .cloud)
-    }
-
-    func requiresAPIKey(glmOCRMode: GLMOCRMode) -> Bool {
+    /// Whether this provider typically uses an API key (for hint text, never used as hard validation)
+    var typicallyRequiresAPIKey: Bool {
         switch self {
-        case .openai, .claude:
+        case .openai, .claude, .gemini:
             return true
-        case .glmOCR:
-            return glmOCRMode.requiresAPIKey
         case .ollama, .paddleocr:
             return false
         }
     }
+
+    var requiresAPIKey: Bool { typicallyRequiresAPIKey }
+}
+
+/// OpenAI API mode (Chat completions vs Responses API)
+enum OpenAIAPIMode: String, CaseIterable, Sendable, Codable, Identifiable {
+    case chat = "chat"
+    case response = "response"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .chat:
+            return "Chat (/chat/completions)"
+        case .response:
+            return "Response (/responses)"
+        }
+    }
+}
+
+/// Quick endpoint presets for local providers
+struct LocalProviderEndpointPreset: Identifiable, Sendable {
+    let id: String
+    let name: String
+    let url: String
+}
+
+extension VLMProviderType {
+    static let localEndpointPresets: [LocalProviderEndpointPreset] = [
+        LocalProviderEndpointPreset(id: "ollama", name: "Ollama (11434)", url: "http://localhost:11434"),
+        LocalProviderEndpointPreset(id: "lmstudio", name: "LM Studio (1234)", url: "http://localhost:1234/v1"),
+        LocalProviderEndpointPreset(id: "vllm", name: "vLLM (8000)", url: "http://localhost:8000/v1"),
+        LocalProviderEndpointPreset(id: "localai", name: "LocalAI (8080)", url: "http://localhost:8080/v1"),
+        LocalProviderEndpointPreset(id: "xinference", name: "Xinference (9997)", url: "http://localhost:9997/v1")
+    ]
 }
 
 /// Preferred translation engine type for the translation workflow

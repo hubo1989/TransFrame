@@ -129,11 +129,13 @@ final class AppSettings {
         static let vlmAPIKey = prefix + "vlmAPIKey"
         static let vlmBaseURL = prefix + "vlmBaseURL"
         static let vlmModelName = prefix + "vlmModelName"
-        static let glmOCRMode = prefix + "glmOCRMode"
-        static let glmOCRCloudBaseURL = prefix + "glmOCRCloudBaseURL"
-        static let glmOCRCloudModelName = prefix + "glmOCRCloudModelName"
-        static let glmOCRLocalBaseURL = prefix + "glmOCRLocalBaseURL"
-        static let glmOCRLocalModelName = prefix + "glmOCRLocalModelName"
+        static let vlmOpenAIMode = prefix + "vlmOpenAIMode"
+        static func vlmBaseURL(for provider: VLMProviderType) -> String {
+            prefix + "vlmBaseURL." + provider.rawValue
+        }
+        static func vlmModelName(for provider: VLMProviderType) -> String {
+            prefix + "vlmModelName." + provider.rawValue
+        }
         // Translation Workflow Configuration
         static let preferredTranslationEngine = prefix + "preferredTranslationEngine"
         static let mtranServerURL = prefix + "mtranServerURL"
@@ -295,23 +297,41 @@ final class AppSettings {
     // MARK: - VLM Configuration
 
     var vlmProvider: VLMProviderType {
-        didSet { save(vlmProvider.rawValue, forKey: Keys.vlmProvider) }
+        didSet {
+            save(vlmProvider.rawValue, forKey: Keys.vlmProvider)
+            vlmBaseURL = vlmBaseURL(for: vlmProvider)
+            vlmModelName = vlmModelName(for: vlmProvider)
+            vlmAPIKey = vlmAPIKey(for: vlmProvider)
+        }
     }
+
+    var vlmOpenAIMode: OpenAIAPIMode {
+        didSet { save(vlmOpenAIMode.rawValue, forKey: Keys.vlmOpenAIMode) }
+    }
+
+    @ObservationIgnored
+    private var vlmAPIKeySaveTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var paddleOCRKeySaveTask: Task<Void, Never>?
 
     var vlmAPIKey: String {
         didSet {
-            // Save to Keychain instead of UserDefaults for security
             let capturedKey = vlmAPIKey
-            Task.detached {
+            let currentProvider = vlmProvider
+            vlmAPIKeySaveTask?.cancel()
+            vlmAPIKeySaveTask = Task {
                 do {
+                    try Task.checkCancellation()
                     if capturedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        try await KeychainService.shared.deleteCredentials(forCompatibleId: "vlm_api_key")
+                        try await KeychainService.shared.deleteVLMCredentials(for: currentProvider)
                     } else {
-                        try await KeychainService.shared.saveCredentials(
+                        try await KeychainService.shared.saveVLMCredentials(
                             apiKey: capturedKey,
-                            forCompatibleId: "vlm_api_key"
+                            for: currentProvider
                         )
                     }
+                } catch is CancellationError {
                 } catch {
                     Logger.settings.error("Failed to save VLM API key to Keychain: \(error)")
                 }
@@ -321,28 +341,75 @@ final class AppSettings {
 
     var vlmBaseURL: String {
         didSet {
+            save(vlmBaseURL, forKey: Keys.vlmBaseURL(for: vlmProvider))
             save(vlmBaseURL, forKey: Keys.vlmBaseURL)
-            saveGLMOCRVLMValue(
-                vlmBaseURL,
-                cloudKey: Keys.glmOCRCloudBaseURL,
-                localKey: Keys.glmOCRLocalBaseURL
-            )
         }
     }
 
     var vlmModelName: String {
         didSet {
+            save(vlmModelName, forKey: Keys.vlmModelName(for: vlmProvider))
             save(vlmModelName, forKey: Keys.vlmModelName)
-            saveGLMOCRVLMValue(
-                vlmModelName,
-                cloudKey: Keys.glmOCRCloudModelName,
-                localKey: Keys.glmOCRLocalModelName
-            )
         }
     }
 
-    var glmOCRMode: GLMOCRMode {
-        didSet { save(glmOCRMode.rawValue, forKey: Keys.glmOCRMode) }
+    func vlmBaseURL(for provider: VLMProviderType) -> String {
+        if let stored = UserDefaults.standard.string(forKey: Keys.vlmBaseURL(for: provider)), !stored.isEmpty {
+            return stored
+        }
+        if provider == vlmProvider, let legacy = UserDefaults.standard.string(forKey: Keys.vlmBaseURL), !legacy.isEmpty {
+            return legacy
+        }
+        return provider.defaultBaseURL
+    }
+
+    func setVLMBaseURL(_ url: String, for provider: VLMProviderType) {
+        save(url, forKey: Keys.vlmBaseURL(for: provider))
+        if provider == vlmProvider {
+            vlmBaseURL = url
+        }
+    }
+
+    func vlmModelName(for provider: VLMProviderType) -> String {
+        if let stored = UserDefaults.standard.string(forKey: Keys.vlmModelName(for: provider)), !stored.isEmpty {
+            return stored
+        }
+        if provider == vlmProvider, let legacy = UserDefaults.standard.string(forKey: Keys.vlmModelName), !legacy.isEmpty {
+            return legacy
+        }
+        return provider.defaultModelName
+    }
+
+    func setVLMModelName(_ model: String, for provider: VLMProviderType) {
+        save(model, forKey: Keys.vlmModelName(for: provider))
+        if provider == vlmProvider {
+            vlmModelName = model
+        }
+    }
+
+    func vlmAPIKey(for provider: VLMProviderType) -> String {
+        KeychainService.loadVLMAPIKeySynchronously(for: provider)
+    }
+
+    func setVLMAPIKey(_ key: String, for provider: VLMProviderType) {
+        let capturedKey = key
+        vlmAPIKeySaveTask?.cancel()
+        vlmAPIKeySaveTask = Task {
+            do {
+                try Task.checkCancellation()
+                if capturedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    try await KeychainService.shared.deleteVLMCredentials(for: provider)
+                } else {
+                    try await KeychainService.shared.saveVLMCredentials(apiKey: capturedKey, for: provider)
+                }
+            } catch is CancellationError {
+            } catch {
+                Logger.settings.error("Failed to save VLM API key for \(provider.rawValue): \(error)")
+            }
+        }
+        if provider == vlmProvider {
+            vlmAPIKey = key
+        }
     }
 
     // MARK: - Translation Workflow Configuration
@@ -430,16 +497,18 @@ final class AppSettings {
     /// Cloud API key (stored securely in Keychain, not UserDefaults)
     var paddleOCRCloudAPIKey: String {
         didSet {
-            // Capture the value on the actor before spawning detached task
             let capturedKey = paddleOCRCloudAPIKey
-            // Save to Keychain asynchronously
-            Task.detached {
+            paddleOCRKeySaveTask?.cancel()
+            paddleOCRKeySaveTask = Task {
                 do {
+                    try Task.checkCancellation()
                     if capturedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         try await KeychainService.shared.deletePaddleOCRCredentials()
                     } else {
                         try await KeychainService.shared.savePaddleOCRCredentials(apiKey: capturedKey)
                     }
+                } catch is CancellationError {
+                    // Superseded by newer keystroke
                 } catch {
                     Logger.settings.error("Failed to save PaddleOCR cloud API key to Keychain: \(error)")
                 }
@@ -531,20 +600,17 @@ final class AppSettings {
 
         let resolvedVLMProvider = defaults.string(forKey: Keys.vlmProvider)
             .flatMap { VLMProviderType(rawValue: $0) } ?? .openai
-        let resolvedGLMOCRMode = defaults.string(forKey: Keys.glmOCRMode)
-            .flatMap { GLMOCRMode(rawValue: $0) } ?? .cloud
+        let resolvedOpenAIMode = defaults.string(forKey: Keys.vlmOpenAIMode)
+            .flatMap { OpenAIAPIMode(rawValue: $0) } ?? .chat
         vlmProvider = resolvedVLMProvider
+        vlmOpenAIMode = resolvedOpenAIMode
         vlmAPIKey = ""  // Will be loaded from Keychain in post-init below
-        glmOCRMode = resolvedGLMOCRMode
-        if resolvedVLMProvider == .glmOCR {
-            let modeSpecificBaseURLKey = resolvedGLMOCRMode == .cloud ? Keys.glmOCRCloudBaseURL : Keys.glmOCRLocalBaseURL
-            let modeSpecificModelKey = resolvedGLMOCRMode == .cloud ? Keys.glmOCRCloudModelName : Keys.glmOCRLocalModelName
-            vlmBaseURL = defaults.string(forKey: modeSpecificBaseURLKey) ?? defaults.string(forKey: Keys.vlmBaseURL) ?? resolvedVLMProvider.defaultBaseURL(glmOCRMode: resolvedGLMOCRMode)
-            vlmModelName = defaults.string(forKey: modeSpecificModelKey) ?? defaults.string(forKey: Keys.vlmModelName) ?? resolvedVLMProvider.defaultModelName(glmOCRMode: resolvedGLMOCRMode)
-        } else {
-            vlmBaseURL = defaults.string(forKey: Keys.vlmBaseURL) ?? resolvedVLMProvider.defaultBaseURL(glmOCRMode: resolvedGLMOCRMode)
-            vlmModelName = defaults.string(forKey: Keys.vlmModelName) ?? resolvedVLMProvider.defaultModelName(glmOCRMode: resolvedGLMOCRMode)
-        }
+        vlmBaseURL = defaults.string(forKey: Keys.vlmBaseURL(for: resolvedVLMProvider))
+            ?? defaults.string(forKey: Keys.vlmBaseURL)
+            ?? resolvedVLMProvider.defaultBaseURL
+        vlmModelName = defaults.string(forKey: Keys.vlmModelName(for: resolvedVLMProvider))
+            ?? defaults.string(forKey: Keys.vlmModelName)
+            ?? resolvedVLMProvider.defaultModelName
 
         preferredTranslationEngine = defaults.string(forKey: Keys.preferredTranslationEngine)
             .flatMap { PreferredTranslationEngine(rawValue: $0) } ?? .apple
@@ -584,7 +650,7 @@ final class AppSettings {
         paddleOCRLocalVLModelDir = defaults.string(forKey: Keys.paddleOCRLocalVLModelDir) ?? ""
 
         // Post-init: Load VLM API key from Keychain (after all stored properties are initialized)
-        let keychainKey = Self.loadVLMAPIKeyFromKeychain()
+        let keychainKey = vlmAPIKey(for: resolvedVLMProvider)
         if !keychainKey.isEmpty {
             vlmAPIKey = keychainKey
         } else if let legacyKey = defaults.string(forKey: Keys.vlmAPIKey), !legacyKey.isEmpty {
@@ -613,7 +679,6 @@ final class AppSettings {
 
     /// Resets all settings to defaults
     func resetToDefaults() {
-        let defaults = UserDefaults.standard
         saveLocation = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory())
         defaultFormat = .png
@@ -638,13 +703,9 @@ final class AppSettings {
         translationMode = .below
         vlmProvider = .openai
         vlmAPIKey = ""
-        glmOCRMode = .cloud
+        vlmOpenAIMode = .chat
         vlmBaseURL = VLMProviderType.openai.defaultBaseURL
         vlmModelName = VLMProviderType.openai.defaultModelName
-        defaults.set(GLMOCRMode.cloud.defaultBaseURL, forKey: Keys.glmOCRCloudBaseURL)
-        defaults.set(GLMOCRMode.cloud.defaultModelName, forKey: Keys.glmOCRCloudModelName)
-        defaults.set(GLMOCRMode.local.defaultBaseURL, forKey: Keys.glmOCRLocalBaseURL)
-        defaults.set(GLMOCRMode.local.defaultModelName, forKey: Keys.glmOCRLocalModelName)
         onboardingCompleted = false
         userSkippedPermissions = false
         translateAndInsertSourceLanguage = .auto
@@ -679,16 +740,6 @@ final class AppSettings {
         compatibleProviderConfigs = []
     }
 
-    func storedGLMOCRBaseURL(for mode: GLMOCRMode) -> String? {
-        let key = mode == .cloud ? Keys.glmOCRCloudBaseURL : Keys.glmOCRLocalBaseURL
-        return UserDefaults.standard.string(forKey: key)
-    }
-
-    func storedGLMOCRModelName(for mode: GLMOCRMode) -> String? {
-        let key = mode == .cloud ? Keys.glmOCRCloudModelName : Keys.glmOCRLocalModelName
-        return UserDefaults.standard.string(forKey: key)
-    }
-
     // MARK: - Notifications
 
     /// Posted when any keyboard shortcut is changed
@@ -701,19 +752,6 @@ final class AppSettings {
 
     func save(_ value: Any, forKey key: String) {
         UserDefaults.standard.set(value, forKey: key)
-    }
-
-    private func saveGLMOCRVLMValue(_ value: String, cloudKey: String, localKey: String) {
-        guard vlmProvider == .glmOCR else {
-            return
-        }
-
-        switch glmOCRMode {
-        case .cloud:
-            save(value, forKey: cloudKey)
-        case .local:
-            save(value, forKey: localKey)
-        }
     }
 
     func saveShortcut(_ shortcut: KeyboardShortcut, forKey key: String) {
@@ -764,7 +802,7 @@ final class AppSettings {
             paddleOCRCloudAPIKey = paddleKey
         }
 
-        let vlmKey = Self.loadVLMAPIKeyFromKeychain()
+        let vlmKey = vlmAPIKey(for: vlmProvider)
         if vlmAPIKey != vlmKey {
             vlmAPIKey = vlmKey
         }

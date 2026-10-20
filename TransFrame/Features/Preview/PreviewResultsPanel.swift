@@ -15,7 +15,7 @@ struct PreviewResultsPanel: View {
                 HStack {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .frame(width: 12)
-                    Text("preview.results.panel")
+                    Text(String(localized: "preview.results.panel"))
                         .font(.caption)
                         .fontWeight(.medium)
                     Spacer()
@@ -30,7 +30,7 @@ struct PreviewResultsPanel: View {
                     if viewModel.hasOCRResults {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text("preview.recognized.text")
+                                Text(String(localized: "preview.recognized.text"))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Spacer()

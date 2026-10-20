@@ -75,7 +75,7 @@ actor MTranServerEngine: TranslationProvider {
 
         // Reset cache to ensure we check with current settings
         MTranServerChecker.resetCache()
-        guard MTranServerChecker.isAvailable else {
+        guard await MTranServerChecker.checkAvailability() else {
             logger.error("MTranServer not available")
             throw MTranServerError.notAvailable
         }
@@ -161,7 +161,7 @@ actor MTranServerEngine: TranslationProvider {
 
     func verifyConnection() async throws {
         MTranServerChecker.resetCache()
-        guard MTranServerChecker.isAvailable else {
+        guard await MTranServerChecker.checkAvailability() else {
             throw TranslationProviderError.connectionFailed("MTranServer is not reachable")
         }
     }

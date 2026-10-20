@@ -354,6 +354,8 @@ final class PreviewWindow: NSPanel {
     /// Closes the preview window
     @MainActor
     func closePreview() {
+        imageSizeTimer?.invalidate()
+        imageSizeTimer = nil
         // Delay state modification to avoid "Modifying state during view update" warning
         DispatchQueue.main.async { [weak self] in
             self?.viewModel.hide()

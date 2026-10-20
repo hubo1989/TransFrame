@@ -80,7 +80,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
 
     var isAvailable: Bool {
         get async {
-            !configuration.apiKey.isEmpty
+            true
         }
     }
 
@@ -252,7 +252,10 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(configuration.apiKey, forHTTPHeaderField: "x-api-key")
+        let key = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+        }
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.timeoutInterval = timeout
 
@@ -416,19 +419,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
 
     /// Extracts JSON from potentially markdown-wrapped content
     private func extractJSON(from content: String) -> String {
-        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if text.hasPrefix("```json") {
-            text = String(text.dropFirst(7))
-        } else if text.hasPrefix("```") {
-            text = String(text.dropFirst(3))
-        }
-
-        if text.hasSuffix("```") {
-            text = String(text.dropLast(3))
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        VLMJSONExtractor.extractJSON(from: content)
     }
 }
 

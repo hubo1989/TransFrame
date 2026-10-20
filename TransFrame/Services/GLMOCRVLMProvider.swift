@@ -337,27 +337,7 @@ struct GLMOCRVLMProvider: VLMProvider, Sendable {
     }
 
     private static func extractJSON(from content: String) -> String {
-        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if text.hasPrefix("```json") {
-            text = String(text.dropFirst(7))
-        } else if text.hasPrefix("```") {
-            text = String(text.dropFirst(3))
-        }
-
-        if text.hasSuffix("```") {
-            text = String(text.dropLast(3))
-        }
-
-        if let jsonStart = text.firstIndex(of: "{"), jsonStart != text.startIndex {
-            text = String(text[jsonStart...])
-        }
-
-        if let jsonEnd = text.lastIndex(of: "}") {
-            text = String(text[...jsonEnd])
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        VLMJSONExtractor.extractJSON(from: content)
     }
 
     private static func parsePlainTextResponse(_ content: String) -> VLMAnalysisResponse? {

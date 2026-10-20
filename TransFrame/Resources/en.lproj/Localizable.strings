@@ -627,13 +627,15 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
-"vlm.provider.ollama" = "Ollama";
+"vlm.provider.gemini" = "Gemini";
+"vlm.provider.ollama" = "Local Model";
+"vlm.provider.local" = "Local Model";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "OpenAI GPT-4 Vision API";
 "vlm.provider.claude.description" = "Anthropic Claude Vision API";
-"vlm.provider.glmocr.description" = "Zhipu GLM-OCR layout parsing API";
-"vlm.provider.ollama.description" = "Local Ollama server";
+"vlm.provider.gemini.description" = "Google Gemini Vision API";
+"vlm.provider.ollama.description" = "Local model server (Ollama, LM Studio, vLLM, LocalAI, etc.)";
+"vlm.provider.local.description" = "Local model server (Ollama, LM Studio, vLLM, LocalAI, etc.)";
 "vlm.provider.paddleocr.description" = "Local OCR engine (free, offline)";
 
 

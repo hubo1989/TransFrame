@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Skip UI and auth side effects when running under XCTest
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
+
         // Ensure we're a menu bar only app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
 

@@ -213,7 +213,7 @@ final class PreviewViewModel {
     var redoStack: [Screenshot] = []
 
     @ObservationIgnored
-    private let maxUndoLevels = 50
+    private let maxUndoLevels = 15
 
     var imageSizeChangeCounter: Int = 0
 
@@ -232,6 +232,8 @@ final class PreviewViewModel {
     func hide() {
         guard isVisible else { return }
         isVisible = false
+        undoStack.removeAll()
+        redoStack.removeAll()
         onDismiss?()
     }
 

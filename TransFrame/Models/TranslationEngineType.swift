@@ -259,18 +259,74 @@ enum EngineCategory: String, CaseIterable, Sendable, Codable {
 
 /// Helper to check if MTranServer is available on the system
 enum MTranServerChecker {
-    /// Cached availability status (nonisolated(unsafe) for singleton cache)
-    private nonisolated(unsafe) static var _isAvailable: Bool?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _isAvailable: Bool?
 
-    /// Check if MTranServer is available
+    /// Check if MTranServer is available (synchronous property)
     static var isAvailable: Bool {
-        if let cached = _isAvailable {
+        if let cached = lock.withLock({ _isAvailable }) {
             return cached
         }
 
         let result = checkMTranServer()
-        _isAvailable = result
+        lock.withLock { _isAvailable = result }
         return result
+    }
+
+    /// Check if MTranServer is available asynchronously without blocking calling threads
+    static func checkAvailability() async -> Bool {
+        if let cached = lock.withLock({ _isAvailable }) {
+            return cached
+        }
+
+        let result = await checkMTranServerAsync()
+        lock.withLock { _isAvailable = result }
+        return result
+    }
+
+    private static func resolvedHostAndPort() -> (host: String, port: Int) {
+        let defaults = UserDefaults.standard
+        let prefix = "TransFrame."
+        var host = defaults.string(forKey: prefix + "mtranServerHost") ?? "localhost"
+        let port = defaults.object(forKey: prefix + "mtranServerPort") as? Int ?? 8989
+        if host == "localhost" {
+            host = "127.0.0.1"
+        }
+        return (host, port)
+    }
+
+    private static func checkMTranServerAsync() async -> Bool {
+        let (host, port) = resolvedHostAndPort()
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "MTranServerChecker")
+        logger.info("Checking MTranServer async at \(host):\(port)")
+
+        let endpoints = ["/health", "/", "/translate"]
+        for endpoint in endpoints {
+            var components = URLComponents()
+            components.scheme = "http"
+            components.host = host
+            components.port = port
+            components.path = endpoint
+
+            guard let url = components.url else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 2.0
+            request.httpMethod = "GET"
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode > 0 {
+                    logger.info("MTranServer available via \(endpoint)")
+                    return true
+                }
+            } catch {
+                logger.debug("MTranServer check \(endpoint) failed: \(error.localizedDescription)")
+            }
+        }
+
+        logger.info("MTranServer final availability: false")
+        return false
     }
 
     private final class ResultBox: @unchecked Sendable {
@@ -278,17 +334,7 @@ enum MTranServerChecker {
     }
 
     private static func checkMTranServer() -> Bool {
-        // Read settings directly from UserDefaults to avoid MainActor isolation issues
-        let defaults = UserDefaults.standard
-        let prefix = "TransFrame."
-        var host = defaults.string(forKey: prefix + "mtranServerHost") ?? "localhost"
-        let port = defaults.object(forKey: prefix + "mtranServerPort") as? Int ?? 8989
-
-        // Normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
-        if host == "localhost" {
-            host = "127.0.0.1"
-        }
-
+        let (host, port) = resolvedHostAndPort()
         let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "MTranServerChecker")
         logger.info("Checking MTranServer at \(host):\(port)")
 
@@ -318,7 +364,6 @@ enum MTranServerChecker {
                 }
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 logger.debug("MTranServer check \(endpoint): status \(statusCode)")
-                // Accept any response that indicates server is running (not connection refused)
                 resultBox.value = statusCode > 0
                 semaphore.signal()
             }
@@ -339,6 +384,8 @@ enum MTranServerChecker {
 
     /// Reset the cached availability check
     static func resetCache() {
-        _isAvailable = nil
+        lock.withLock {
+            _isAvailable = nil
+        }
     }
 }

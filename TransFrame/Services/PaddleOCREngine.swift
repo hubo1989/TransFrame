@@ -212,12 +212,20 @@ actor PaddleOCREngine {
         }
 
         // Build URL for OpenAI-compatible endpoint
+        let trimmedBaseURL = config.cloudBaseURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let baseURL = URL(string: trimmedBaseURL),
+              baseURL.scheme != nil,
+              baseURL.host != nil else {
+            throw PaddleOCREngineError.invalidConfiguration("Invalid Cloud API base URL: \(config.cloudBaseURL)")
+        }
+
         let apiURL: URL
-        if config.cloudBaseURL.hasSuffix("/v1") || config.cloudBaseURL.contains("/v1/") {
-            apiURL = URL(string: config.cloudBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
-                .appendingPathComponent("chat/completions")
+        if trimmedBaseURL.hasSuffix("/v1") || trimmedBaseURL.contains("/v1/") {
+            apiURL = baseURL.appendingPathComponent("chat/completions")
         } else {
-            apiURL = URL(string: config.cloudBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
+            apiURL = baseURL
                 .appendingPathComponent("v1")
                 .appendingPathComponent("chat")
                 .appendingPathComponent("completions")
@@ -261,7 +269,11 @@ actor PaddleOCREngine {
             ],
             "max_tokens": 4096
         ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            throw PaddleOCREngineError.invalidConfiguration("Failed to serialize request body: \(error.localizedDescription)")
+        }
 
         Logger.ocr.info("PaddleOCR cloud API request to: \(apiURL.absoluteString)")
 
@@ -519,9 +531,31 @@ actor PaddleOCREngine {
         }
     }
     
-    private func findMatchingBrace(in string: String) -> Int? {
+    nonisolated func findMatchingBrace(in string: String) -> Int? {
         var depth = 0
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaped = false
+
         for (index, char) in string.enumerated() {
+            if escaped {
+                escaped = false
+                continue
+            }
+            if char == "\\" && (inSingleQuote || inDoubleQuote) {
+                escaped = true
+                continue
+            }
+            if char == "'" && !inDoubleQuote {
+                inSingleQuote.toggle()
+                continue
+            }
+            if char == "\"" && !inSingleQuote {
+                inDoubleQuote.toggle()
+                continue
+            }
+            guard !inSingleQuote && !inDoubleQuote else { continue }
+
             if char == "{" {
                 depth += 1
             } else if char == "}" {
@@ -713,13 +747,8 @@ actor PaddleOCREngine {
         return observations
     }
 
-    private func convertPythonDictToJson(_ pythonDict: String) -> String {
-        var result = pythonDict
-        result = result.replacingOccurrences(of: "None", with: "null")
-        result = result.replacingOccurrences(of: "True", with: "true")
-        result = result.replacingOccurrences(of: "False", with: "false")
-        result = result.replacingOccurrences(of: "'", with: "\"")
-
+    nonisolated func convertPythonDictToJson(_ pythonDict: String) -> String {
+        var result = convertPythonLiteralsToJson(pythonDict)
         result = convertNumpyArraysToJson(result)
 
         // Fix float format: "8." -> "8.0", "-5." -> "-5.0" (valid JSON)
@@ -731,8 +760,97 @@ actor PaddleOCREngine {
 
         return result
     }
+
+    nonisolated private func convertPythonLiteralsToJson(_ input: String) -> String {
+        var output = String()
+        output.reserveCapacity(input.count)
+
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaped = false
+        var index = input.startIndex
+
+        func isIdentifierChar(_ c: Character) -> Bool {
+            c.isLetter || c.isNumber || c == "_"
+        }
+
+        while index < input.endIndex {
+            let char = input[index]
+
+            if inSingleQuote {
+                if escaped {
+                    if char == "'" {
+                        output.append("'")
+                    } else if char == "\"" {
+                        output.append("\\\"")
+                    } else {
+                        output.append("\\")
+                        output.append(char)
+                    }
+                    escaped = false
+                } else if char == "\\" {
+                    escaped = true
+                } else if char == "'" {
+                    output.append("\"")
+                    inSingleQuote = false
+                } else if char == "\"" {
+                    output.append("\\\"")
+                } else {
+                    output.append(char)
+                }
+                index = input.index(after: index)
+            } else if inDoubleQuote {
+                if escaped {
+                    output.append(char)
+                    escaped = false
+                } else if char == "\\" {
+                    output.append(char)
+                    escaped = true
+                } else if char == "\"" {
+                    output.append(char)
+                    inDoubleQuote = false
+                } else {
+                    output.append(char)
+                }
+                index = input.index(after: index)
+            } else {
+                if char == "'" {
+                    output.append("\"")
+                    inSingleQuote = true
+                    index = input.index(after: index)
+                } else if char == "\"" {
+                    output.append("\"")
+                    inDoubleQuote = true
+                    index = input.index(after: index)
+                } else if isIdentifierChar(char) {
+                    let wordStart = index
+                    var wordEnd = input.index(after: index)
+                    while wordEnd < input.endIndex && isIdentifierChar(input[wordEnd]) {
+                        wordEnd = input.index(after: wordEnd)
+                    }
+                    let word = input[wordStart..<wordEnd]
+                    switch word {
+                    case "None":
+                        output.append("null")
+                    case "True":
+                        output.append("true")
+                    case "False":
+                        output.append("false")
+                    default:
+                        output.append(contentsOf: word)
+                    }
+                    index = wordEnd
+                } else {
+                    output.append(char)
+                    index = input.index(after: index)
+                }
+            }
+        }
+
+        return output
+    }
     
-    private func convertNumpyArraysToJson(_ input: String) -> String {
+    nonisolated private func convertNumpyArraysToJson(_ input: String) -> String {
         var result = input
         var searchStart = result.startIndex
         
@@ -765,7 +883,7 @@ actor PaddleOCREngine {
         return result
     }
     
-    private func extractArrayContent(from arrayContent: String) -> String {
+    nonisolated private func extractArrayContent(from arrayContent: String) -> String {
         var content = arrayContent
 
         // Remove shape and dtype info

@@ -5,7 +5,13 @@ struct EngineSettingsContent: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
+                // Credential authorization (Keychain access)
+                CredentialAccessRow(viewModel: viewModel)
+                    .padding()
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(8)
+
                 // VLM Configuration (for image analysis)
                 VLMConfigurationSection(viewModel: viewModel)
 
@@ -31,52 +37,82 @@ struct VLMConfigurationSection: View {
             Text(localized("settings.vlm.title"))
                 .font(.headline)
 
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-                GridRow {
-                    Text(localized("settings.vlm.provider"))
-                        .foregroundStyle(.secondary)
-                        .gridColumnAlignment(.trailing)
-                    Picker("", selection: $viewModel.vlmProvider) {
-                        ForEach(VLMProviderType.allCases) { provider in
-                            Text(provider.localizedName).tag(provider)
+            // Provider selection row with fixed label width
+            HStack(alignment: .center, spacing: 12) {
+                Text(localized("settings.vlm.provider"))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 84, alignment: .trailing)
+
+                HStack(spacing: 2) {
+                    ForEach(VLMProviderType.allCases) { provider in
+                        Button {
+                            viewModel.vlmProvider = provider
+                        } label: {
+                            Text(provider.localizedName)
+                                .font(.subheadline)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(viewModel.vlmProvider == provider ? Color.accentColor : Color.clear)
+                                .foregroundStyle(viewModel.vlmProvider == provider ? .white : .primary)
+                                .cornerRadius(6)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 400)
                 }
+                .padding(3)
+                .background(Color(.separatorColor).opacity(0.15))
+                .cornerRadius(8)
             }
 
             // PaddleOCR specific section
             if viewModel.vlmProvider == .paddleocr {
                 PaddleOCRStatusSection(viewModel: viewModel)
             } else {
-                // Standard VLM configuration for API-based providers
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
-                    if viewModel.vlmProvider == .glmOCR {
-                        GridRow {
-                            Text(localized("settings.glmocr.mode"))
+                VStack(alignment: .leading, spacing: 12) {
+                    // OpenAI specific API mode selection
+                    if viewModel.vlmProvider == .openai {
+                        HStack(alignment: .center, spacing: 12) {
+                            Text("API 模式")
+                                .font(.body)
                                 .foregroundStyle(.secondary)
-                                .gridColumnAlignment(.trailing)
-                            Picker("", selection: $viewModel.glmOCRMode) {
-                                ForEach(GLMOCRMode.allCases, id: \.self) { mode in
-                                    Text(mode.localizedName).tag(mode)
+                                .frame(width: 84, alignment: .trailing)
+
+                            HStack(spacing: 2) {
+                                ForEach(OpenAIAPIMode.allCases) { mode in
+                                    Button {
+                                        viewModel.vlmEditingOpenAIMode = mode
+                                    } label: {
+                                        Text(mode.displayName)
+                                            .font(.subheadline)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(viewModel.vlmEditingOpenAIMode == mode ? Color.accentColor : Color.clear)
+                                            .foregroundStyle(viewModel.vlmEditingOpenAIMode == mode ? .white : .primary)
+                                            .cornerRadius(6)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .frame(maxWidth: 300)
+                            .padding(3)
+                            .background(Color(.separatorColor).opacity(0.15))
+                            .cornerRadius(8)
                         }
                     }
 
-                    GridRow {
+                    // API Key
+                    HStack(alignment: .center, spacing: 12) {
                         Text(localized("settings.vlm.apiKey"))
+                            .font(.body)
                             .foregroundStyle(.secondary)
-                            .gridColumnAlignment(.trailing)
-                        HStack {
+                            .frame(width: 84, alignment: .trailing)
+
+                        HStack(spacing: 6) {
                             if showAPIKey {
-                                TextField("", text: $viewModel.vlmAPIKey)
+                                TextField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
                             } else {
-                                SecureField("", text: $viewModel.vlmAPIKey)
+                                SecureField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
                             }
                             Button {
@@ -86,47 +122,62 @@ struct VLMConfigurationSection: View {
                             }
                             .buttonStyle(.borderless)
                         }
-                        .frame(maxWidth: 300)
+                        .frame(maxWidth: 320)
+
+                        Text("（可选，为空则免鉴权请求）")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
-                    if !viewModel.currentVLMRequiresAPIKey {
-                        GridRow {
-                            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                            Text(viewModel.vlmProvider == .glmOCR && viewModel.glmOCRMode == .local
-                                 ? localized("settings.glmocr.local.apiKey.optional")
-                                 : localized("settings.vlm.apiKey.optional"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    GridRow {
+                    // Base URL
+                    HStack(alignment: .center, spacing: 12) {
                         Text(localized("settings.vlm.baseURL"))
+                            .font(.body)
                             .foregroundStyle(.secondary)
-                            .gridColumnAlignment(.trailing)
-                        TextField("", text: $viewModel.vlmBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 300)
+                            .frame(width: 84, alignment: .trailing)
+
+                        HStack(spacing: 6) {
+                            TextField("", text: $viewModel.vlmEditingBaseURL)
+                                .textFieldStyle(.roundedBorder)
+
+                            if viewModel.vlmProvider == .ollama {
+                                Menu {
+                                    ForEach(VLMProviderType.localEndpointPresets) { preset in
+                                        Button("\(preset.name) (\(preset.url))") {
+                                            viewModel.vlmEditingBaseURL = preset.url
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "list.bullet")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .help("选择常用本地端点预设")
+                            }
+                        }
+                        .frame(maxWidth: 320)
                     }
 
-                    GridRow {
+                    // Model Name
+                    HStack(alignment: .center, spacing: 12) {
                         Text(localized("settings.vlm.model"))
+                            .font(.body)
                             .foregroundStyle(.secondary)
-                            .gridColumnAlignment(.trailing)
-                        HStack {
-                            TextField("", text: $viewModel.vlmModelName)
+                            .frame(width: 84, alignment: .trailing)
+
+                        HStack(spacing: 6) {
+                            TextField("", text: $viewModel.vlmEditingModelName)
                                 .textFieldStyle(.roundedBorder)
 
                             if !availableVLMModels.isEmpty {
                                 Menu {
                                     ForEach(availableVLMModels, id: \.self) { model in
                                         Button(model) {
-                                            viewModel.vlmModelName = model
+                                            viewModel.vlmEditingModelName = model
                                         }
                                     }
                                 } label: {
-                                    Text("")
-                                        .frame(width: 8, height: 12)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2)
                                 }
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
@@ -147,46 +198,74 @@ struct VLMConfigurationSection: View {
                             .buttonStyle(.bordered)
                             .disabled(isFetchingVLMModels)
                         }
-                        .frame(maxWidth: 300)
+                        .frame(maxWidth: 320)
                     }
-                }
 
-                Text(viewModel.currentVLMProviderDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(viewModel.currentVLMProviderDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 96)
 
-                // Test API Connection Button
-                HStack {
-                    Button {
-                        viewModel.testVLMAPI()
-                    } label: {
-                        HStack(spacing: 6) {
-                            if viewModel.isTestingVLM {
-                                ProgressView()
-                                    .controlSize(.small)
+                    // Action buttons: Save & Test Connection
+                    HStack(spacing: 12) {
+                        Spacer().frame(width: 84)
+
+                        Button {
+                            viewModel.saveVLMConfig()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "square.and.arrow.down")
+                                Text("保存配置")
                             }
-                            Image(systemName: "bolt.fill")
-                            Text(localized("settings.vlm.test.button"))
                         }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(viewModel.isTestingVLM)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
 
-                    Spacer()
+                        Button {
+                            viewModel.testVLMAPI()
+                        } label: {
+                            HStack(spacing: 6) {
+                                if viewModel.isTestingVLM {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Image(systemName: "bolt.fill")
+                                Text(localized("settings.vlm.test.button"))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(viewModel.isTestingVLM)
 
-                    if let result = viewModel.vlmTestResult {
-                        HStack(spacing: 4) {
-                            Image(systemName: viewModel.vlmTestSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(viewModel.vlmTestSuccess ? Color.green : Color.red)
-                            Text(result)
+                        if viewModel.vlmJustSaved {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("已保存")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                        } else if viewModel.hasUnsavedVLMChanges {
+                            Text("（有未保存更改）")
                                 .font(.caption)
-                                .foregroundStyle(viewModel.vlmTestSuccess ? .secondary : Color.red)
-                                .lineLimit(2)
+                                .foregroundStyle(.orange)
+                        }
+
+                        Spacer()
+
+                        if let result = viewModel.vlmTestResult {
+                            HStack(spacing: 4) {
+                                Image(systemName: viewModel.vlmTestSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(viewModel.vlmTestSuccess ? Color.green : Color.red)
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundStyle(viewModel.vlmTestSuccess ? .secondary : Color.red)
+                                    .lineLimit(2)
+                            }
                         }
                     }
+                    .padding(.top, 4)
                 }
-                .padding(.top, 8)
             }
         }
         .padding()
@@ -210,13 +289,13 @@ struct VLMConfigurationSection: View {
         errorMessage = ""
 
         let provider = viewModel.vlmProvider
-        let baseURL = viewModel.vlmBaseURL.isEmpty ? provider.defaultBaseURL(glmOCRMode: viewModel.glmOCRMode) : viewModel.vlmBaseURL
-        let apiKey = viewModel.vlmAPIKey
+        let baseURL = viewModel.vlmEditingBaseURL.isEmpty ? provider.defaultBaseURL : viewModel.vlmEditingBaseURL
+        let apiKey = viewModel.vlmEditingAPIKey
 
         do {
             let models = try await ModelDiscoveryService.fetchModels(
                 baseURL: baseURL,
-                apiKey: provider.requiresAPIKey(glmOCRMode: viewModel.glmOCRMode) ? apiKey : nil,
+                apiKey: apiKey.isEmpty ? nil : apiKey,
                 engineType: provider.rawValue
             )
             self.availableVLMModels = models

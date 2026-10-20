@@ -627,13 +627,15 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
-"vlm.provider.ollama" = "Ollama";
+"vlm.provider.gemini" = "Gemini";
+"vlm.provider.ollama" = "本地模型";
+"vlm.provider.local" = "本地模型";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "OpenAI GPT-4 Vision API";
 "vlm.provider.claude.description" = "Anthropic Claude Vision API";
-"vlm.provider.glmocr.description" = "智谱 GLM-OCR 版面解析 API";
-"vlm.provider.ollama.description" = "本地 Ollama 服务器";
+"vlm.provider.gemini.description" = "Google Gemini 视觉模型 API";
+"vlm.provider.ollama.description" = "兼容本地模型服务（Ollama、LM Studio、vLLM、LocalAI 等）";
+"vlm.provider.local.description" = "兼容本地模型服务（Ollama、LM Studio、vLLM、LocalAI 等）";
 "vlm.provider.paddleocr.description" = "本地 OCR 引擎（免费、离线可用）";
 
 

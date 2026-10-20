@@ -28,6 +28,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     /// Request timeout in seconds
     private let timeout: TimeInterval
 
+    let apiMode: OpenAIAPIMode
     private let logger = Logger.translation
 
     // MARK: - Initialization
@@ -35,9 +36,11 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     /// Initialize with full configuration
     /// - Parameters:
     ///   - configuration: VLM provider configuration
+    ///   - apiMode: OpenAI API protocol mode (.chat or .response)
     ///   - timeout: Request timeout in seconds (default: 60)
-    init(configuration: VLMProviderConfiguration, timeout: TimeInterval = 60) {
+    init(configuration: VLMProviderConfiguration, apiMode: OpenAIAPIMode = .chat, timeout: TimeInterval = 60) {
         self.configuration = configuration
+        self.apiMode = apiMode
         self.timeout = timeout
     }
 
@@ -62,11 +65,13 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     ///   - apiKey: OpenAI API key
     ///   - baseURL: API base URL (default: OpenAI's official endpoint)
     ///   - modelName: Model to use (default: gpt-4o)
+    ///   - apiMode: OpenAI API protocol mode (default: .chat)
     ///   - timeout: Request timeout in seconds (default: 60)
     init(
         apiKey: String,
         baseURL: URL = OpenAIVLMProvider.defaultBaseURL,
         modelName: String = OpenAIVLMProvider.defaultModel,
+        apiMode: OpenAIAPIMode = .chat,
         timeout: TimeInterval = 60
     ) {
         self.configuration = VLMProviderConfiguration(
@@ -74,15 +79,14 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
             baseURL: baseURL,
             modelName: modelName
         )
+        self.apiMode = apiMode
         self.timeout = timeout
     }
 
     // MARK: - VLMProvider Protocol
 
     var isAvailable: Bool {
-        get async {
-            !configuration.apiKey.isEmpty
-        }
+        get async { true }
     }
 
     /// Maximum number of continuation attempts when response is truncated
@@ -257,6 +261,19 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
             throw VLMProviderError.invalidResponse(errorResponse.error.message)
         }
 
+        // Check if response matches Responses API format
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let outputText = json["output_text"] as? String, !outputText.isEmpty {
+                return (outputText, false, nil)
+            }
+            if let output = json["output"] as? [[String: Any]],
+               let first = output.first,
+               let content = first["content"] as? [[String: Any]],
+               let text = content.first?["text"] as? String {
+                return (text, false, nil)
+            }
+        }
+
         // Try to parse as OpenAI response
         let decoder = JSONDecoder()
 
@@ -384,15 +401,50 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
     // MARK: - Private Methods
 
-    /// Builds the URLRequest for OpenAI Chat Completions API with custom messages
+    /// Builds the URLRequest for OpenAI Chat Completions or Responses API with custom messages
     private func buildRequest(messages: [OpenAIChatMessage], isContinuation: Bool = false) throws -> URLRequest {
-        let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("chat/completions")
+        let endpoint: URL
+        if apiMode == .response {
+            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("responses")
+        } else {
+            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("chat/completions")
+        }
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        let key = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = timeout
+
+        // Responses API
+        if apiMode == .response {
+            let inputItems: [[String: Any]] = messages.map { msg in
+                switch msg.content {
+                case .text(let t):
+                    return ["role": msg.role, "content": t]
+                case .vision(let parts):
+                    let contentArray: [[String: Any]] = parts.map { part in
+                        switch part {
+                        case .text(let text):
+                            return ["type": "input_text", "text": text]
+                        case .imageURL(let img):
+                            return ["type": "input_image", "image_url": img.url]
+                        }
+                    }
+                    return ["role": msg.role, "content": contentArray]
+                }
+            }
+            let requestBody: [String: Any] = [
+                "model": configuration.modelName,
+                "input": inputItems,
+                "temperature": 0.1
+            ]
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            return request
+        }
 
         // Use lower max_tokens for local models (they're slower and don't need as many)
         let maxTokens: Int
@@ -664,33 +716,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
     /// Extracts JSON from potentially markdown-wrapped content
     private func extractJSON(from content: String) -> String {
-        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Handle markdown code blocks
-        if text.hasPrefix("```json") {
-            text = String(text.dropFirst(7))
-        } else if text.hasPrefix("```") {
-            text = String(text.dropFirst(3))
-        }
-
-        if text.hasSuffix("```") {
-            text = String(text.dropLast(3))
-        }
-
-        // Handle case where response starts with text before JSON
-        if let jsonStart = text.firstIndex(of: "{"), jsonStart != text.startIndex {
-            text = String(text[jsonStart...])
-        }
-
-        // Handle case where there's text after the JSON
-        if let jsonEnd = text.lastIndex(of: "}") {
-            let nextIndex = text.index(after: jsonEnd)
-            if nextIndex < text.endIndex {
-                text = String(text[...jsonEnd])
-            }
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        VLMJSONExtractor.extractJSON(from: content)
     }
 }
 

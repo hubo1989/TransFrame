@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AdvancedSettingsContent: View {
     @Bindable var viewModel: SettingsViewModel
+    @State private var showResetConfirmation = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -15,7 +16,7 @@ struct AdvancedSettingsContent: View {
         .macos26LiquidGlass()
 
         Button(role: .destructive) {
-            viewModel.resetAllToDefaults()
+            showResetConfirmation = true
         } label: {
             Text(localized("settings.reset.all"))
                 .font(.system(.callout, design: .rounded, weight: .semibold))
@@ -26,6 +27,15 @@ struct AdvancedSettingsContent: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.red)
+        .alert(
+            localized("settings.reset.all"),
+            isPresented: $showResetConfirmation
+        ) {
+            Button(localized("button.cancel"), role: .cancel) {}
+            Button(localized("button.confirm"), role: .destructive) {
+                viewModel.resetAllToDefaults()
+            }
+        }
     }
 }
 
