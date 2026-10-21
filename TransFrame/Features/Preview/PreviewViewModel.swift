@@ -141,6 +141,7 @@ final class PreviewViewModel {
         case .mosaic: return mosaicTool
         case .text: return textTool
         case .numberLabel: return numberLabelTool
+        case .privacyRedaction, .calloutBubble: return rectangleTool
         }
     }
 
@@ -323,6 +324,8 @@ final class PreviewViewModel {
         case .mosaic: return .mosaic
         case .text: return .text
         case .numberLabel: return .numberLabel
+        case .privacyRedaction: return .privacyRedaction
+        case .calloutBubble: return .calloutBubble
         }
     }
 
@@ -340,6 +343,8 @@ final class PreviewViewModel {
         case .highlight(let highlight): return highlight.color
         case .mosaic: return nil
         case .numberLabel(let label): return label.color
+        case .privacyRedaction(let redaction): return redaction.fillColor
+        case .calloutBubble(let bubble): return bubble.bubbleColor
         }
     }
 
@@ -357,6 +362,8 @@ final class PreviewViewModel {
         case .mosaic: return nil
         case .highlight: return nil
         case .numberLabel: return nil
+        case .privacyRedaction: return nil
+        case .calloutBubble: return nil
         }
     }
 
@@ -366,6 +373,9 @@ final class PreviewViewModel {
 
         if case .text(let text) = annotations[index] {
             return text.style.fontSize
+        }
+        if case .calloutBubble(let bubble) = annotations[index] {
+            return bubble.style.fontSize
         }
         return nil
     }
@@ -379,6 +389,9 @@ final class PreviewViewModel {
         }
         if case .ellipse(let ellipse) = annotations[index] {
             return ellipse.isFilled
+        }
+        if case .privacyRedaction = annotations[index] {
+            return true
         }
         return nil
     }
@@ -426,6 +439,8 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
     case mosaic
     case text
     case numberLabel
+    case privacyRedaction
+    case calloutBubble
 
     var id: String { rawValue }
 
@@ -440,6 +455,8 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
         case .mosaic: return String(localized: "tool.mosaic")
         case .text: return String(localized: "tool.text")
         case .numberLabel: return String(localized: "tool.numberLabel")
+        case .privacyRedaction: return String(localized: "tool.privacyRedaction")
+        case .calloutBubble: return String(localized: "tool.calloutBubble")
         }
     }
 
@@ -454,6 +471,8 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
         case .mosaic: return "m"
         case .text: return "t"
         case .numberLabel: return "n"
+        case .privacyRedaction: return "p"
+        case .calloutBubble: return "b"
         }
     }
 
@@ -468,6 +487,8 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
         case .mosaic: return "checkerboard.rectangle"
         case .text: return "textbox"
         case .numberLabel: return "number.circle"
+        case .privacyRedaction: return "eye.slash.fill"
+        case .calloutBubble: return "bubble.left.and.bubble.right"
         }
     }
 }

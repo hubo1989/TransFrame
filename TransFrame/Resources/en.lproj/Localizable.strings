@@ -824,3 +824,9 @@
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+"menu.pinned.title" = "Pinned Windows";
+"menu.pinned.reset_interactions" = "Restore All Pin Interactions";
+"menu.pinned.show_all" = "Bring All Pins to Front";
+"tool.privacyRedaction" = "Privacy Redaction";
+"tool.calloutBubble" = "Callout Bubble";

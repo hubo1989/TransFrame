@@ -1,6 +1,7 @@
 import Foundation
 import os
 import os.signpost
+import Darwin
 
 actor PerformanceRecorder {
     static let shared = PerformanceRecorder()
@@ -25,7 +26,9 @@ actor PerformanceRecorder {
         let startedAt = ContinuousClock.now
 
         do {
+            let startMemory = Self.currentMemoryUsageBytes()
             let value = try await operation()
+            let endMemory = Self.currentMemoryUsageBytes()
             let duration = startedAt.duration(to: .now).timeInterval
             os_signpost(.end, log: log, name: "PipelineStage", signpostID: signpostID, "%{public}s", stage.rawValue)
             record(
@@ -33,7 +36,7 @@ actor PerformanceRecorder {
                     stage: stage,
                     operationID: operationID,
                     duration: duration,
-                    memoryDeltaBytes: 0,
+                    memoryDeltaBytes: endMemory - startMemory,
                     success: true,
                     errorCategory: nil
                 )
@@ -79,6 +82,20 @@ actor PerformanceRecorder {
 
     func reset() {
         metricsByStage.removeAll()
+    }
+
+    private static func currentMemoryUsageBytes() -> Int64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kerr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        if kerr == KERN_SUCCESS {
+            return Int64(info.phys_footprint)
+        }
+        return 0
     }
 }
 

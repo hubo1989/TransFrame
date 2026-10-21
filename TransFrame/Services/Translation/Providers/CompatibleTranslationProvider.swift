@@ -76,21 +76,30 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
         self.config = config
         self.keychain = keychain
 
-        // Parse compatible config from customName or create default
+        let savedConfigs: [CompatibleConfig] = await MainActor.run {
+            AppSettings.shared.compatibleProviderConfigs
+        }
+
+        // Parse compatible config from customName or fallback to AppSettings authoritative store
         let resolvedCompatibleConfig: CompatibleConfig
         if let customName = config.customName,
            let jsonData = customName.data(using: .utf8),
-           let compatibleConfig = try? JSONDecoder().decode(CompatibleConfig.self, from: jsonData) {
-            resolvedCompatibleConfig = compatibleConfig
+           let parsed = try? JSONDecoder().decode(CompatibleConfig.self, from: jsonData),
+           let latest = savedConfigs.first(where: { $0.id == parsed.id }) {
+            resolvedCompatibleConfig = latest
+        } else if let customName = config.customName,
+                  let jsonData = customName.data(using: .utf8),
+                  let parsed = try? JSONDecoder().decode(CompatibleConfig.self, from: jsonData) {
+            resolvedCompatibleConfig = parsed
+        } else if let firstSaved = savedConfigs.first {
+            resolvedCompatibleConfig = firstSaved
         } else {
             resolvedCompatibleConfig = .default
         }
 
-        let resolvedPromptConfigID = await MainActor.run {
-            AppSettings.shared.compatibleProviderConfigs.contains(where: { $0.id == resolvedCompatibleConfig.id })
-                ? resolvedCompatibleConfig.id.uuidString
-                : nil
-        }
+        let resolvedPromptConfigID = savedConfigs.contains(where: { $0.id == resolvedCompatibleConfig.id })
+            ? resolvedCompatibleConfig.id.uuidString
+            : nil
         self.compatibleConfig = resolvedCompatibleConfig
         self.promptConfigID = resolvedPromptConfigID
 
@@ -121,7 +130,7 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
                 let keychainId = compatibleConfig.keychainId
                 return await keychain.hasCredentials(forCompatibleId: keychainId)
             }
-            return true
+            return !compatibleConfig.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 

@@ -45,199 +45,65 @@ final class CaptureCoordinator {
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
+        setupSessionCallbacks()
+    }
+
+    private func setupSessionCallbacks() {
+        let session = CaptureSessionController.shared
+
+        session.onCaptureComplete = { [weak self] document in
+            PreviewWindowController.shared.showPreview(for: document.toLegacyScreenshot())
+        }
+
+        session.onTranslationRequested = { [weak self] document in
+            let scale = document.sourceDisplay?.scaleFactor ?? 2.0
+            TranslationFlowController.shared.startTranslation(
+                document: document,
+                scaleFactor: scale
+            )
+        }
+
+        session.onOCRRequested = { [weak self] document in
+            PreviewWindowController.shared.showPreview(for: document.toLegacyScreenshot())
+        }
     }
 
     // MARK: - Public API
 
     /// Triggers a full screen capture
     func captureFullScreen() {
-        // Prevent overlapping captures
-        guard !isCaptureInProgress else {
-            logger.debug("Capture already in progress, ignoring request")
-            return
-        }
-
-        logger.info("Full screen capture triggered via hotkey or menu")
-
-        isCaptureInProgress = true
-
+        logger.info("Full screen capture triggered via CaptureSessionController")
         Task {
-            defer { isCaptureInProgress = false }
-
             guard await CaptureManager.shared.hasPermission else {
-                logger.info("Screen recording permission denied, triggering drag-to-authorize flow")
                 PermissionManager.shared.ensureScreenRecordingPermission()
                 return
             }
-
-            do {
-                // Get available displays
-                let displays = try await CaptureManager.shared.availableDisplays()
-
-                // Select display (shows menu if multiple)
-                guard let selectedDisplay = await displaySelector.selectDisplay(from: displays) else {
-                    logger.debug("Display selection cancelled")
-                    return
-                }
-
-                logger.info("Capturing display: \(selectedDisplay.name)")
-
-                // Perform capture
-                let screenshot = try await CaptureManager.shared.captureFullScreen(display: selectedDisplay)
-
-                logger.info("Capture successful: \(screenshot.formattedDimensions)")
-
-                // Show preview window
-                PreviewWindowController.shared.showPreview(for: screenshot)
-
-            } catch let error as TransFrameError {
-                appDelegate?.showCaptureError(error)
-            } catch {
-                appDelegate?.showCaptureError(.captureFailure(underlying: error))
-            }
+            CaptureSessionController.shared.startCapture(mode: .fullScreen)
         }
     }
 
-    /// Triggers a selection capture
+    /// Triggers a selection capture with instant frozen screen
     func captureSelection() {
-        // Prevent overlapping captures
-        guard !isCaptureInProgress else {
-            logger.debug("Capture already in progress, ignoring request")
-            return
-        }
-
-        logger.info("Selection capture triggered via hotkey or menu")
-
-        isCaptureInProgress = true
-
+        logger.info("Selection capture triggered with instant freeze")
         Task {
             guard await CaptureManager.shared.hasPermission else {
-                logger.info("Screen recording permission denied, triggering drag-to-authorize flow")
                 PermissionManager.shared.ensureScreenRecordingPermission()
-                isCaptureInProgress = false
                 return
             }
-            do {
-                // Present the selection overlay on all displays
-                let overlayController = SelectionOverlayController.shared
-
-                // Set up callbacks before presenting
-                overlayController.onSelectionComplete = { [weak self] rect, display in
-                    Task { @MainActor in
-                        await self?.handleSelectionComplete(rect: rect, display: display)
-                    }
-                }
-
-                overlayController.onSelectionCancel = { [weak self] in
-                    Task { @MainActor in
-                        self?.handleSelectionCancel()
-                    }
-                }
-
-                try await overlayController.presentOverlay()
-
-            } catch {
-                isCaptureInProgress = false
-                logger.error("Failed to present selection overlay: \(error.localizedDescription)")
-                appDelegate?.showCaptureError(.captureFailure(underlying: error))
-            }
+            CaptureSessionController.shared.startCapture(mode: .region)
         }
     }
 
-    /// Starts translation mode - presents region selection for translation
+    /// Starts translation mode - presents frozen selection for translation
     func startTranslationMode() {
-        guard !isCaptureInProgress else {
-            logger.debug("Capture already in progress, ignoring translation mode request")
-            return
-        }
-
-        logger.info("Translation mode triggered via hotkey or menu")
-
-        isCaptureInProgress = true
-
+        logger.info("Translation mode triggered with instant freeze")
         Task {
             guard await CaptureManager.shared.hasPermission else {
-                logger.info("Screen recording permission denied, triggering drag-to-authorize flow")
                 PermissionManager.shared.ensureScreenRecordingPermission()
-                isCaptureInProgress = false
                 return
             }
-            do {
-                let overlayController = SelectionOverlayController.shared
-
-                overlayController.onSelectionComplete = { [weak self] rect, display in
-                    Task { @MainActor in
-                        await self?.handleTranslationSelection(rect: rect, display: display)
-                    }
-                }
-
-                overlayController.onSelectionCancel = { [weak self] in
-                    Task { @MainActor in
-                        self?.handleSelectionCancel()
-                    }
-                }
-
-                try await overlayController.presentOverlay()
-
-            } catch {
-                isCaptureInProgress = false
-                logger.error("Failed to present translation overlay: \(error.localizedDescription)")
-                appDelegate?.showCaptureError(.captureFailure(underlying: error))
-            }
+            CaptureSessionController.shared.startCapture(mode: .screenshotTranslation)
         }
     }
 
-    // MARK: - Private Handlers
-
-    /// Handles successful selection completion
-    private func handleSelectionComplete(rect: CGRect, display: DisplayInfo) async {
-        defer { isCaptureInProgress = false }
-
-        do {
-            logger.info("Selection complete: \(Int(rect.width))×\(Int(rect.height)) on \(display.name)")
-
-            // Capture the selected region
-            let screenshot = try await CaptureManager.shared.captureRegion(rect, from: display)
-
-            logger.info("Region capture successful: \(screenshot.formattedDimensions)")
-
-            await MainActor.run {
-                PreviewWindowController.shared.showPreview(for: screenshot)
-            }
-
-        } catch let error as TransFrameError {
-            appDelegate?.showCaptureError(error)
-        } catch {
-            appDelegate?.showCaptureError(.captureFailure(underlying: error))
-        }
-    }
-
-    /// Handles translation mode selection completion
-    private func handleTranslationSelection(rect: CGRect, display: DisplayInfo) async {
-        defer { isCaptureInProgress = false }
-
-        do {
-            logger.info("Translation selection: \(Int(rect.width))×\(Int(rect.height)) on \(display.name)")
-
-            let screenshot = try await CaptureManager.shared.captureRegion(rect, from: display)
-
-            logger.info("Translation capture successful: \(screenshot.formattedDimensions)")
-
-            TranslationFlowController.shared.startTranslation(
-                image: screenshot.image,
-                scaleFactor: screenshot.sourceDisplay.scaleFactor
-            )
-
-        } catch let error as TransFrameError {
-            appDelegate?.showCaptureError(error)
-        } catch {
-            appDelegate?.showCaptureError(.captureFailure(underlying: error))
-        }
-    }
-
-    /// Handles selection cancellation
-    private func handleSelectionCancel() {
-        isCaptureInProgress = false
-        logger.debug("Selection cancelled by user")
-    }
 }

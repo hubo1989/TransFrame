@@ -116,6 +116,37 @@ final class MenuBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Pinned Windows Actions
+        let pinSubmenu = NSMenu()
+        let resetItem = NSMenuItem(
+            title: NSLocalizedString("menu.pinned.reset_interactions", value: "Restore All Pin Interactions", comment: ""),
+            action: #selector(resetPinnedInteractions),
+            keyEquivalent: ""
+        )
+        resetItem.target = self
+        resetItem.image = NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: nil)
+        pinSubmenu.addItem(resetItem)
+
+        let showAllItem = NSMenuItem(
+            title: NSLocalizedString("menu.pinned.show_all", value: "Bring All Pins to Front", comment: ""),
+            action: #selector(showAllPinnedWindows),
+            keyEquivalent: ""
+        )
+        showAllItem.target = self
+        showAllItem.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: nil)
+        pinSubmenu.addItem(showAllItem)
+
+        let pinParentItem = NSMenuItem(
+            title: NSLocalizedString("menu.pinned.title", value: "Pinned Windows", comment: ""),
+            action: nil,
+            keyEquivalent: ""
+        )
+        pinParentItem.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)
+        pinParentItem.submenu = pinSubmenu
+        menu.addItem(pinParentItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         // Settings
         menu.addItem(createMenuItem(
             titleKey: "menu.settings",
@@ -187,5 +218,15 @@ final class MenuBarController {
         }
 
         return item
+    }
+
+    // MARK: - Actions
+
+    @objc private func resetPinnedInteractions() {
+        PinnedWindowsManager.shared.resetAllInteractions()
+    }
+
+    @objc private func showAllPinnedWindows() {
+        PinnedWindowsManager.shared.showAllHidden()
     }
 }

@@ -13,6 +13,8 @@ enum Annotation: Identifiable, Equatable, Sendable {
     case mosaic(MosaicAnnotation)
     case highlight(HighlightAnnotation)
     case numberLabel(NumberLabelAnnotation)
+    case privacyRedaction(PrivacyRedactionAnnotation)
+    case calloutBubble(CalloutBubbleAnnotation)
 
     /// Unique identifier for this annotation
     var id: UUID {
@@ -34,6 +36,10 @@ enum Annotation: Identifiable, Equatable, Sendable {
         case .highlight(let annotation):
             return annotation.id
         case .numberLabel(let annotation):
+            return annotation.id
+        case .privacyRedaction(let annotation):
+            return annotation.id
+        case .calloutBubble(let annotation):
             return annotation.id
         }
     }
@@ -58,6 +64,10 @@ enum Annotation: Identifiable, Equatable, Sendable {
         case .highlight(let annotation):
             return annotation.rect
         case .numberLabel(let annotation):
+            return annotation.bounds
+        case .privacyRedaction(let annotation):
+            return annotation.rect
+        case .calloutBubble(let annotation):
             return annotation.bounds
         }
     }
@@ -422,6 +432,167 @@ extension Annotation {
             return NSLocalizedString("tool.highlight", comment: "")
         case .numberLabel:
             return NSLocalizedString("tool.numberLabel", comment: "")
+        case .privacyRedaction:
+            return NSLocalizedString("tool.privacyRedaction", comment: "Privacy Redaction")
+        case .calloutBubble:
+            return NSLocalizedString("tool.calloutBubble", comment: "Callout Bubble")
         }
+    }
+}
+
+// MARK: - Privacy Redaction Annotation
+
+/// A solid opaque rectangle used to permanently redact confidential regions before OCR or export.
+struct PrivacyRedactionAnnotation: Identifiable, Equatable, Sendable {
+    let id: UUID
+    var rect: CGRect
+    var fillColor: CodableColor
+
+    init(id: UUID = UUID(), rect: CGRect, fillColor: CodableColor = CodableColor(.black)) {
+        self.id = id
+        self.rect = rect
+        self.fillColor = fillColor
+    }
+
+    var isValid: Bool {
+        rect.width >= 5 && rect.height >= 5
+    }
+}
+
+// MARK: - Callout Bubble Annotation
+
+/// A speech/callout bubble with text and an adjustable pointer arrow.
+struct CalloutBubbleAnnotation: Identifiable, Equatable, Sendable {
+    let id: UUID
+    var rect: CGRect
+    var targetPoint: CGPoint
+    var text: String
+    var style: TextStyle
+    var bubbleColor: CodableColor
+
+    init(
+        id: UUID = UUID(),
+        rect: CGRect,
+        targetPoint: CGPoint,
+        text: String = "",
+        style: TextStyle = .default,
+        bubbleColor: CodableColor = CodableColor(.white)
+    ) {
+        self.id = id
+        self.rect = rect
+        self.targetPoint = targetPoint
+        self.text = text
+        self.style = style
+        self.bubbleColor = bubbleColor
+    }
+
+    var bounds: CGRect {
+        let minX = min(rect.minX, targetPoint.x)
+        let minY = min(rect.minY, targetPoint.y)
+        let maxX = max(rect.maxX, targetPoint.x)
+        let maxY = max(rect.maxY, targetPoint.y)
+        return CGRect(x: minX - 4, y: minY - 4, width: maxX - minX + 8, height: maxY - minY + 8)
+    }
+
+    var isValid: Bool {
+        rect.width >= 20 && rect.height >= 16
+    }
+}
+
+// MARK: - Precise Geometric Hit Testing
+
+extension Annotation {
+    /// Tests if a point hits the annotation with exact geometric distance tolerance.
+    func hitTest(point: CGPoint, tolerance: CGFloat = 8.0) -> Bool {
+        switch self {
+        case .rectangle(let r):
+            if r.isFilled {
+                return r.rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+            }
+            return isPointNearRectBorder(point, rect: r.rect, strokeWidth: r.style.lineWidth, tolerance: tolerance)
+
+        case .ellipse(let e):
+            if e.isFilled {
+                return isPointInsideEllipse(point, rect: e.rect)
+            }
+            return isPointNearEllipseBorder(point, rect: e.rect, strokeWidth: e.style.lineWidth, tolerance: tolerance)
+
+        case .line(let l):
+            let d = distanceToSegment(p: point, a: l.startPoint, b: l.endPoint)
+            return d <= (l.style.lineWidth / 2 + tolerance)
+
+        case .arrow(let a):
+            let d = distanceToSegment(p: point, a: a.startPoint, b: a.endPoint)
+            if d <= (a.style.lineWidth / 2 + tolerance) { return true }
+            return a.bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .freehand(let f):
+            guard f.points.count >= 2 else { return false }
+            let maxDist = f.style.lineWidth / 2 + tolerance
+            for i in 0..<(f.points.count - 1) {
+                if distanceToSegment(p: point, a: f.points[i], b: f.points[i + 1]) <= maxDist {
+                    return true
+                }
+            }
+            return false
+
+        case .text(let t):
+            return t.bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .mosaic(let m):
+            return m.rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .highlight(let h):
+            return h.rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .numberLabel(let n):
+            return n.bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .privacyRedaction(let pr):
+            return pr.rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
+        case .calloutBubble(let cb):
+            return cb.bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+        }
+    }
+
+    private func distanceToSegment(p: CGPoint, a: CGPoint, b: CGPoint) -> CGFloat {
+        let abx = b.x - a.x
+        let aby = b.y - a.y
+        let apx = p.x - a.x
+        let apy = p.y - a.y
+        let segLenSq = abx * abx + aby * aby
+        if segLenSq == 0 {
+            return hypot(apx, apy)
+        }
+        let t = max(0, min(1, (apx * abx + apy * aby) / segLenSq))
+        let projX = a.x + t * abx
+        let projY = a.y + t * aby
+        return hypot(p.x - projX, p.y - projY)
+    }
+
+    private func isPointNearRectBorder(_ p: CGPoint, rect: CGRect, strokeWidth: CGFloat, tolerance: CGFloat) -> Bool {
+        let effectiveTol = strokeWidth / 2 + tolerance
+        let outer = rect.insetBy(dx: -effectiveTol, dy: -effectiveTol)
+        let inner = rect.insetBy(dx: effectiveTol, dy: effectiveTol)
+        return outer.contains(p) && !inner.contains(p)
+    }
+
+    private func isPointInsideEllipse(_ p: CGPoint, rect: CGRect) -> Bool {
+        let rx = rect.width / 2
+        let ry = rect.height / 2
+        guard rx > 0 && ry > 0 else { return false }
+        let cx = rect.midX
+        let cy = rect.midY
+        let dx = (p.x - cx) / rx
+        let dy = (p.y - cy) / ry
+        return (dx * dx + dy * dy) <= 1.0
+    }
+
+    private func isPointNearEllipseBorder(_ p: CGPoint, rect: CGRect, strokeWidth: CGFloat, tolerance: CGFloat) -> Bool {
+        let effTol = strokeWidth / 2 + tolerance
+        let outerRect = rect.insetBy(dx: -effTol, dy: -effTol)
+        let innerRect = rect.insetBy(dx: effTol, dy: effTol)
+        return isPointInsideEllipse(p, rect: outerRect) && !isPointInsideEllipse(p, rect: innerRect)
     }
 }

@@ -5,8 +5,10 @@ import XCTest
 final class HistoryStoreTests: XCTestCase {
     @MainActor
     func testEntriesRemainSortedByTranslationTimestamp() {
-        let store = HistoryStore()
-        store.clear()
+        let suiteName = "test-history-\(UUID().uuidString)"
+        let testDefaults = UserDefaults(suiteName: suiteName)!
+        defer { testDefaults.removePersistentDomain(forName: suiteName) }
+        let store = HistoryStore(userDefaults: testDefaults)
 
         let older = TranslationResult(
             sourceText: "older",
@@ -27,7 +29,6 @@ final class HistoryStoreTests: XCTestCase {
         store.add(result: older)
 
         XCTAssertEqual(store.entries.map(\.sourceText), ["newer", "older"])
-        store.clear()
     }
 
     func testGenerateThumbnailDataCreatesBoundedJPEG() throws {

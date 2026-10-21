@@ -52,6 +52,14 @@ extension PreviewViewModel {
             textInputPositionInternal = point
         case .numberLabel:
             numberLabelTool.beginDrawing(at: point)
+        case .privacyRedaction:
+            rectangleTool.strokeStyle = strokeStyle
+            rectangleTool.isFilled = true
+            rectangleTool.beginDrawing(at: point)
+        case .calloutBubble:
+            rectangleTool.strokeStyle = strokeStyle
+            rectangleTool.isFilled = true
+            rectangleTool.beginDrawing(at: point)
         }
 
         updateCurrentAnnotation()
@@ -81,6 +89,8 @@ extension PreviewViewModel {
             textTool.continueDrawing(to: point)
         case .numberLabel:
             numberLabelTool.continueDrawing(to: point)
+        case .privacyRedaction, .calloutBubble:
+            rectangleTool.continueDrawing(to: point)
         }
 
         updateCurrentAnnotation()
@@ -114,6 +124,15 @@ extension PreviewViewModel {
             return
         case .numberLabel:
             annotation = numberLabelTool.endDrawing(at: point)
+        case .privacyRedaction:
+            if let rectAnno = rectangleTool.endDrawing(at: point), case .rectangle(let r) = rectAnno {
+                annotation = .privacyRedaction(PrivacyRedactionAnnotation(rect: r.rect, fillColor: CodableColor(.black)))
+            }
+        case .calloutBubble:
+            if let rectAnno = rectangleTool.endDrawing(at: point), case .rectangle(let r) = rectAnno {
+                let target = CGPoint(x: r.rect.midX, y: r.rect.maxY + 20)
+                annotation = .calloutBubble(CalloutBubbleAnnotation(rect: r.rect, targetPoint: target, text: "Note"))
+            }
         }
 
         currentAnnotationInternal = nil
@@ -246,6 +265,10 @@ extension PreviewViewModel {
             dragOriginalPosition = text.position
         case .numberLabel(let label):
             dragOriginalPosition = label.position
+        case .privacyRedaction(let redaction):
+            dragOriginalPosition = redaction.rect.origin
+        case .calloutBubble(let bubble):
+            dragOriginalPosition = bubble.rect.origin
         }
     }
 
@@ -338,6 +361,26 @@ extension PreviewViewModel {
                 y: originalPosition.y + delta.y
             )
             updatedAnnotation = .numberLabel(label)
+
+        case .privacyRedaction(var redaction):
+            redaction.rect.origin = CGPoint(
+                x: originalPosition.x + delta.x,
+                y: originalPosition.y + delta.y
+            )
+            updatedAnnotation = .privacyRedaction(redaction)
+
+        case .calloutBubble(var bubble):
+            let shiftX = originalPosition.x + delta.x - bubble.rect.origin.x
+            let shiftY = originalPosition.y + delta.y - bubble.rect.origin.y
+            bubble.rect.origin = CGPoint(
+                x: originalPosition.x + delta.x,
+                y: originalPosition.y + delta.y
+            )
+            bubble.targetPoint = CGPoint(
+                x: bubble.targetPoint.x + shiftX,
+                y: bubble.targetPoint.y + shiftY
+            )
+            updatedAnnotation = .calloutBubble(bubble)
         }
 
         if let updated = updatedAnnotation {
@@ -398,6 +441,14 @@ extension PreviewViewModel {
         case .numberLabel(var label):
             label.color = color
             updatedAnnotation = .numberLabel(label)
+
+        case .privacyRedaction(var redaction):
+            redaction.fillColor = color
+            updatedAnnotation = .privacyRedaction(redaction)
+
+        case .calloutBubble(var bubble):
+            bubble.bubbleColor = color
+            updatedAnnotation = .calloutBubble(bubble)
         }
 
         if let updated = updatedAnnotation {
@@ -436,7 +487,7 @@ extension PreviewViewModel {
             arrow.style.lineWidth = width
             updatedAnnotation = .arrow(arrow)
 
-        case .highlight, .mosaic, .text, .numberLabel:
+        case .highlight, .mosaic, .text, .numberLabel, .privacyRedaction, .calloutBubble:
             return
         }
 

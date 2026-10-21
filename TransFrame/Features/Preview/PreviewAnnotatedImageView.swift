@@ -91,7 +91,7 @@ struct PreviewAnnotatedImageView: View {
         }
 
         switch tool {
-        case .rectangle, .ellipse, .line, .freehand, .arrow, .highlight, .mosaic, .numberLabel:
+        case .rectangle, .ellipse, .line, .freehand, .arrow, .highlight, .mosaic, .numberLabel, .privacyRedaction, .calloutBubble:
             return .crosshair
         case .text:
             return .iBeam
