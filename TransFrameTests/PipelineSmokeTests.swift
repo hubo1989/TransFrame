@@ -310,31 +310,37 @@ final class PipelineSmokeTests: XCTestCase {
 
         let settings = AppSettings.shared
         let originalKey = settings.vlmAPIKey(for: .openai)
+        let originalBaseURL = settings.vlmBaseURL(for: .openai)
+        let originalModelName = settings.vlmModelName(for: .openai)
 
-        do {
-            try await KeychainService.shared.saveVLMCredentials(apiKey: "unlocked_test_key", for: .openai)
-            settings.setVLMBaseURL("https://api.openai.com/v1", for: .openai)
-            settings.setVLMModelName("gpt-4o", for: .openai)
-
-            let viewModel = SettingsViewModel(settings: settings)
-            viewModel.vlmProvider = .openai
-            viewModel.loadVLMEditingState(for: .openai)
-
-            XCTAssertEqual(viewModel.vlmEditingAPIKey, "unlocked_test_key")
-            XCTAssertFalse(viewModel.hasUnsavedVLMChanges)
-
-            // Simulate typing a draft
-            viewModel.vlmEditingAPIKey = "different_draft_key"
-            XCTAssertTrue(viewModel.hasUnsavedVLMChanges)
-
-            // Reload after credential unlock refreshes the editor
-            viewModel.loadVLMEditingState(for: .openai)
-            XCTAssertEqual(viewModel.vlmEditingAPIKey, "unlocked_test_key")
-            XCTAssertFalse(viewModel.hasUnsavedVLMChanges)
+        defer {
+            Task { @MainActor in
+                try? await KeychainService.shared.saveVLMCredentials(apiKey: originalKey, for: .openai)
+                settings.setVLMBaseURL(originalBaseURL, for: .openai)
+                settings.setVLMModelName(originalModelName, for: .openai)
+                CredentialAuthManager.shared.setAuthStateForTesting(previousState)
+            }
         }
 
-        try? await KeychainService.shared.saveVLMCredentials(apiKey: originalKey, for: .openai)
-        CredentialAuthManager.shared.setAuthStateForTesting(previousState)
+        try await KeychainService.shared.saveVLMCredentials(apiKey: "unlocked_test_key", for: .openai)
+        settings.setVLMBaseURL("https://api.openai.com/v1", for: .openai)
+        settings.setVLMModelName("gpt-4o", for: .openai)
+
+        let viewModel = SettingsViewModel(settings: settings)
+        viewModel.vlmProvider = .openai
+        viewModel.loadVLMEditingState(for: .openai)
+
+        XCTAssertEqual(viewModel.vlmEditingAPIKey, "unlocked_test_key")
+        XCTAssertFalse(viewModel.hasUnsavedVLMChanges)
+
+        // Simulate typing a draft
+        viewModel.vlmEditingAPIKey = "different_draft_key"
+        XCTAssertTrue(viewModel.hasUnsavedVLMChanges)
+
+        // Reload after credential unlock refreshes the editor
+        viewModel.loadVLMEditingState(for: .openai)
+        XCTAssertEqual(viewModel.vlmEditingAPIKey, "unlocked_test_key")
+        XCTAssertFalse(viewModel.hasUnsavedVLMChanges)
     }
 }
 

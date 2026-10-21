@@ -414,10 +414,7 @@ extension TextTranslationConfig {
             if let firstConfiguredEngine = settings.parallelEngines.first {
                 return firstConfiguredEngine
             }
-            return switch settings.preferredTranslationEngine {
-            case .apple: .apple
-            case .mtranServer: .mtranServer
-            }
+            return settings.translationEngine
         }
     }
 }

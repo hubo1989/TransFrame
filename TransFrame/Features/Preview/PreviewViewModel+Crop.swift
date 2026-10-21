@@ -61,11 +61,85 @@ extension PreviewViewModel {
 
         pushUndoState()
 
+        // Shift annotations relative to the new crop origin
+        let originShift = clampedRect.origin
+        var updatedAnnotations: [Annotation] = []
+        for anno in screenshot.annotations {
+            var shifted = anno
+            switch shifted {
+            case .rectangle(var r):
+                r.rect.origin.x -= originShift.x
+                r.rect.origin.y -= originShift.y
+                updatedAnnotations.append(.rectangle(r))
+            case .ellipse(var e):
+                e.rect.origin.x -= originShift.x
+                e.rect.origin.y -= originShift.y
+                updatedAnnotations.append(.ellipse(e))
+            case .line(var l):
+                l.startPoint.x -= originShift.x
+                l.startPoint.y -= originShift.y
+                l.endPoint.x -= originShift.x
+                l.endPoint.y -= originShift.y
+                updatedAnnotations.append(.line(l))
+            case .freehand(var f):
+                f.points = f.points.map { CGPoint(x: $0.x - originShift.x, y: $0.y - originShift.y) }
+                updatedAnnotations.append(.freehand(f))
+            case .arrow(var a):
+                a.startPoint.x -= originShift.x
+                a.startPoint.y -= originShift.y
+                a.endPoint.x -= originShift.x
+                a.endPoint.y -= originShift.y
+                updatedAnnotations.append(.arrow(a))
+            case .highlight(var h):
+                h.rect.origin.x -= originShift.x
+                h.rect.origin.y -= originShift.y
+                updatedAnnotations.append(.highlight(h))
+            case .mosaic(var m):
+                m.rect.origin.x -= originShift.x
+                m.rect.origin.y -= originShift.y
+                updatedAnnotations.append(.mosaic(m))
+            case .text(var t):
+                t.position.x -= originShift.x
+                t.position.y -= originShift.y
+                updatedAnnotations.append(.text(t))
+            case .numberLabel(var n):
+                n.position.x -= originShift.x
+                n.position.y -= originShift.y
+                updatedAnnotations.append(.numberLabel(n))
+            case .privacyRedaction(var pr):
+                pr.rect.origin.x -= originShift.x
+                pr.rect.origin.y -= originShift.y
+                updatedAnnotations.append(.privacyRedaction(pr))
+            case .calloutBubble(var cb):
+                cb.rect.origin.x -= originShift.x
+                cb.rect.origin.y -= originShift.y
+                cb.targetPoint.x -= originShift.x
+                cb.targetPoint.y -= originShift.y
+                updatedAnnotations.append(.calloutBubble(cb))
+            }
+        }
+
+        // Invalidate OCR cache for the previous crop area
+        ocrResult = nil
+
         screenshot = Screenshot(
+            id: screenshot.id,
             image: croppedImage,
             captureDate: screenshot.captureDate,
-            sourceDisplay: screenshot.sourceDisplay
+            sourceDisplay: screenshot.sourceDisplay,
+            annotations: updatedAnnotations,
+            format: screenshot.format
         )
+
+        // Sync with central CaptureDocumentStore if present
+        if var activeDoc = CaptureDocumentStore.shared.document(for: screenshot.id) {
+            activeDoc.cropTransform = clampedRect
+            activeDoc.annotations = updatedAnnotations
+            activeDoc.editRevision += 1
+            activeDoc.analysisInputRevision += 1
+            activeDoc.cachedAnalysisResult = nil
+            CaptureDocumentStore.shared.update(activeDoc)
+        }
 
         redoStack.removeAll()
         isCropMode = false

@@ -118,6 +118,18 @@ final class TranslationFlowController {
 
     // MARK: - Public API
 
+    /// Starts translation for a CaptureDocument with automatic privacy sanitization
+    func startTranslation(document: CaptureDocument, scaleFactor: CGFloat) {
+        cancel()
+
+        // Apply crop and permanently burn in privacy redactions before translation
+        let inputImage = AnalysisInputBuilder.shared.buildInputImage(for: document) ?? document.baseImage
+
+        currentTask = Task {
+            await performTranslation(image: inputImage, scaleFactor: scaleFactor)
+        }
+    }
+
     func startTranslation(image: CGImage, scaleFactor: CGFloat) {
         cancel()
 

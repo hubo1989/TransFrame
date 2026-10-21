@@ -19,12 +19,16 @@ struct TextSegment: Identifiable, Codable, Sendable, Equatable {
     /// Confidence score from VLM (0.0 to 1.0)
     let confidence: Float
 
+    /// Whether this segment was manually modified by the user
+    var isUserEdited: Bool
+
     /// Initialize with all properties
-    init(id: UUID = UUID(), text: String, boundingBox: CGRect, confidence: Float) {
+    init(id: UUID = UUID(), text: String, boundingBox: CGRect, confidence: Float = 1.0, isUserEdited: Bool = false) {
         self.id = id
         self.text = text
         self.boundingBox = boundingBox
         self.confidence = confidence
+        self.isUserEdited = isUserEdited
     }
 
     /// Whether this segment has high confidence (> 0.7)
@@ -157,15 +161,28 @@ extension TextSegment {
 /// The result of VLM-based screen analysis.
 /// Contains all extracted text segments with their positions.
 struct ScreenAnalysisResult: Codable, Sendable, Equatable {
-    /// All text segments found in the image
-    let segments: [TextSegment]
+    /// Active text segments used for display and translation
+    var segments: [TextSegment]
+
+    /// Unfiltered original segments directly from OCR/VLM
+    var rawSegments: [TextSegment]
+
+    /// Segments filtered out due to noise or low confidence
+    var filteredOutSegments: [TextSegment]
 
     /// The source image dimensions (width x height in pixels)
     let imageSize: CGSize
 
-    /// Initialize with segments and image size
-    init(segments: [TextSegment] = [], imageSize: CGSize) {
+    /// Initialize with segments, rawSegments, and image size
+    init(
+        segments: [TextSegment] = [],
+        rawSegments: [TextSegment] = [],
+        filteredOutSegments: [TextSegment] = [],
+        imageSize: CGSize
+    ) {
         self.segments = segments
+        self.rawSegments = rawSegments.isEmpty ? segments : rawSegments
+        self.filteredOutSegments = filteredOutSegments
         self.imageSize = imageSize
     }
 
@@ -189,8 +206,66 @@ struct ScreenAnalysisResult: Codable, Sendable, Equatable {
 
     /// Filter segments by minimum confidence level
     func filter(minimumConfidence: Float) -> ScreenAnalysisResult {
-        let filtered = segments.filter { $0.confidence >= minimumConfidence }
-        return ScreenAnalysisResult(segments: filtered, imageSize: imageSize)
+        let passed = segments.filter { $0.confidence >= minimumConfidence }
+        let excluded = segments.filter { $0.confidence < minimumConfidence }
+        return ScreenAnalysisResult(
+            segments: passed,
+            rawSegments: rawSegments,
+            filteredOutSegments: filteredOutSegments + excluded,
+            imageSize: imageSize
+        )
+    }
+
+    /// Restores all previously filtered-out segments
+    func recoveringFilteredSegments() -> ScreenAnalysisResult {
+        var combined = segments + filteredOutSegments
+        // Deduplicate by ID
+        var seen = Set<UUID>()
+        combined.removeAll { !seen.insert($0.id).inserted }
+        return ScreenAnalysisResult(
+            segments: combined,
+            rawSegments: rawSegments,
+            filteredOutSegments: [],
+            imageSize: imageSize
+        )
+    }
+
+    /// Manually updates a segment's recognized text, preserving isUserEdited flag
+    func updatingSegment(id: UUID, newText: String) -> ScreenAnalysisResult {
+        let updated = segments.map { segment -> TextSegment in
+            if segment.id == id {
+                return TextSegment(
+                    id: segment.id,
+                    text: newText,
+                    boundingBox: segment.boundingBox,
+                    confidence: 1.0,
+                    isUserEdited: true
+                )
+            }
+            return segment
+        }
+        return ScreenAnalysisResult(
+            segments: updated,
+            rawSegments: rawSegments,
+            filteredOutSegments: filteredOutSegments,
+            imageSize: imageSize
+        )
+    }
+
+    /// Merges re-recognized segments within a specific region of interest (ROI)
+    func mergingROISegments(_ newSegments: [TextSegment], in roiNormalizedRect: CGRect) -> ScreenAnalysisResult {
+        // Keep existing segments outside ROI, and replace overlapping non-edited segments
+        var remaining = segments.filter { segment in
+            if segment.isUserEdited { return true }
+            return !segment.boundingBox.intersects(roiNormalizedRect)
+        }
+        remaining.append(contentsOf: newSegments)
+        return ScreenAnalysisResult(
+            segments: remaining,
+            rawSegments: rawSegments + newSegments,
+            filteredOutSegments: filteredOutSegments,
+            imageSize: imageSize
+        )
     }
 
     /// Get segments within a specific region
@@ -200,10 +275,18 @@ struct ScreenAnalysisResult: Codable, Sendable, Equatable {
 
     /// Removes coordinate ticks, isolated symbols, and similar OCR noise before translation.
     func filteredForTranslation() -> ScreenAnalysisResult {
-        let filteredSegments = segments.filter {
+        let filtered = segments.filter {
             !$0.isLikelyTranslationNoise && !$0.isLikelyOCRPromptLeakage
         }
-        return ScreenAnalysisResult(segments: filteredSegments, imageSize: imageSize)
+        let excluded = segments.filter {
+            $0.isLikelyTranslationNoise || $0.isLikelyOCRPromptLeakage
+        }
+        return ScreenAnalysisResult(
+            segments: filtered,
+            rawSegments: rawSegments,
+            filteredOutSegments: filteredOutSegments + excluded,
+            imageSize: imageSize
+        )
     }
 
     /// Whether every segment appears to be prompt/schema leakage instead of real UI text.

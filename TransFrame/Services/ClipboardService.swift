@@ -140,7 +140,49 @@ struct ClipboardService {
             renderText(text, in: context, imageHeight: imageHeight)
         case .numberLabel(let label):
             renderNumberLabel(label, in: context, imageHeight: imageHeight)
+        case .privacyRedaction(let redaction):
+            renderPrivacyRedaction(redaction, in: context, imageHeight: imageHeight)
+        case .calloutBubble(let bubble):
+            renderCalloutBubble(bubble, in: context, imageHeight: imageHeight)
         }
+    }
+
+    /// Renders a solid privacy redaction annotation.
+    private func renderPrivacyRedaction(
+        _ annotation: PrivacyRedactionAnnotation,
+        in context: CGContext,
+        imageHeight: CGFloat
+    ) {
+        let rect = CGRect(
+            x: annotation.rect.origin.x,
+            y: imageHeight - annotation.rect.origin.y - annotation.rect.height,
+            width: annotation.rect.width,
+            height: annotation.rect.height
+        )
+        context.saveGState()
+        context.setFillColor(annotation.fillColor.nsColor.cgColor)
+        context.fill(rect)
+        context.restoreGState()
+    }
+
+    /// Renders a callout bubble annotation.
+    private func renderCalloutBubble(
+        _ annotation: CalloutBubbleAnnotation,
+        in context: CGContext,
+        imageHeight: CGFloat
+    ) {
+        let rect = CGRect(
+            x: annotation.rect.origin.x,
+            y: imageHeight - annotation.rect.origin.y - annotation.rect.height,
+            width: annotation.rect.width,
+            height: annotation.rect.height
+        )
+        context.saveGState()
+        context.setFillColor(annotation.bubbleColor.nsColor.cgColor)
+        let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
     }
 
     /// Renders a rectangle annotation.

@@ -83,18 +83,43 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
 
     /// Checks if Ollama server is running and accessible
     private func checkServerAvailability() async -> Bool {
-        let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("api/tags")
+        let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
+        let endpoint: URL
+        if isChatCompletions {
+            var url = configuration.baseURL.resolvingLocalhost
+            if url.path.hasSuffix("/chat/completions") {
+                url = url.deletingLastPathComponent()
+            }
+            endpoint = url.appendingPathComponent("models")
+        } else {
+            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("api/tags")
+        }
+
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 5 // Short timeout for health check
+        let key = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 return false
             }
-            return httpResponse.statusCode == 200
+            return httpResponse.statusCode == 200 || httpResponse.statusCode == 401
         } catch {
+            if !isChatCompletions {
+                let fallback = configuration.baseURL.resolvingLocalhost.appendingPathComponent("v1/models")
+                var fbReq = URLRequest(url: fallback)
+                fbReq.httpMethod = "GET"
+                fbReq.timeoutInterval = 3
+                if let (_, resp) = try? await URLSession.shared.data(for: fbReq),
+                   let http = resp as? HTTPURLResponse {
+                    return http.statusCode == 200 || http.statusCode == 401
+                }
+            }
             return false
         }
     }
@@ -104,7 +129,12 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
         let endpoint: URL
         if isChatCompletions {
-            endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("chat/completions")
+            let url = configuration.baseURL.resolvingLocalhost
+            if url.path.hasSuffix("/chat/completions") {
+                endpoint = url
+            } else {
+                endpoint = url.appendingPathComponent("chat/completions")
+            }
         } else {
             endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("api/generate")
         }
@@ -196,6 +226,9 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         switch response.statusCode {
         case 200 ... 299:
             return
+
+        case 401, 403:
+            throw VLMProviderError.authenticationFailed
 
         case 404:
             throw VLMProviderError.modelUnavailable(

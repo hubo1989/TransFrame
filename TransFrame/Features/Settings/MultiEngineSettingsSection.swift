@@ -395,6 +395,31 @@ struct MultiEngineSettingsSection: View {
                         viewModel.settings.compatibleProviderConfigs[state.index] = savedConfig
                     }
                     viewModel.settings.saveCompatibleConfigs()
+
+                    var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
+                    let isCurrentCustom: Bool = {
+                        guard let customNameStr = customConfig.customName,
+                              let jsonData = customNameStr.data(using: .utf8),
+                              let current = try? JSONDecoder().decode(CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) else {
+                            return true
+                        }
+                        return current.id == savedConfig.id
+                    }()
+
+                    if isCurrentCustom || viewModel.settings.compatibleProviderConfigs.count == 1 {
+                        if let jsonData = try? JSONEncoder().encode(savedConfig),
+                           let jsonString = String(data: jsonData, encoding: .utf8) {
+                            customConfig.customName = jsonString
+                            customConfig.isEnabled = true
+                            viewModel.settings.engineConfigs[.custom] = customConfig
+                            viewModel.settings.saveEngineConfigs()
+                        }
+                    }
+
+                    Task {
+                        await TranslationEngineRegistry.shared.unregister(.custom)
+                        await TranslationEngineRegistry.shared.removeCompatibleProvider(for: savedConfig.keychainId)
+                    }
                 }
             )
         }

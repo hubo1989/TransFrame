@@ -93,6 +93,7 @@ struct AnnotationCanvas: View {
         // Count each annotation type
         var rectangleCount = 0, freehandCount = 0, arrowCount = 0, textCount = 0
         var ellipseCount = 0, lineCount = 0, mosaicCount = 0, highlightCount = 0, numberLabelCount = 0
+        var privacyRedactionCount = 0, calloutBubbleCount = 0
 
         // Count from existing annotations
         for annotation in annotations {
@@ -106,6 +107,8 @@ struct AnnotationCanvas: View {
             case .mosaic: mosaicCount += 1
             case .highlight: highlightCount += 1
             case .numberLabel: numberLabelCount += 1
+            case .privacyRedaction: privacyRedactionCount += 1
+            case .calloutBubble: calloutBubbleCount += 1
             }
         }
         
@@ -121,6 +124,8 @@ struct AnnotationCanvas: View {
             case .mosaic: mosaicCount += 1
             case .highlight: highlightCount += 1
             case .numberLabel: numberLabelCount += 1
+            case .privacyRedaction: privacyRedactionCount += 1
+            case .calloutBubble: calloutBubbleCount += 1
             }
         }
 
@@ -133,6 +138,8 @@ struct AnnotationCanvas: View {
         if mosaicCount > 0 { parts.append("\(mosaicCount) mosaic\(mosaicCount == 1 ? "" : "s")") }
         if textCount > 0 { parts.append("\(textCount) text\(textCount == 1 ? "" : "s")") }
         if numberLabelCount > 0 { parts.append("\(numberLabelCount) number label\(numberLabelCount == 1 ? "" : "s")") }
+        if privacyRedactionCount > 0 { parts.append("\(privacyRedactionCount) redaction\(privacyRedactionCount == 1 ? "" : "s")") }
+        if calloutBubbleCount > 0 { parts.append("\(calloutBubbleCount) bubble\(calloutBubbleCount == 1 ? "" : "s")") }
 
         return "Annotations: \(parts.joined(separator: ", "))"
     }
@@ -164,7 +171,61 @@ struct AnnotationCanvas: View {
             drawText(text, in: &context, size: size)
         case .numberLabel(let label):
             drawNumberLabel(label, in: &context, size: size)
+        case .privacyRedaction(let redaction):
+            drawPrivacyRedaction(redaction, in: &context, size: size)
+        case .calloutBubble(let bubble):
+            drawCalloutBubble(bubble, in: &context, size: size)
         }
+    }
+
+    /// Draws a solid privacy redaction annotation
+    private func drawPrivacyRedaction(
+        _ annotation: PrivacyRedactionAnnotation,
+        in context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let scaledRect = scaleRect(annotation.rect)
+        let path = Path(scaledRect)
+        context.fill(path, with: .color(annotation.fillColor.color))
+    }
+
+    /// Draws a callout bubble annotation
+    private func drawCalloutBubble(
+        _ annotation: CalloutBubbleAnnotation,
+        in context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let scaledBubbleRect = scaleRect(annotation.rect)
+        let scaledTarget = scalePoint(annotation.targetPoint)
+
+        // Draw pointer tail line
+        var tailPath = Path()
+        tailPath.move(to: scaledTarget)
+        let attachPoint = CGPoint(
+            x: max(scaledBubbleRect.minX + 8 * scale, min(scaledBubbleRect.maxX - 8 * scale, scaledTarget.x)),
+            y: scaledTarget.y < scaledBubbleRect.minY ? scaledBubbleRect.minY : scaledBubbleRect.maxY
+        )
+        tailPath.addLine(to: attachPoint)
+        context.stroke(
+            tailPath,
+            with: .color(annotation.bubbleColor.color),
+            style: SwiftUI.StrokeStyle(lineWidth: 2 * scale, lineCap: .round)
+        )
+
+        // Draw bubble background
+        let bubblePath = Path(roundedRect: scaledBubbleRect, cornerRadius: 8 * scale)
+        context.fill(bubblePath, with: .color(annotation.bubbleColor.color))
+
+        // Draw text inside bubble
+        let font = Font.system(size: max(10, annotation.style.fontSize * scale), weight: .medium)
+        let text = Text(annotation.text)
+            .font(font)
+            .foregroundColor(annotation.style.color.color)
+
+        context.draw(
+            context.resolve(text),
+            in: scaledBubbleRect.insetBy(dx: 6 * scale, dy: 6 * scale)
+        )
     }
 
     /// Draws a rectangle annotation

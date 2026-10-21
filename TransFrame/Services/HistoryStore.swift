@@ -19,10 +19,13 @@ final class HistoryStore: ObservableObject {
     /// Maximum number of history entries to store
     private static let maxHistoryEntries = 50
 
-    /// UserDefaults key for history data
-    private static let historyKey = "TransFrame.translationHistory"
+    /// Default UserDefaults key for history data
+    public static let defaultHistoryKey = "TransFrame.translationHistory"
 
     // MARK: - Properties
+
+    private let userDefaults: UserDefaults
+    private let historyKey: String
 
     /// The list of translation history entries (newest first)
     @Published private(set) var entries: [TranslationHistory] = []
@@ -41,7 +44,9 @@ final class HistoryStore: ObservableObject {
 
     // MARK: - Initialization
 
-    init() {
+    init(userDefaults: UserDefaults = .standard, historyKey: String = defaultHistoryKey) {
+        self.userDefaults = userDefaults
+        self.historyKey = historyKey
         loadHistory()
         updateFilteredEntries()
     }
@@ -152,7 +157,7 @@ final class HistoryStore: ObservableObject {
 
     /// Loads history from UserDefaults
     private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: Self.historyKey) else {
+        guard let data = userDefaults.data(forKey: historyKey) else {
             entries = []
             return
         }
@@ -167,7 +172,7 @@ final class HistoryStore: ObservableObject {
     /// Saves history to UserDefaults
     private func saveHistory() {
         if let data = try? JSONEncoder().encode(entries) {
-            UserDefaults.standard.set(data, forKey: Self.historyKey)
+            userDefaults.set(data, forKey: historyKey)
         }
     }
 

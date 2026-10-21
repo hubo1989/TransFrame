@@ -1162,8 +1162,18 @@ final class SettingsViewModel {
 
     /// Tests local model provider connection (compatible with Ollama, LM Studio, vLLM, LocalAI)
     private func testLocalConnection(baseURL: URL, apiKey: String, modelName: String) async throws -> (success: Bool, message: String) {
-        // First try standard OpenAI chat completions endpoint
-        var request = URLRequest(url: baseURL.appendingPathComponent("v1/chat/completions"))
+        // Construct standard OpenAI chat completions endpoint intelligently
+        let cleanPath = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let chatEndpoint: URL
+        if cleanPath.hasSuffix("chat/completions") {
+            chatEndpoint = baseURL
+        } else if cleanPath.hasSuffix("v1") {
+            chatEndpoint = baseURL.appendingPathComponent("chat/completions")
+        } else {
+            chatEndpoint = baseURL.appendingPathComponent("v1/chat/completions")
+        }
+
+        var request = URLRequest(url: chatEndpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if !apiKey.isEmpty {
@@ -1178,17 +1188,27 @@ final class SettingsViewModel {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: chatBody)
 
+        var firstRequestStatus: Int?
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
+            if let http = response as? HTTPURLResponse {
+                firstRequestStatus = http.statusCode
+                if (200..<300).contains(http.statusCode) {
+                    return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
+                } else if http.statusCode == 401 || http.statusCode == 403 {
+                    throw VLMProviderError.authenticationFailed
+                }
             }
+        } catch let err as VLMProviderError {
+            throw err
         } catch {
-            // Fall through to Ollama native endpoint
+            // Network or connection failure, fall through to try Ollama native endpoint
         }
 
         // Try Ollama native endpoint: api/generate
-        var nativeRequest = URLRequest(url: baseURL.appendingPathComponent("api/generate"))
+        let nativeBaseURL = cleanPath.hasSuffix("v1") ? baseURL.deletingLastPathComponent() : baseURL
+        let nativeEndpoint = nativeBaseURL.appendingPathComponent("api/generate")
+        var nativeRequest = URLRequest(url: nativeEndpoint)
         nativeRequest.httpMethod = "POST"
         nativeRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if !apiKey.isEmpty {
@@ -1214,6 +1234,9 @@ final class SettingsViewModel {
         case 200:
             return (true, String(format: NSLocalizedString("settings.vlm.test.ollama.success", comment: ""), modelName))
         case 404:
+            if let firstStatus = firstRequestStatus {
+                throw VLMProviderError.invalidResponse("HTTP \(firstStatus)")
+            }
             throw VLMProviderError.modelUnavailable("\(modelName). Ensure endpoint and model name are correct.")
         default:
             throw VLMProviderError.invalidResponse("HTTP \(httpResponse.statusCode)")

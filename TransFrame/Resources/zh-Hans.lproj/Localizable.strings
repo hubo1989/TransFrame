@@ -824,3 +824,9 @@
 
 "engine.config.fetchModels" = "获取";
 "engine.config.fetchModels.failed" = "获取模型失败";
+
+"menu.pinned.title" = "钉图管理";
+"menu.pinned.reset_interactions" = "恢复所有钉图交互（取消穿透）";
+"menu.pinned.show_all" = "置顶显示所有钉图";
+"tool.privacyRedaction" = "隐私遮挡";
+"tool.calloutBubble" = "引线气泡";

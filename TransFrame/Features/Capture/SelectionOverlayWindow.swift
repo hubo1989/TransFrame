@@ -1,53 +1,77 @@
 import AppKit
 import CoreGraphics
+import CoreText
+import SwiftUI
 import os
 
 // MARK: - SelectionOverlayDelegate
 
-/// Delegate protocol for selection overlay events.
 @MainActor
 protocol SelectionOverlayDelegate: AnyObject {
-    /// Called when user completes a selection.
-    /// - Parameters:
-    ///   - rect: The selected rectangle in screen coordinates
-    ///   - display: The display containing the selection
-    func selectionOverlay(didSelectRect rect: CGRect, on display: DisplayInfo)
+    /// Called when user confirms a selection and chooses an action from the in-place toolbar or hotkey.
+    func selectionOverlay(
+        didConfirmSelection selectionQuartz: QuartzGlobalRect,
+        action: SelectionInPlaceToolbar.Action,
+        annotations: [Annotation],
+        on snapshot: DisplaySnapshot
+    )
 
-    /// Called when user cancels the selection.
+    /// Called when user cancels selection.
     func selectionOverlayDidCancel()
+
+    /// Backward compatibility hook
+    func selectionOverlay(didSelectRect rect: CGRect, on display: DisplayInfo)
+}
+
+extension SelectionOverlayDelegate {
+    func selectionOverlay(didSelectRect rect: CGRect, on display: DisplayInfo) {}
+}
+
+// MARK: - SnapshotBackgroundView
+
+/// Hardware-accelerated background view that renders the static screen image using CALayer texture.
+/// Never redraws in software, eliminating CPU image copy overhead during interactions.
+final class SnapshotBackgroundView: NSView {
+    override var isFlipped: Bool { true }
+
+    init(frame: NSRect, image: CGImage) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.contents = image
+        layer?.contentsGravity = .resize
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 }
 
 // MARK: - SelectionOverlayWindow
 
-/// NSPanel subclass for displaying the selection overlay.
-/// Provides a full-screen transparent overlay with crosshair cursor,
-/// dim effect, and selection rectangle drawing.
+/// Fullscreen overlay window for an individual display displaying a frozen snapshot.
 final class SelectionOverlayWindow: NSPanel {
-    // MARK: - Properties
-
-    /// The screen this overlay covers
     let targetScreen: NSScreen
+    let displaySnapshot: DisplaySnapshot
+    let frozenSnapshotSet: FrozenSnapshotSet
 
-    /// The display info for this screen
-    let displayInfo: DisplayInfo
+    private(set) var overlayView: SelectionOverlayView?
 
-    /// The content view handling drawing and interaction
-    private var overlayView: SelectionOverlayView?
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 
-    // MARK: - Initialization
-
-    /// Creates a new selection overlay window for the specified screen.
-    /// - Parameters:
-    ///   - screen: The NSScreen to overlay
-    ///   - displayInfo: The DisplayInfo for the screen
     @MainActor
-    init(screen: NSScreen, displayInfo: DisplayInfo) {
+    init(
+        screen: NSScreen,
+        snapshot: DisplaySnapshot,
+        snapshotSet: FrozenSnapshotSet
+    ) {
         self.targetScreen = screen
-        self.displayInfo = displayInfo
+        self.displaySnapshot = snapshot
+        self.frozenSnapshotSet = snapshotSet
 
         super.init(
             contentRect: screen.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -56,209 +80,159 @@ final class SelectionOverlayWindow: NSPanel {
         setupOverlayView()
     }
 
-    // MARK: - Configuration
-
     @MainActor
     private func configureWindow() {
-        // Window properties for full-screen overlay
-        level = .screenSaver // Above most windows but below alerts
-        isOpaque = false
-        backgroundColor = .clear
+        level = .screenSaver
+        isOpaque = true
+        backgroundColor = .black
         ignoresMouseEvents = false
         hasShadow = false
-
-        // Don't hide on deactivation
         hidesOnDeactivate = false
-
-        // Behavior
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         isMovable = false
-        isMovableByWindowBackground = false
-
-        // Accept mouse events
         acceptsMouseMovedEvents = true
     }
 
     @MainActor
     private func setupOverlayView() {
-        let view = SelectionOverlayView(frame: targetScreen.frame)
+        let container = NSView(frame: NSRect(origin: .zero, size: targetScreen.frame.size))
+        container.autoresizingMask = [.width, .height]
+
+        let bgView = SnapshotBackgroundView(
+            frame: NSRect(origin: .zero, size: targetScreen.frame.size),
+            image: displaySnapshot.image
+        )
+        bgView.autoresizingMask = [.width, .height]
+        container.addSubview(bgView)
+
+        let view = SelectionOverlayView(
+            frame: NSRect(origin: .zero, size: targetScreen.frame.size),
+            displaySnapshot: displaySnapshot,
+            snapshotSet: frozenSnapshotSet
+        )
         view.autoresizingMask = [.width, .height]
-        self.contentView = view
+        container.addSubview(view)
+
+        self.contentView = container
         self.overlayView = view
     }
 
-    // MARK: - Public API
-
-    /// Sets the delegate for selection events
     @MainActor
     func setDelegate(_ delegate: SelectionOverlayDelegate) {
         overlayView?.delegate = delegate
-        overlayView?.displayInfo = displayInfo
     }
 
-    /// Updates the current mouse position for crosshair drawing
     @MainActor
-    func updateMousePosition(_ point: NSPoint) {
-        overlayView?.mousePosition = point
-        overlayView?.needsDisplay = true
+    func showOverlay(isKey: Bool = true) {
+        if isKey {
+            makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            makeFirstResponder(overlayView)
+        } else {
+            orderFront(nil)
+        }
+        overlayView?.initializeCursor()
     }
+}
 
-    /// Updates the selection state (start point and current point)
-    @MainActor
-    func updateSelection(start: NSPoint?, current: NSPoint?) {
-        overlayView?.selectionStart = start
-        overlayView?.selectionCurrent = current
-        overlayView?.needsDisplay = true
+// MARK: - Resize Handle
+
+enum ResizeHandle: CaseIterable {
+    case topLeft, topCenter, topRight
+    case middleLeft, middleRight
+    case bottomLeft, bottomCenter, bottomRight
+
+    func cursor() -> NSCursor {
+        switch self {
+        case .topLeft, .bottomRight:
+            return NSCursor(image: NSImage(size: NSSize(width: 16, height: 16)), hotSpot: NSPoint(x: 8, y: 8))
+        case .topRight, .bottomLeft:
+            return NSCursor.crosshair
+        case .topCenter, .bottomCenter:
+            return NSCursor.resizeUpDown
+        case .middleLeft, .middleRight:
+            return NSCursor.resizeLeftRight
+        }
     }
-
-    /// Shows the overlay window
-    @MainActor
-    func showOverlay() {
-        makeKeyAndOrderFront(nil)
-    }
-
-    /// Hides and closes the overlay window
-    @MainActor
-    func hideOverlay() {
-        orderOut(nil)
-        close()
-    }
-
-    // MARK: - NSWindow Overrides
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-
-    // Make the window accept first responder
-    override var acceptsFirstResponder: Bool { true }
 }
 
 // MARK: - SelectionOverlayView
 
-/// Custom NSView for drawing the selection overlay.
-/// Handles crosshair cursor, dim overlay, and selection rectangle.
-final class SelectionOverlayView: NSView {
-    // MARK: - Properties
-
-    /// Delegate for selection events
-    weak var delegate: SelectionOverlayDelegate?
-
-    /// Display info for coordinate conversion
-    var displayInfo: DisplayInfo?
-
-    /// Current mouse position (in window coordinates)
-    var mousePosition: NSPoint?
-
-    /// Selection start point (in window coordinates)
-    var selectionStart: NSPoint?
-
-    /// Current selection end point (in window coordinates)
-    var selectionCurrent: NSPoint?
-
-    /// Currently highlighted window rect (in view coordinates, nil if no window under cursor)
-    private var highlightedWindowRect: CGRect? {
-        didSet {
-            // Only trigger display update when rect actually changes
-            if oldValue != highlightedWindowRect {
-                needsDisplay = true
-            }
-        }
+final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
+    enum InteractionState {
+        case hovering
+        case creatingSelection(start: CGPoint, current: CGPoint)
+        case selected(rect: CGRect)
+        case resizing(handle: ResizeHandle, anchorRect: CGRect, startPoint: CGPoint, currentRect: CGRect)
+        case moving(anchorRect: CGRect, startPoint: CGPoint, currentRect: CGRect)
+        case drawingAnnotation(tool: SelectionInPlaceToolbar.AnnotationTool, selectionRect: CGRect, start: CGPoint, current: CGPoint)
     }
 
-    /// Window detector for detecting windows under cursor
-    private let windowDetector = WindowDetector.shared
+    weak var delegate: SelectionOverlayDelegate?
 
-    /// Cached window list for current interaction (refreshed on mouseDown)
-    private var cachedWindows: [WindowInfo] = []
+    let displaySnapshot: DisplaySnapshot
+    let frozenSnapshotSet: FrozenSnapshotSet
 
-    /// Whether the user is currently dragging
-    private var isDragging = false
+    private var state: InteractionState = .hovering
+    private var mousePosition: CGPoint?
+    private var candidateWindowsUnderMouse: [WindowInfo] = []
+    private var isFreeSelectionLocked: Bool = false
 
-    /// Last mouse moved timestamp for throttling
-    private var lastMouseMovedTime: TimeInterval = 0
+    // Cached image pixel data to avoid repeated memory copies
+    private let pixelData: CFData?
+    private let pixelBytes: UnsafePointer<UInt8>?
 
-    /// Throttle interval for window detection (16ms ≈ 60fps)
-    private let windowDetectionThrottleInterval: TimeInterval = 0.016
+    // Annotations in progress
+    private var committedAnnotations: [Annotation] = []
+    private var activeAnnotationTool: SelectionInPlaceToolbar.AnnotationTool?
+    private var annotationColor: NSColor = .systemRed
+    private var annotationLineWidth: CGFloat = 3.0
+    private var currentDraftAnnotation: Annotation?
+    private var freehandPoints: [CGPoint] = []
 
-    /// Minimum window size to highlight (10x10 pixels)
-    private let minimumWindowSize: CGFloat = 10
+    private var toolbar: SelectionInPlaceToolbar?
+    private let editHistory = EditHistory()
 
-    /// Dim overlay color
-    private let dimColor = NSColor.black.withAlphaComponent(0.3)
+    private let handleSize: CGFloat = 8.0
 
-    /// Selection rectangle stroke color
-    private let selectionStrokeColor = NSColor.white
-
-    /// Selection rectangle fill color
-    private let selectionFillColor = NSColor.white.withAlphaComponent(0.1)
-
-    /// Dimensions label background color
-    private let labelBackgroundColor = NSColor.black.withAlphaComponent(0.75)
-
-    /// Dimensions label text color
-    private let labelTextColor = NSColor.white
-
-    /// Crosshair line color
-    private let crosshairColor = NSColor.white.withAlphaComponent(0.8)
-
-    /// Window highlight fill color (#46E7F0 with 15% alpha - brighter for better visibility)
-    private let windowHighlightFillColor = NSColor(red: 0.275, green: 0.906, blue: 0.941, alpha: 0.15)
-
-    /// Window highlight stroke color (#46E7F0 with 90% alpha - much brighter and more visible)
-    private let windowHighlightStrokeColor = NSColor(red: 0.275, green: 0.906, blue: 0.941, alpha: 0.9)
-
-    /// Window highlight stroke width (thicker for better visibility)
-    private let windowHighlightStrokeWidth: CGFloat = 4.0
-
-    /// Drag threshold for distinguishing click from drag (in points)
-    private let dragThreshold: CGFloat = 4.0
-
-    /// Mouse down position for click/drag detection
-    private var mouseDownPoint: NSPoint?
-
-    /// Tracking area for mouse moved events
-    private var trackingArea: NSTrackingArea?
-
-    // MARK: - Initialization
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setupTrackingArea()
+    init(
+        frame: NSRect,
+        displaySnapshot: DisplaySnapshot,
+        snapshotSet: FrozenSnapshotSet
+    ) {
+        self.displaySnapshot = displaySnapshot
+        self.frozenSnapshotSet = snapshotSet
+        if let data = displaySnapshot.image.dataProvider?.data {
+            self.pixelData = data
+            self.pixelBytes = CFDataGetBytePtr(data)
+        } else {
+            self.pixelData = nil
+            self.pixelBytes = nil
+        }
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Setup
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override func becomeFirstResponder() -> Bool { true }
 
-    private func setupTrackingArea() {
-        let options: NSTrackingArea.Options = [
-            .activeAlways,
-            .mouseMoved,
-            .mouseEnteredAndExited,
-            .inVisibleRect
-        ]
+    // MARK: - Cursor Initialization
 
-        trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: options,
-            owner: self,
-            userInfo: nil
-        )
-        if let area = trackingArea {
-            addTrackingArea(area)
+    func initializeCursor() {
+        let mouseLoc = NSEvent.mouseLocation
+        let windowPoint = window?.convertPoint(fromScreen: mouseLoc) ?? .zero
+        let localPoint = convert(windowPoint, from: nil)
+        if bounds.contains(localPoint) {
+            updateHoverState(at: localPoint)
         }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
-
-        setupTrackingArea()
     }
 
     // MARK: - Drawing
@@ -266,594 +240,803 @@ final class SelectionOverlayView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
-        // Draw dim overlay (with cutout for selection or highlighted window)
-        drawDimOverlay(context: context)
+        // 1. Determine active selection or hovered window rect
+        let currentSelection: CGRect? = {
+            switch state {
+            case .creatingSelection(let start, let current):
+                return normalizedRect(from: start, to: current)
+            case .selected(let rect):
+                return rect
+            case .resizing(_, _, _, let currentRect):
+                return currentRect
+            case .moving(_, _, let currentRect):
+                return currentRect
+            case .drawingAnnotation(_, let selRect, _, _):
+                return selRect
+            case .hovering:
+                if !isFreeSelectionLocked, let win = candidateWindowsUnderMouse.first {
+                    let local = CoordinateMapper.quartzToDisplayLocal(
+                        QuartzGlobalRect(win.frame),
+                        displayQuartzBounds: displaySnapshot.quartzBounds
+                    )
+                    return local.rawValue.intersection(bounds)
+                }
+                return nil
+            }
+        }()
 
-        // If we have a selection, cut it out and draw the rectangle
-        if let start = selectionStart, let current = selectionCurrent {
-            let selectionRect = normalizedRect(from: start, to: current)
-            drawSelectionRect(selectionRect, context: context)
-            drawDimensionsLabel(for: selectionRect, context: context)
+        // 2. Dimming overlay excluding selection
+        context.saveGState()
+        context.setFillColor(NSColor.black.withAlphaComponent(0.35).cgColor)
+        if let sel = currentSelection, !sel.isEmpty {
+            let path = CGMutablePath()
+            path.addRect(bounds)
+            path.addRect(sel)
+            context.addPath(path)
+            context.fillPath(using: .evenOdd)
         } else {
-            // Draw window highlight if there's a highlighted window
-            if let highlightRect = highlightedWindowRect {
-                drawWindowHighlight(highlightRect, context: context)
-                drawDimensionsLabel(for: highlightRect, context: context)
-            }
+            context.fill(bounds)
+        }
+        context.restoreGState()
 
-            // Draw crosshair at mouse position
-            if let mousePos = mousePosition {
-                drawCrosshair(at: mousePos, context: context)
+        // 3. Draw selection border, resize handles, and dimension tag
+        if let sel = currentSelection, !sel.isEmpty {
+            drawSelectionBox(sel, context: context)
+            switch state {
+            case .selected:
+                drawResizeHandles(for: sel, context: context)
+                drawDimensionTag(for: sel, context: context)
+            case .creatingSelection, .resizing, .moving:
+                drawDimensionTag(for: sel, context: context)
+            default:
+                break
             }
+        }
+
+        // 4. Draw committed and draft annotations
+        for annotation in committedAnnotations {
+            drawAnnotation(annotation, context: context)
+        }
+        if let draft = currentDraftAnnotation {
+            drawAnnotation(draft, context: context)
+        }
+
+        // 5. Draw pixel loupe when hovering
+        if case .hovering = state, let mousePos = mousePosition {
+            drawLoupe(at: mousePos, context: context)
         }
     }
 
-    /// Draws the semi-transparent dim overlay
-    /// When there's a selection or highlighted window, creates a cutout using even-odd fill rule
-    private func drawDimOverlay(context: CGContext) {
-        let hasSelection = selectionStart != nil && selectionCurrent != nil
-        let hasHighlightedWindow = highlightedWindowRect != nil && !isDragging
+    // MARK: - Selection Rendering Helpers
 
-        guard hasSelection || hasHighlightedWindow else {
-            // Full dim when not selecting and no highlighted window
-            dimColor.setFill()
-            bounds.fill()
+    private func drawSelectionBox(_ rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setLineWidth(2.0)
+        context.stroke(rect)
+        context.restoreGState()
+    }
+
+    private func drawResizeHandles(for rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.setFillColor(NSColor.white.cgColor)
+        context.setStrokeColor(NSColor.black.withAlphaComponent(0.6).cgColor)
+        context.setLineWidth(1.0)
+
+        for handle in ResizeHandle.allCases {
+            let p = point(for: handle, in: rect)
+            let hRect = CGRect(x: p.x - handleSize / 2, y: p.y - handleSize / 2, width: handleSize, height: handleSize)
+            context.fill(hRect)
+            context.stroke(hRect)
+        }
+        context.restoreGState()
+    }
+
+    private func measureText(_ string: String, font: NSFont) -> CGSize {
+        let ctFont = font as CTFont
+        let attributes: [CFString: Any] = [
+            kCTFontAttributeName: ctFont
+        ]
+        guard let attrString = CFAttributedStringCreate(kCFAllocatorDefault, string as CFString, attributes as CFDictionary) else {
+            return .zero
+        }
+        let line = CTLineCreateWithAttributedString(attrString)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+        return CGSize(width: ceil(width), height: ceil(ascent + descent))
+    }
+
+    private func drawText(
+        _ string: String,
+        at point: CGPoint,
+        font: NSFont,
+        color: NSColor,
+        in context: CGContext
+    ) {
+        let ctFont = font as CTFont
+        let attributes: [CFString: Any] = [
+            kCTFontAttributeName: ctFont,
+            kCTForegroundColorAttributeName: color.cgColor
+        ]
+        guard let attrString = CFAttributedStringCreate(kCFAllocatorDefault, string as CFString, attributes as CFDictionary) else {
+            return
+        }
+        let line = CTLineCreateWithAttributedString(attrString)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+
+        context.saveGState()
+        context.translateBy(x: point.x, y: point.y + ascent)
+        context.scaleBy(x: 1.0, y: -1.0)
+        context.textPosition = .zero
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func drawDimensionTag(for rect: CGRect, context: CGContext) {
+        let scale = displaySnapshot.scaleFactor
+        let pixelW = Int(round(rect.width * scale))
+        let pixelH = Int(round(rect.height * scale))
+        let text = "\(pixelW) × \(pixelH)"
+
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        let textSize = measureText(text, font: font)
+        let tagRect = CGRect(x: rect.minX, y: max(4, rect.minY - textSize.height - 8), width: textSize.width + 12, height: textSize.height + 6)
+
+        context.saveGState()
+        context.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
+        let path = CGPath(roundedRect: tagRect, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
+
+        drawText(text, at: CGPoint(x: tagRect.minX + 6, y: tagRect.minY + 3), font: font, color: .white, in: context)
+    }
+
+    // MARK: - Pixel Loupe (Magnifier)
+
+    private func drawLoupe(at point: CGPoint, context: CGContext) {
+        guard let ptr = pixelBytes else { return }
+
+        let loupeSize: CGFloat = 110.0
+        let gridCount = 11
+        let pixelSize = loupeSize / CGFloat(gridCount)
+
+        var loupeOrigin = CGPoint(x: point.x + 20, y: point.y + 20)
+        if loupeOrigin.x + loupeSize > bounds.maxX - 10 {
+            loupeOrigin.x = point.x - loupeSize - 20
+        }
+        if loupeOrigin.y + loupeSize + 30 > bounds.maxY - 10 {
+            loupeOrigin.y = point.y - loupeSize - 30
+        }
+
+        let loupeRect = CGRect(origin: loupeOrigin, size: CGSize(width: loupeSize, height: loupeSize))
+
+        context.saveGState()
+        let clipPath = CGPath(ellipseIn: loupeRect, transform: nil)
+        context.addPath(clipPath)
+        context.clip()
+
+        let scale = displaySnapshot.scaleFactor
+        let centerImageX = Int(point.x * scale)
+        let centerImageY = Int(point.y * scale)
+
+        var centerRGB: (r: UInt8, g: UInt8, b: UInt8) = (0, 0, 0)
+        let bpr = displaySnapshot.image.bytesPerRow
+        let bpp = displaySnapshot.image.bitsPerPixel / 8
+
+        let half = gridCount / 2
+        for gy in 0..<gridCount {
+            for gx in 0..<gridCount {
+                let ix = centerImageX + (gx - half)
+                let iy = centerImageY + (gy - half)
+
+                var color = NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1.0)
+                if ix >= 0 && ix < displaySnapshot.image.width && iy >= 0 && iy < displaySnapshot.image.height {
+                    let offset = iy * bpr + ix * bpp
+                    let rByte = ptr[offset]
+                    let gByte = ptr[offset + 1]
+                    let bByte = ptr[offset + 2]
+                    color = NSColor(srgbRed: CGFloat(rByte) / 255.0, green: CGFloat(gByte) / 255.0, blue: CGFloat(bByte) / 255.0, alpha: 1.0)
+                    if gx == half && gy == half {
+                        centerRGB = (rByte, gByte, bByte)
+                    }
+                }
+
+                let cellRect = CGRect(
+                    x: loupeRect.minX + CGFloat(gx) * pixelSize,
+                    y: loupeRect.minY + CGFloat(gy) * pixelSize,
+                    width: pixelSize,
+                    height: pixelSize
+                )
+                context.setFillColor(color.cgColor)
+                context.fill(cellRect)
+            }
+        }
+
+        context.setStrokeColor(NSColor.red.cgColor)
+        context.setLineWidth(1.0)
+        let centerCell = CGRect(
+            x: loupeRect.minX + CGFloat(gridCount / 2) * pixelSize,
+            y: loupeRect.minY + CGFloat(gridCount / 2) * pixelSize,
+            width: pixelSize,
+            height: pixelSize
+        )
+        context.stroke(centerCell)
+        context.restoreGState()
+
+        context.saveGState()
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineWidth(2.5)
+        context.strokeEllipse(in: loupeRect)
+
+        let hexString = String(
+            format: "#%02X%02X%02X",
+            centerRGB.r,
+            centerRGB.g,
+            centerRGB.b
+        )
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+        let tagSize = measureText(hexString, font: font)
+        let tagRect = CGRect(x: loupeRect.midX - tagSize.width / 2 - 6, y: loupeRect.maxY + 4, width: tagSize.width + 12, height: tagSize.height + 4)
+        context.setFillColor(NSColor.black.withAlphaComponent(0.8).cgColor)
+        context.fill(tagRect)
+        drawText(hexString, at: CGPoint(x: tagRect.minX + 6, y: tagRect.minY + 2), font: font, color: .white, in: context)
+        context.restoreGState()
+    }
+
+    // MARK: - Annotation Drawing Helpers
+
+    private func drawAnnotation(_ annotation: Annotation, context: CGContext) {
+        context.saveGState()
+        switch annotation {
+        case .rectangle(let r):
+            context.setStrokeColor(r.style.color.nsColor.cgColor)
+            context.setLineWidth(r.style.lineWidth)
+            if r.isFilled {
+                context.setFillColor(r.style.color.nsColor.cgColor)
+                context.fill(r.rect)
+            }
+            context.stroke(r.rect)
+
+        case .ellipse(let e):
+            context.setStrokeColor(e.style.color.nsColor.cgColor)
+            context.setLineWidth(e.style.lineWidth)
+            if e.isFilled {
+                context.setFillColor(e.style.color.nsColor.cgColor)
+                context.fillEllipse(in: e.rect)
+            }
+            context.strokeEllipse(in: e.rect)
+
+        case .line(let l):
+            context.setStrokeColor(l.style.color.nsColor.cgColor)
+            context.setLineWidth(l.style.lineWidth)
+            context.move(to: l.startPoint)
+            context.addLine(to: l.endPoint)
+            context.strokePath()
+
+        case .arrow(let a):
+            context.setStrokeColor(a.style.color.nsColor.cgColor)
+            context.setLineWidth(a.style.lineWidth)
+            context.move(to: a.startPoint)
+            context.addLine(to: a.endPoint)
+            context.strokePath()
+
+        case .freehand(let f):
+            guard f.points.count >= 2 else { break }
+            context.setStrokeColor(f.style.color.nsColor.cgColor)
+            context.setLineWidth(f.style.lineWidth)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.move(to: f.points[0])
+            for p in f.points.dropFirst() {
+                context.addLine(to: p)
+            }
+            context.strokePath()
+
+        case .text(let t):
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: t.style.fontSize),
+                .foregroundColor: t.style.color.nsColor
+            ]
+            (t.content as NSString).draw(in: t.bounds, withAttributes: attrs)
+
+        case .mosaic(let m):
+            context.setFillColor(NSColor.gray.withAlphaComponent(0.6).cgColor)
+            context.fill(m.rect)
+
+        case .highlight(let h):
+            context.setFillColor(h.color.nsColor.withAlphaComponent(h.opacity).cgColor)
+            context.fill(h.rect)
+
+        case .numberLabel(let n):
+            context.setFillColor(n.color.nsColor.cgColor)
+            context.fillEllipse(in: n.bounds)
+            let numStr = "\(n.number)"
+            let font = NSFont.boldSystemFont(ofSize: n.size * 0.6)
+            let strSize = measureText(numStr, font: font)
+            drawText(
+                numStr,
+                at: CGPoint(x: n.bounds.midX - strSize.width / 2, y: n.bounds.midY - strSize.height / 2),
+                font: font,
+                color: .white,
+                in: context
+            )
+
+        case .privacyRedaction(let pr):
+            context.setFillColor(pr.fillColor.nsColor.cgColor)
+            context.fill(pr.rect)
+
+        case .calloutBubble(let cb):
+            context.setFillColor(cb.bubbleColor.nsColor.cgColor)
+            let path = CGPath(roundedRect: cb.rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+            context.addPath(path)
+            context.fillPath()
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: cb.style.fontSize),
+                .foregroundColor: cb.style.color.nsColor
+            ]
+            (cb.text as NSString).draw(in: cb.rect.insetBy(dx: 6, dy: 4), withAttributes: attrs)
+        }
+        context.restoreGState()
+    }
+
+    // MARK: - Mouse Interaction
+
+    override func scrollWheel(with event: NSEvent) {
+        // Block all wheel events to prevent scrolling underlying applications
+    }
+
+    func updateHoverState(at localPoint: CGPoint) {
+        mousePosition = localPoint
+
+        if case .hovering = state {
+            let quartzPoint = CoordinateMapper.displayLocalToQuartz(
+                DisplayLocalRect(CGRect(origin: localPoint, size: .zero)),
+                displayQuartzBounds: displaySnapshot.quartzBounds
+            ).rawValue.origin
+
+            let windowCandidates = WindowDetector.candidatesUnderPoint(
+                quartzPoint,
+                in: frozenSnapshotSet.candidateWindows
+            )
+
+            // Only filter out non-normal floating layers that cover almost the entire screen (e.g. background manager overlays)
+            // Keep normal application windows (layer == 0) even if maximized, and keep normal dialogs/settings windows
+            let qBounds = displaySnapshot.quartzBounds.rawValue
+            let validCandidates = windowCandidates.filter { win in
+                let isFullscreenNonNormal = win.windowLayer != 0
+                    && win.frame.width >= qBounds.width * 0.98
+                    && win.frame.height >= qBounds.height * 0.98
+                return !isFullscreenNonNormal
+            }
+            candidateWindowsUnderMouse = validCandidates
+        }
+
+        updateCursor(at: localPoint)
+        needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        updateHoverState(at: localPoint)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        dismissToolbar()
+        delegate?.selectionOverlayDidCancel()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+
+        // 1. Double click: immediately confirm capture for target window/selection
+        if event.clickCount >= 2 {
+            handleDoubleClick(at: p)
             return
         }
 
-        context.saveGState()
-
-        // Create path for the entire view
-        context.addRect(bounds)
-
-        // Add cutout for selection if present
-        if let start = selectionStart, let current = selectionCurrent {
-            let selectionRect = normalizedRect(from: start, to: current)
-            context.addRect(selectionRect)
+        if let tool = activeAnnotationTool, case .selected(let selRect) = state, selRect.contains(p) {
+            // Start drawing annotation within selected region
+            dismissToolbar()
+            freehandPoints = [p]
+            state = .drawingAnnotation(tool: tool, selectionRect: selRect, start: p, current: p)
+            updateDraftAnnotation(start: p, current: p, tool: tool)
+            needsDisplay = true
+            return
         }
 
-        // Add cutout for highlighted window if present (and not dragging)
-        if !isDragging, let highlightRect = highlightedWindowRect {
-            context.addRect(highlightRect)
+        switch state {
+        case .hovering:
+            dismissToolbar()
+            state = .creatingSelection(start: p, current: p)
+
+        case .selected(let selRect):
+            dismissToolbar()
+            if let handle = hitTestHandle(at: p, in: selRect) {
+                state = .resizing(handle: handle, anchorRect: selRect, startPoint: p, currentRect: selRect)
+            } else if selRect.contains(p) {
+                state = .moving(anchorRect: selRect, startPoint: p, currentRect: selRect)
+            } else {
+                // Click outside: reset selection back to creating selection
+                state = .creatingSelection(start: p, current: p)
+            }
+
+        default:
+            break
+        }
+        needsDisplay = true
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        mousePosition = p
+
+        switch state {
+        case .creatingSelection(let start, _):
+            state = .creatingSelection(start: start, current: p)
+
+        case .resizing(let handle, let anchor, let start, _):
+            let dx = p.x - start.x
+            let dy = p.y - start.y
+            let newRect = resizeRect(anchor, handle: handle, dx: dx, dy: dy)
+            state = .resizing(handle: handle, anchorRect: anchor, startPoint: start, currentRect: newRect)
+
+        case .moving(let anchor, let start, _):
+            let dx = p.x - start.x
+            let dy = p.y - start.y
+            let moved = anchor.offsetBy(dx: dx, dy: dy).intersection(bounds)
+            state = .moving(anchorRect: anchor, startPoint: start, currentRect: moved)
+
+        case .drawingAnnotation(let tool, let selRect, let start, _):
+            freehandPoints.append(p)
+            state = .drawingAnnotation(tool: tool, selectionRect: selRect, start: start, current: p)
+            updateDraftAnnotation(start: start, current: p, tool: tool)
+
+        default:
+            break
+        }
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        switch state {
+        case .creatingSelection(let start, let current):
+            let rect = normalizedRect(from: start, to: current)
+            if rect.width >= 5 && rect.height >= 5 {
+                commitSelection(rect)
+            } else if !isFreeSelectionLocked {
+                if let win = candidateWindowsUnderMouse.first {
+                    let local = CoordinateMapper.quartzToDisplayLocal(
+                        QuartzGlobalRect(win.frame),
+                        displayQuartzBounds: displaySnapshot.quartzBounds
+                    )
+                    commitSelection(local.rawValue.intersection(bounds))
+                } else {
+                    state = .hovering
+                }
+            } else {
+                state = .hovering
+            }
+
+        case .resizing(_, _, _, let currentRect):
+            commitSelection(currentRect)
+
+        case .moving(_, _, let currentRect):
+            commitSelection(currentRect)
+
+        case .drawingAnnotation(let tool, let selRect, _, _):
+            if let draft = currentDraftAnnotation {
+                committedAnnotations.append(draft)
+                editHistory.record(
+                    description: "Add \(tool.rawValue)",
+                    undo: { [weak self] in
+                        _ = self?.committedAnnotations.popLast()
+                        self?.needsDisplay = true
+                    },
+                    redo: { [weak self] in
+                        self?.committedAnnotations.append(draft)
+                        self?.needsDisplay = true
+                    }
+                )
+            }
+            currentDraftAnnotation = nil
+            freehandPoints.removeAll()
+            commitSelection(selRect)
+
+        default:
+            break
+        }
+        needsDisplay = true
+    }
+
+    private func handleDoubleClick(at point: CGPoint) {
+        let targetRect: CGRect
+        switch state {
+        case .selected(let rect):
+            guard rect.contains(point) else { return }
+            targetRect = rect
+        case .hovering, .creatingSelection:
+            if !isFreeSelectionLocked {
+                if let win = candidateWindowsUnderMouse.first {
+                    let local = CoordinateMapper.quartzToDisplayLocal(
+                        QuartzGlobalRect(win.frame),
+                        displayQuartzBounds: displaySnapshot.quartzBounds
+                    )
+                    targetRect = local.rawValue.intersection(bounds)
+                } else {
+                    targetRect = bounds
+                }
+            } else {
+                targetRect = bounds
+            }
+        default:
+            return
         }
 
-        // Use even-odd rule to create the cutout
-        context.setFillColor(dimColor.cgColor)
-        context.fillPath(using: .evenOdd)
+        guard targetRect.width >= 5 && targetRect.height >= 5 else { return }
 
-        context.restoreGState()
-    }
-
-    /// Draws the selection rectangle with border
-    private func drawSelectionRect(_ rect: CGRect, context: CGContext) {
-        // Fill
-        selectionFillColor.setFill()
-        rect.fill()
-
-        // Stroke
-        let strokePath = NSBezierPath(rect: rect)
-        strokePath.lineWidth = 1.5
-        selectionStrokeColor.setStroke()
-        strokePath.stroke()
-
-        // Draw dashed inner border
-        context.saveGState()
-        context.setLineDash(phase: 0, lengths: [4, 4])
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.5).cgColor)
-        context.setLineWidth(1.0)
-        context.addRect(rect.insetBy(dx: 1, dy: 1))
-        context.strokePath()
-        context.restoreGState()
-    }
-
-    /// Draws the crosshair cursor at the specified position
-    private func drawCrosshair(at point: NSPoint, context: CGContext) {
-        context.saveGState()
-        context.setStrokeColor(crosshairColor.cgColor)
-        context.setLineWidth(1.0)
-
-        // Horizontal line
-        context.move(to: CGPoint(x: 0, y: point.y))
-        context.addLine(to: CGPoint(x: bounds.width, y: point.y))
-
-        // Vertical line
-        context.move(to: CGPoint(x: point.x, y: 0))
-        context.addLine(to: CGPoint(x: point.x, y: bounds.height))
-
-        context.strokePath()
-        context.restoreGState()
-    }
-
-    /// Draws the window highlight rectangle with border
-    private func drawWindowHighlight(_ rect: CGRect, context: CGContext) {
-        // Fill
-        windowHighlightFillColor.setFill()
-        rect.fill()
-
-        // Stroke
-        let strokePath = NSBezierPath(rect: rect)
-        strokePath.lineWidth = windowHighlightStrokeWidth
-        windowHighlightStrokeColor.setStroke()
-        strokePath.stroke()
-    }
-
-    /// Draws the dimensions label near the selection rectangle
-    private func drawDimensionsLabel(for rect: CGRect, context: CGContext) {
-        // Get dimensions in pixels (accounting for scale factor)
-        let scaleFactor = displayInfo?.scaleFactor ?? 1.0
-        let pixelWidth = Int(rect.width * scaleFactor)
-        let pixelHeight = Int(rect.height * scaleFactor)
-
-        let dimensionsText = "\(pixelWidth) × \(pixelHeight)"
-
-        // Text attributes - use fallback font if system font unavailable
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium) ?? NSFont.systemFont(ofSize: 12)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: labelTextColor
-        ]
-
-        let textSize = (dimensionsText as NSString).size(withAttributes: attributes)
-        let labelPadding: CGFloat = 6
-        let labelSize = CGSize(
-            width: textSize.width + labelPadding * 2,
-            height: textSize.height + labelPadding * 2
+        let quartzSel = CoordinateMapper.displayLocalToQuartz(
+            DisplayLocalRect(targetRect),
+            displayQuartzBounds: displaySnapshot.quartzBounds
         )
 
-        // Position the label below and to the right of the selection
-        var labelOrigin = CGPoint(
-            x: rect.maxX - labelSize.width,
-            y: rect.minY - labelSize.height - 8
+        dismissToolbar()
+        delegate?.selectionOverlay(
+            didConfirmSelection: quartzSel,
+            action: .copy,
+            annotations: committedAnnotations,
+            on: displaySnapshot
         )
-
-        // Ensure label stays within screen bounds
-        if labelOrigin.x < 0 {
-            labelOrigin.x = rect.minX
-        }
-        if labelOrigin.y < 0 {
-            labelOrigin.y = rect.maxY + 8
-        }
-        if labelOrigin.x + labelSize.width > bounds.width {
-            labelOrigin.x = bounds.width - labelSize.width
-        }
-
-        let labelRect = CGRect(origin: labelOrigin, size: labelSize)
-
-        // Draw background
-        let backgroundPath = NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4)
-        labelBackgroundColor.setFill()
-        backgroundPath.fill()
-
-        // Draw text
-        let textPoint = CGPoint(
-            x: labelRect.origin.x + labelPadding,
-            y: labelRect.origin.y + labelPadding
-        )
-        (dimensionsText as NSString).draw(at: textPoint, withAttributes: attributes)
     }
 
-    /// Creates a normalized rectangle from two points (handles any drag direction)
-    private func normalizedRect(from start: NSPoint, to end: NSPoint) -> CGRect {
+    private func commitSelection(_ rect: CGRect) {
+        state = .selected(rect: rect)
+        showToolbar(for: rect)
+    }
+
+    private func updateDraftAnnotation(start: CGPoint, current: CGPoint, tool: SelectionInPlaceToolbar.AnnotationTool) {
+        let style = StrokeStyle(color: CodableColor(Color(nsColor: annotationColor)), lineWidth: annotationLineWidth)
+        let rect = normalizedRect(from: start, to: current)
+
+        switch tool {
+        case .rectangle:
+            currentDraftAnnotation = .rectangle(RectangleAnnotation(rect: rect, style: style))
+        case .ellipse:
+            currentDraftAnnotation = .ellipse(EllipseAnnotation(rect: rect, style: style))
+        case .arrow:
+            currentDraftAnnotation = .arrow(ArrowAnnotation(startPoint: start, endPoint: current, style: style))
+        case .pen:
+            currentDraftAnnotation = .freehand(FreehandAnnotation(points: freehandPoints.isEmpty ? [start, current] : freehandPoints, style: style))
+        case .text:
+            currentDraftAnnotation = .text(TextAnnotation(position: rect.origin, content: "Text"))
+        case .mosaic:
+            currentDraftAnnotation = .mosaic(MosaicAnnotation(rect: rect))
+        case .privacyRedaction:
+            currentDraftAnnotation = .privacyRedaction(PrivacyRedactionAnnotation(rect: rect))
+        }
+    }
+
+    // MARK: - Toolbar & Actions
+
+    private func showToolbar(for selectionRect: CGRect) {
+        dismissToolbar()
+        let bar = SelectionInPlaceToolbar(frame: .zero)
+        bar.delegate = self
+        let targetFrame = SelectionInPlaceToolbar.preferredFrame(for: selectionRect, in: bounds)
+        bar.frame = targetFrame
+        addSubview(bar)
+        self.toolbar = bar
+    }
+
+    private func dismissToolbar() {
+        toolbar?.removeFromSuperview()
+        toolbar = nil
+    }
+
+    func toolbarDidSelectAction(_ action: SelectionInPlaceToolbar.Action) {
+        guard case .selected(let rect) = state else {
+            if action == .cancel {
+                delegate?.selectionOverlayDidCancel()
+            }
+            return
+        }
+
+        if action == .cancel {
+            delegate?.selectionOverlayDidCancel()
+            return
+        }
+
+        // Convert DisplayLocal selection rect to Quartz global rect
+        let quartzSel = CoordinateMapper.displayLocalToQuartz(
+            DisplayLocalRect(rect),
+            displayQuartzBounds: displaySnapshot.quartzBounds
+        )
+
+        delegate?.selectionOverlay(
+            didConfirmSelection: quartzSel,
+            action: action,
+            annotations: committedAnnotations,
+            on: displaySnapshot
+        )
+    }
+
+    func toolbarDidChangeTool(_ tool: SelectionInPlaceToolbar.AnnotationTool?) {
+        activeAnnotationTool = tool
+    }
+
+    func toolbarDidChangeColor(_ color: NSColor) {
+        annotationColor = color
+    }
+
+    func toolbarDidChangeLineWidth(_ width: CGFloat) {
+        annotationLineWidth = width
+    }
+
+    func toolbarDidRequestUndo() {
+        editHistory.undo()
+    }
+
+    func toolbarDidRequestRedo() {
+        editHistory.redo()
+    }
+
+    // MARK: - Keyboard Controls
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: // Escape
+            dismissToolbar()
+            delegate?.selectionOverlayDidCancel()
+
+        case 36: // Enter
+            toolbarDidSelectAction(.copy)
+
+        case 35: // P -> Pin
+            toolbarDidSelectAction(.pin)
+
+        case 17: // T -> Translate
+            toolbarDidSelectAction(.translate)
+
+        case 48: // Tab -> Cycle overlapping window candidates
+            if !candidateWindowsUnderMouse.isEmpty {
+                candidateWindowsUnderMouse.rotate(1)
+                needsDisplay = true
+            }
+
+        case 49: // Space -> Toggle free selection vs window snapping
+            isFreeSelectionLocked.toggle()
+            needsDisplay = true
+
+        case 8: // C -> Copy color under cursor
+            if let p = mousePosition {
+                copyHexColor(at: p)
+            }
+
+        // Arrow keys for fine-grained 1px / 10px nudging
+        case 123, 124, 125, 126:
+            nudgeSelection(keyCode: event.keyCode, shift: event.modifierFlags.contains(.shift))
+
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    private func nudgeSelection(keyCode: UInt16, shift: Bool) {
+        guard case .selected(let r) = state else { return }
+        let step: CGFloat = shift ? 10.0 : 1.0
+        var offset = CGPoint.zero
+        if keyCode == 123 { offset.x = -step }
+        if keyCode == 124 { offset.x = step }
+        if keyCode == 125 { offset.y = step }
+        if keyCode == 126 { offset.y = -step }
+
+        let moved = r.offsetBy(dx: offset.x, dy: offset.y).intersection(bounds)
+        commitSelection(moved)
+        needsDisplay = true
+    }
+
+    private func copyHexColor(at point: CGPoint) {
+        let scale = displaySnapshot.scaleFactor
+        let ix = Int(point.x * scale)
+        let iy = Int(point.y * scale)
+        guard let ptr = pixelBytes else { return }
+
+        let bpr = displaySnapshot.image.bytesPerRow
+        let bpp = displaySnapshot.image.bitsPerPixel / 8
+        if ix >= 0 && ix < displaySnapshot.image.width && iy >= 0 && iy < displaySnapshot.image.height {
+            let offset = iy * bpr + ix * bpp
+            let hex = String(format: "#%02X%02X%02X", ptr[offset], ptr[offset + 1], ptr[offset + 2])
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(hex, forType: .string)
+        }
+    }
+
+    // MARK: - Geometry & Handle Helpers
+
+    private func point(for handle: ResizeHandle, in rect: CGRect) -> CGPoint {
+        switch handle {
+        case .topLeft: return CGPoint(x: rect.minX, y: rect.minY)
+        case .topCenter: return CGPoint(x: rect.midX, y: rect.minY)
+        case .topRight: return CGPoint(x: rect.maxX, y: rect.minY)
+        case .middleLeft: return CGPoint(x: rect.minX, y: rect.midY)
+        case .middleRight: return CGPoint(x: rect.maxX, y: rect.midY)
+        case .bottomLeft: return CGPoint(x: rect.minX, y: rect.maxY)
+        case .bottomCenter: return CGPoint(x: rect.midX, y: rect.maxY)
+        case .bottomRight: return CGPoint(x: rect.maxX, y: rect.maxY)
+        }
+    }
+
+    private func hitTestHandle(at point: CGPoint, in rect: CGRect) -> ResizeHandle? {
+        let hitDist: CGFloat = handleSize + 2
+        for handle in ResizeHandle.allCases {
+            let hp = self.point(for: handle, in: rect)
+            if hypot(point.x - hp.x, point.y - hp.y) <= hitDist {
+                return handle
+            }
+        }
+        return nil
+    }
+
+    private func resizeRect(_ rect: CGRect, handle: ResizeHandle, dx: CGFloat, dy: CGFloat) -> CGRect {
+        var minX = rect.minX
+        var minY = rect.minY
+        var maxX = rect.maxX
+        var maxY = rect.maxY
+
+        switch handle {
+        case .topLeft:
+            minX += dx; minY += dy
+        case .topCenter:
+            minY += dy
+        case .topRight:
+            maxX += dx; minY += dy
+        case .middleLeft:
+            minX += dx
+        case .middleRight:
+            maxX += dx
+        case .bottomLeft:
+            minX += dx; maxY += dy
+        case .bottomCenter:
+            maxY += dy
+        case .bottomRight:
+            maxX += dx; maxY += dy
+        }
+
+        return normalizedRect(from: CGPoint(x: minX, y: minY), to: CGPoint(x: maxX, y: maxY))
+    }
+
+    private func updateCursor(at point: CGPoint) {
+        if case .selected(let selRect) = state {
+            if let handle = hitTestHandle(at: point, in: selRect) {
+                handle.cursor().set()
+                return
+            }
+            if selRect.contains(point) {
+                NSCursor.openHand.set()
+                return
+            }
+        }
+        NSCursor.crosshair.set()
+    }
+
+    private func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {
         let minX = min(start.x, end.x)
         let minY = min(start.y, end.y)
         let width = abs(end.x - start.x)
         let height = abs(end.y - start.y)
         return CGRect(x: minX, y: minY, width: width, height: height)
     }
-
-    // MARK: - Mouse Events
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        mouseDownPoint = point
-
-        // Refresh window cache when starting interaction to get fresh window list
-        Task {
-            await windowDetector.invalidateCache()
-            let windows = await windowDetector.visibleWindows()
-            await MainActor.run {
-                self.cachedWindows = windows
-            }
-        }
-
-        // Don't start selection yet - wait to determine if it's a click or drag
-        needsDisplay = true
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let mouseDownPoint = mouseDownPoint else { return }
-
-        let point = convert(event.locationInWindow, from: nil)
-
-        // Calculate distance from mouse down point
-        let distance = hypot(point.x - mouseDownPoint.x, point.y - mouseDownPoint.y)
-
-        // If we haven't started dragging yet and moved beyond threshold, enter drag mode
-        if !isDragging && distance > dragThreshold {
-            isDragging = true
-            selectionStart = mouseDownPoint
-            selectionCurrent = point
-
-            // Clear highlighted window when entering drag mode
-            highlightedWindowRect = nil
-        } else if isDragging {
-            selectionCurrent = point
-        }
-
-        needsDisplay = true
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard mouseDownPoint != nil else { return }
-
-        if isDragging {
-            // === DRAG MODE ===
-            guard let start = selectionStart, let current = selectionCurrent else {
-                resetStateAndCancel()
-                return
-            }
-
-            isDragging = false
-
-            // Calculate final selection rectangle
-            let selectionRect = normalizedRect(from: start, to: current)
-
-            // Only accept selection if it has meaningful size
-            if selectionRect.width >= 10 && selectionRect.height >= 10 {
-                // Convert to screen coordinates
-                guard let window = self.window,
-                      let displayInfo = displayInfo else {
-                    resetStateAndCancel()
-                    return
-                }
-
-                Logger.capture.debug("=== SELECTION COORDINATE DEBUG ===")
-                Logger.capture.debug("[1] selectionRect (view coords): \(String(describing: selectionRect))")
-                Logger.capture.debug("[2] window.frame: \(String(describing: window.frame))")
-                Logger.capture.debug("[3] window.screen?.frame: \(String(describing: window.screen?.frame))")
-
-                // The selectionRect is in view coordinates, convert to screen coordinates
-                // screenRect is in Cocoa coordinates (Y=0 at bottom of primary screen)
-                let screenRect = window.convertToScreen(selectionRect)
-
-                Logger.capture.debug("[4] screenRect (after convertToScreen): \(String(describing: screenRect))")
-                let firstScreenFrame = NSScreen.screens.first?.frame
-                Logger.capture.debug("[5] NSScreen.screens.first?.frame: \(String(describing: firstScreenFrame))")
-
-                // Get the screen height for coordinate conversion
-                // Use the window's screen, not necessarily the primary screen
-                // Cocoa uses Y=0 at bottom, ScreenCaptureKit/Quartz uses Y=0 at top
-                let screenHeight = window.screen?.frame.height ?? NSScreen.screens.first?.frame.height ?? 0
-
-                Logger.capture.debug("[6] screenHeight for conversion: \(screenHeight)")
-
-                // Convert from Cocoa coordinates (Y=0 at bottom) to Quartz coordinates (Y=0 at top)
-                let quartzY = screenHeight - screenRect.origin.y - screenRect.height
-
-                Logger.capture.debug("[7] quartzY (converted): \(quartzY)")
-
-                // displayFrame is in Quartz coordinates (from SCDisplay)
-                let displayFrame = displayInfo.frame
-
-                Logger.capture.debug("[8] displayInfo.frame (SCDisplay): \(String(describing: displayFrame))")
-                Logger.capture.debug("[9] displayInfo.isPrimary: \(displayInfo.isPrimary)")
-
-                // Now compute display-relative coordinates (both in Quartz coordinate system)
-                // Round to whole points to minimize fractional pixel issues when scaled
-                let relativeRect = CGRect(
-                    x: round(screenRect.origin.x - displayFrame.origin.x),
-                    y: round(quartzY - displayFrame.origin.y),
-                    width: round(selectionRect.width),
-                    height: round(selectionRect.height)
-                )
-
-                Logger.capture.debug("[10] FINAL relativeRect (rounded): \(String(describing: relativeRect))")
-                let normX = relativeRect.origin.x / displayFrame.width
-                let normY = relativeRect.origin.y / displayFrame.height
-                Logger.capture.debug("[11] Normalized would be: x=\(normX), y=\(normY)")
-                Logger.capture.debug("=== END COORDINATE DEBUG ===")
-
-                resetState()
-                delegate?.selectionOverlay(didSelectRect: relativeRect, on: displayInfo)
-            } else {
-                // Too small - cancel
-                resetStateAndCancel()
-            }
-        } else {
-            // === CLICK MODE ===
-            if let highlightRect = highlightedWindowRect {
-                // Click on a highlighted window - use window rect
-                guard let window = self.window,
-                      let displayInfo = displayInfo else {
-                    resetStateAndCancel()
-                    return
-                }
-
-                Logger.capture.debug("=== CLICK MODE - WINDOW SELECTION ===")
-                Logger.capture.debug("[1] highlightRect (view coords): \(String(describing: highlightRect))")
-
-                // Convert highlight rect to screen coordinates
-                let screenRect = window.convertToScreen(highlightRect)
-
-                Logger.capture.debug("[2] screenRect (after convertToScreen): \(String(describing: screenRect))")
-
-                // Get screen height for coordinate conversion
-                let screenHeight = window.screen?.frame.height ?? NSScreen.screens.first?.frame.height ?? 0
-                Logger.capture.debug("[3] screenHeight for conversion: \(screenHeight)")
-
-                // Convert from Cocoa to Quartz coordinates
-                let quartzY = screenHeight - screenRect.origin.y - screenRect.height
-
-                Logger.capture.debug("[4] quartzY (converted): \(quartzY)")
-
-                let displayFrame = displayInfo.frame
-                Logger.capture.debug("[5] displayInfo.frame (SCDisplay): \(String(describing: displayFrame))")
-
-                // Compute display-relative coordinates
-                let relativeRect = CGRect(
-                    x: round(screenRect.origin.x - displayFrame.origin.x),
-                    y: round(quartzY - displayFrame.origin.y),
-                    width: round(highlightRect.width),
-                    height: round(highlightRect.height)
-                )
-
-                Logger.capture.debug("[6] FINAL relativeRect (rounded): \(String(describing: relativeRect))")
-                Logger.capture.debug("=== END CLICK MODE ===")
-
-                resetState()
-                delegate?.selectionOverlay(didSelectRect: relativeRect, on: displayInfo)
-            } else {
-                // Click on empty area - cancel
-                resetStateAndCancel()
-            }
-        }
-    }
-
-    /// Resets all state variables
-    private func resetState() {
-        mouseDownPoint = nil
-        selectionStart = nil
-        selectionCurrent = nil
-        isDragging = false
-        highlightedWindowRect = nil
-        cachedWindows = []
-        lastMouseMovedTime = 0
-        needsDisplay = true
-    }
-
-    /// Resets state and notifies delegate of cancellation
-    private func resetStateAndCancel() {
-        resetState()
-        delegate?.selectionOverlayDidCancel()
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        mousePosition = point
-
-        // Only detect windows when not dragging
-        if !isDragging {
-            // Throttle window detection to ~60fps (16ms)
-            let currentTime = Date.timeIntervalSinceReferenceDate
-            if currentTime - lastMouseMovedTime >= windowDetectionThrottleInterval {
-                lastMouseMovedTime = currentTime
-                updateHighlightedWindow(at: point)
-            }
-        }
-
-        // Always update crosshair position (not throttled)
-        needsDisplay = true
-    }
-
-    /// Updates the highlighted window based on the current mouse position.
-    /// Detects the window under the cursor and converts its frame to view coordinates.
-    /// - Parameter point: The current mouse position in view coordinates
-    private func updateHighlightedWindow(at point: NSPoint) {
-        guard let window = self.window else {
-            highlightedWindowRect = nil
-            return
-        }
-
-        // Convert point from view coordinates to screen coordinates (Cocoa)
-        let screenPoint = window.convertToScreen(
-            NSRect(origin: point, size: .zero)
-        ).origin
-
-        // Convert from Cocoa coordinates (origin at bottom-left) to Quartz coordinates (origin at top-left)
-        let screenHeight = window.screen?.frame.height ?? NSScreen.main?.frame.height ?? 0
-        let quartzPoint = WindowDetector.cocoaToQuartz(screenPoint, screenHeight: screenHeight)
-
-        // Find window under point using WindowDetector (synchronous call)
-        // WindowDetector has its own internal cache for performance
-        Task {
-            if let windowInfo = await windowDetector.windowUnderPoint(quartzPoint) {
-                // Skip windows smaller than minimum size
-                guard windowInfo.frame.width >= minimumWindowSize &&
-                      windowInfo.frame.height >= minimumWindowSize else {
-                    await MainActor.run {
-                        highlightedWindowRect = nil
-                    }
-                    return
-                }
-
-                // Convert window frame from Quartz to Cocoa coordinates
-                let cocoaFrame = WindowDetector.quartzToCocoa(windowInfo.frame, screenHeight: screenHeight)
-
-                // Convert from screen coordinates to view coordinates
-                var viewFrame = self.convertFromScreen(cocoaFrame)
-
-                // Clip the highlight rect to the visible screen bounds
-                viewFrame = viewFrame.intersection(self.bounds)
-
-                // Only set if the clipped rect is still valid
-                await MainActor.run {
-                    if !viewFrame.isEmpty {
-                        highlightedWindowRect = viewFrame
-                    } else {
-                        highlightedWindowRect = nil
-                    }
-                }
-            } else {
-                await MainActor.run {
-                    highlightedWindowRect = nil
-                }
-            }
-        }
-    }
-
-    /// Converts a rectangle from screen coordinates to view coordinates.
-    /// - Parameter screenRect: Rectangle in screen coordinates (Cocoa)
-    /// - Returns: Rectangle in view coordinates
-    private func convertFromScreen(_ screenRect: CGRect) -> CGRect {
-        guard let window = self.window else {
-            return screenRect
-        }
-
-        // Get the window's frame in screen coordinates
-        let windowFrame = window.frame
-
-        // View coordinates are relative to the window's content view
-        // The view's origin (0,0) is at the bottom-left of the window in Cocoa coordinates
-        let viewX = screenRect.origin.x - windowFrame.origin.x
-        let viewY = screenRect.origin.y - windowFrame.origin.y
-
-        return CGRect(
-            x: viewX,
-            y: viewY,
-            width: screenRect.width,
-            height: screenRect.height
-        )
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        // Change cursor to crosshair
-        NSCursor.crosshair.set()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        // Reset cursor
-        NSCursor.arrow.set()
-        mousePosition = nil
-        needsDisplay = true
-    }
-
-    // MARK: - Keyboard Events
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        // Escape key cancels selection and closes overlay
-        if event.keyCode == 53 { // Escape
-            // Reset all state including window highlight
-            resetStateAndCancel()
-            return
-        }
-
-        super.keyDown(with: event)
-    }
-
-    // MARK: - Cursor
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
-    }
 }
 
-// MARK: - SelectionOverlayController
-
-/// Controller for managing selection overlay windows across all displays.
-/// Creates and coordinates overlay windows for multi-display spanning selection.
-@MainActor
-final class SelectionOverlayController {
-    // MARK: - Properties
-
-    /// Shared instance
-    static let shared = SelectionOverlayController()
-
-    /// All active overlay windows (one per display)
-    private var overlayWindows: [SelectionOverlayWindow] = []
-
-    /// Delegate for selection events
-    weak var delegate: SelectionOverlayDelegate?
-
-    /// Callback for when selection completes
-    var onSelectionComplete: ((CGRect, DisplayInfo) -> Void)?
-
-    /// Callback for when selection is cancelled
-    var onSelectionCancel: (() -> Void)?
-
-    // MARK: - Initialization
-
-    private init() {}
-
-    // MARK: - Public API
-
-    /// Presents selection overlay on all connected displays.
-    func presentOverlay() async throws {
-        // Get all available displays
-        let displays = try await ScreenDetector.shared.availableDisplays()
-
-        // Get matching screens
-        let screens = NSScreen.screens
-
-        // Create overlay window for each display
-        for display in displays {
-            guard let screen = screens.first(where: { screen in
-                guard let screenNumber = screen.deviceDescription[
-                    NSDeviceDescriptionKey("NSScreenNumber")
-                ] as? CGDirectDisplayID else {
-                    return false
-                }
-                return screenNumber == display.id
-            }) else {
-                continue
-            }
-
-            let overlayWindow = SelectionOverlayWindow(screen: screen, displayInfo: display)
-            overlayWindow.setDelegate(self)
-            overlayWindows.append(overlayWindow)
-        }
-
-        // Show all overlay windows
-        for window in overlayWindows {
-            window.showOverlay()
-        }
-
-        // Make the first window (primary display) key
-        if let primaryWindow = overlayWindows.first {
-            primaryWindow.makeKey()
-            NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-
-    /// Dismisses all overlay windows.
-    func dismissOverlay() {
-        for window in overlayWindows {
-            window.hideOverlay()
-        }
-        overlayWindows.removeAll()
-
-        // Reset cursor
-        NSCursor.arrow.set()
-    }
-}
-
-// MARK: - SelectionOverlayController + SelectionOverlayDelegate
-
-extension SelectionOverlayController: SelectionOverlayDelegate {
-    func selectionOverlay(didSelectRect rect: CGRect, on display: DisplayInfo) {
-        // Dismiss all overlays first
-        dismissOverlay()
-
-        // Notify via callback
-        onSelectionComplete?(rect, display)
-    }
-
-    func selectionOverlayDidCancel() {
-        // Dismiss all overlays
-        dismissOverlay()
-
-        // Notify via callback
-        onSelectionCancel?()
+private extension Array {
+    mutating func rotate(_ shift: Int) {
+        guard !isEmpty else { return }
+        let amount = shift % count
+        self = Array(self[amount...] + self[..<amount])
     }
 }

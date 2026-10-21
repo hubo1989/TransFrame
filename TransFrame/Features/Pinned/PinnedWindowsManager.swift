@@ -1,9 +1,11 @@
 import AppKit
 import Foundation
+import Observation
 
-/// Manages all pinned screenshot windows.
-/// Provides centralized control over pinned window lifecycle.
+/// Manages all pinned capture windows with observable state.
+/// Provides centralized control over in-place pinning, synchronization, and interaction recovery.
 @MainActor
+@Observable
 final class PinnedWindowsManager {
     // MARK: - Singleton
 
@@ -12,10 +14,15 @@ final class PinnedWindowsManager {
     // MARK: - Properties
 
     /// All currently pinned windows
+    @ObservationIgnored
     private(set) var pinnedWindows: [UUID: PinnedWindow] = [:]
 
     /// Maximum number of pinned windows allowed
-    private let maxPinnedWindows = 5
+    @ObservationIgnored
+    private let maxPinnedWindows = 10
+
+    /// Reactive counter for observable UI updates
+    var changeCounter: Int = 0
 
     // MARK: - Initialization
 
@@ -23,27 +30,46 @@ final class PinnedWindowsManager {
 
     // MARK: - Public API
 
-    /// Pins a screenshot with its annotations.
-    /// - Parameters:
-    ///   - screenshot: The screenshot to pin
-    ///   - annotations: The annotations to include
-    /// - Returns: The created pinned window, or nil if limit reached
+    /// Pins a CaptureDocument with 1:1 in-place positioning.
+    @discardableResult
+    func pin(document: CaptureDocument) -> PinnedWindow? {
+        CaptureDocumentStore.shared.register(document)
+
+        if let existing = pinnedWindows[document.id] {
+            existing.makeKeyAndOrderFront(nil)
+            return existing
+        }
+
+        if pinnedWindows.count >= maxPinnedWindows {
+            showLimitWarning()
+            return nil
+        }
+
+        let window = PinnedWindow(document: document)
+        window.onClose = { [weak self] in
+            self?.unpinWindow(document.id)
+        }
+
+        pinnedWindows[document.id] = window
+        window.show()
+        changeCounter += 1
+
+        return window
+    }
+
+    /// Pins a legacy screenshot with its annotations.
     @discardableResult
     func pinScreenshot(_ screenshot: Screenshot, annotations: [Annotation]) -> PinnedWindow? {
-        // Check if already pinned
         if let existingWindow = pinnedWindows[screenshot.id] {
             existingWindow.makeKeyAndOrderFront(nil)
             return existingWindow
         }
 
-        // Check limit
         if pinnedWindows.count >= maxPinnedWindows {
-            // Show warning
             showLimitWarning()
             return nil
         }
 
-        // Create new pinned window
         let pinnedWindow = PinnedWindow(
             screenshot: screenshot,
             annotations: annotations
@@ -55,37 +81,48 @@ final class PinnedWindowsManager {
 
         pinnedWindows[screenshot.id] = pinnedWindow
         pinnedWindow.show()
+        changeCounter += 1
 
         return pinnedWindow
     }
 
-    /// Unpins a screenshot by its ID.
-    /// - Parameter id: The screenshot ID to unpin
+    /// Unpins a window by its ID.
     func unpinWindow(_ id: UUID) {
         guard let window = pinnedWindows[id] else { return }
-        
-        // Mark as programmatic close to prevent reentrancy
         window.isProgrammaticClose = true
         window.close()
         pinnedWindows.removeValue(forKey: id)
+        changeCounter += 1
     }
 
     /// Unpins all pinned windows.
     func unpinAll() {
-        // Collect all windows and remove from dictionary first
         let windows = Array(pinnedWindows.values)
         pinnedWindows.removeAll()
-        
-        // Mark each as programmatic close and close
         for window in windows {
             window.isProgrammaticClose = true
             window.close()
         }
+        changeCounter += 1
     }
 
-    /// Checks if a screenshot is currently pinned.
-    /// - Parameter id: The screenshot ID to check
-    /// - Returns: True if pinned, false otherwise
+    /// Disables mouse click-through for all pinned windows, restoring interactive controls.
+    func resetAllInteractions() {
+        for window in pinnedWindows.values {
+            window.setClickThrough(false)
+            window.orderFront(nil)
+        }
+        changeCounter += 1
+    }
+
+    /// Brings all pinned windows to the front on active workspace.
+    func showAllHidden() {
+        for window in pinnedWindows.values {
+            window.orderFront(nil)
+        }
+    }
+
+    /// Checks if a document or screenshot is currently pinned.
     func isPinned(_ id: UUID) -> Bool {
         pinnedWindows[id] != nil
     }
@@ -96,7 +133,6 @@ final class PinnedWindowsManager {
     }
 
     /// Brings a pinned window to front.
-    /// - Parameter id: The screenshot ID to bring to front
     func bringToFront(_ id: UUID) {
         pinnedWindows[id]?.makeKeyAndOrderFront(nil)
     }
