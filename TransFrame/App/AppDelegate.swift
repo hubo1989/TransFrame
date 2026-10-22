@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Other Properties
 
     private var menuBarController: MenuBarController?
-    private let settings = AppSettings.shared
+    private var settings: AppSettings { AppSettings.shared }
 
     private lazy var updaterController: SPUStandardUpdaterController = {
         let controller = SPUStandardUpdaterController(
@@ -208,6 +208,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.ui.debug("Opening translation history window")
 
         HistoryWindowController.shared.showHistory()
+    }
+
+    // MARK: - Color Picker & Image Editing Actions
+
+    /// Triggers the native macOS color picker to copy a hex color code
+    @objc func pickScreenColor() {
+        NSColorSampler().show { selectedColor in
+            guard let color = selectedColor else { return }
+            guard let rgbColor = color.usingColorSpace(.sRGB) else { return }
+            let r = Int(round(rgbColor.redComponent * 255))
+            let g = Int(round(rgbColor.greenComponent * 255))
+            let b = Int(round(rgbColor.blueComponent * 255))
+            let hex = String(format: "#%02X%02X%02X", r, g, b)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(hex, forType: .string)
+            NotificationCenter.default.post(name: Notification.Name("colorDidPick"), object: hex)
+        }
+    }
+
+    /// Opens an image file from disk and launches the annotation editor
+    @objc func openImageForEditing() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image, .png, .jpeg, .tiff]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canCreateDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            openImageURL(url)
+        }
+    }
+
+    /// Loads an image file URL and shows the preview editor window
+    func openImageURL(_ url: URL) {
+        guard let nsImage = NSImage(contentsOf: url) else { return }
+        var proposedRect = NSRect(origin: .zero, size: nsImage.size)
+        guard let cgImage = nsImage.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else { return }
+
+        let screen = NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
+        let displayInfo = DisplayInfo(
+            id: CGMainDisplayID(),
+            name: screen.localizedName,
+            frame: screen.frame,
+            scaleFactor: screen.backingScaleFactor,
+            isPrimary: true
+        )
+        let screenshot = Screenshot(
+            image: cgImage,
+            sourceDisplay: displayInfo,
+            format: AppSettings.shared.defaultFormat
+        )
+        PreviewWindowController.shared.showPreview(for: screenshot)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let first = urls.first {
+            openImageURL(first)
+        }
     }
 
     // MARK: - Error Handling

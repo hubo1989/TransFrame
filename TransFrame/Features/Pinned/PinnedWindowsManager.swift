@@ -86,6 +86,18 @@ final class PinnedWindowsManager {
         return pinnedWindow
     }
 
+    /// Pins an NSImage directly.
+    @discardableResult
+    func pin(image: NSImage) -> PinnedWindow? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let doc = CaptureDocument(
+            baseImage: cgImage,
+            sourceScreenRect: QuartzGlobalRect(CGRect(origin: .zero, size: CGSize(width: cgImage.width, height: cgImage.height))),
+            sourceDisplay: DisplayInfo(id: 0, name: "Main", frame: CGRect(origin: .zero, size: CGSize(width: cgImage.width, height: cgImage.height)), scaleFactor: 2.0, isPrimary: true)
+        )
+        return pin(document: doc)
+    }
+
     /// Unpins a window by its ID.
     func unpinWindow(_ id: UUID) {
         guard let window = pinnedWindows[id] else { return }
