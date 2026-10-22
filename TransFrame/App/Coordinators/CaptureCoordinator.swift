@@ -51,20 +51,20 @@ final class CaptureCoordinator {
     private func setupSessionCallbacks() {
         let session = CaptureSessionController.shared
 
-        session.onCaptureComplete = { [weak self] document in
+        session.onCaptureComplete = { document in
             PreviewWindowController.shared.showPreview(for: document.toLegacyScreenshot())
         }
 
-        session.onTranslationRequested = { [weak self] document in
-            let scale = document.sourceDisplay?.scaleFactor ?? 2.0
-            TranslationFlowController.shared.startTranslation(
-                document: document,
-                scaleFactor: scale
+        session.onTranslationRequested = { document in
+            // Route into the preview window's embedded side panel — no external window
+            PreviewWindowController.shared.showPreview(
+                for: document.toLegacyScreenshot(),
+                autoTriggerTranslate: true
             )
         }
 
-        session.onOCRRequested = { [weak self] document in
-            PreviewWindowController.shared.showPreview(for: document.toLegacyScreenshot())
+        session.onOCRRequested = { document in
+            PreviewWindowController.shared.showPreview(for: document.toLegacyScreenshot(), autoTriggerOCR: true)
         }
     }
 

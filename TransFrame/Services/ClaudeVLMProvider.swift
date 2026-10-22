@@ -88,6 +88,10 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     private let maxContinuationAttempts = 3
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
             throw VLMProviderError.imageEncodingFailed
         }
@@ -99,7 +103,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         let vlmResponse = try await analyzeWithContinuation(
             base64Image: base64Image,
             imageSize: imageSize,
-            maxAttempts: maxContinuationAttempts
+            maxAttempts: maxContinuationAttempts,
+            prompts: prompt
         )
 
         return vlmResponse.toScreenAnalysisResult(imageSize: imageSize)
@@ -109,7 +114,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     private func analyzeWithContinuation(
         base64Image: String,
         imageSize: CGSize,
-        maxAttempts: Int
+        maxAttempts: Int,
+        prompts: VLMPromptPair = .ocr
     ) async throws -> VLMAnalysisResponse {
         var allSegments: [VLMTextSegment] = []
         var conversationHistory: [ClaudeMessage] = [
@@ -123,7 +129,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
                             data: base64Image
                         )
                     )),
-                    .text(VLMPromptTemplate.userPrompt),
+                    .text(prompts.user),
                 ]
             ),
         ]
@@ -131,7 +137,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         for attempt in 0..<maxAttempts {
             let request = try buildRequest(
                 messages: conversationHistory,
-                isContinuation: attempt > 0
+                isContinuation: attempt > 0,
+                systemPrompt: prompts.system
             )
             let responseData = try await executeRequest(request)
 
@@ -246,7 +253,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     }
 
     /// Builds request with custom messages and continuation settings
-    private func buildRequest(messages: [ClaudeMessage], isContinuation: Bool) throws -> URLRequest {
+    private func buildRequest(messages: [ClaudeMessage], isContinuation: Bool, systemPrompt: String = VLMPromptTemplate.systemPrompt) throws -> URLRequest {
         let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("v1/messages")
 
         var request = URLRequest(url: endpoint)
@@ -265,7 +272,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         let requestBody = ClaudeMessagesRequest(
             model: configuration.modelName,
             maxTokens: maxTokens,
-            system: VLMPromptTemplate.systemPrompt,
+            system: systemPrompt,
             messages: messages
         )
 

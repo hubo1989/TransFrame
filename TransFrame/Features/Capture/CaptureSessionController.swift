@@ -25,6 +25,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
     private var activeOverlays: [SelectionOverlayWindow] = []
     private var currentMode: CaptureMode = .region
     private var currentSnapshotSet: FrozenSnapshotSet?
+    private var beautifyConfig: BeautifyConfig?
 
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
@@ -130,6 +131,9 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             return
         }
 
+        let isBeautifyActive = activeOverlays.contains { $0.overlayView?.isBeautifyEnabled == true }
+        self.beautifyConfig = isBeautifyActive ? BeautifyConfig(isEnabled: true) : nil
+
         // Close overlays immediately
         closeAllOverlays()
 
@@ -173,11 +177,13 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             playCaptureSound()
             let clipboard = ClipboardService()
             do {
-                if let rendered = DocumentRenderer.shared.render(document: document) {
-                    try clipboard.copy(rendered, annotations: [])
-                } else {
-                    try clipboard.copy(document.baseImage, annotations: document.annotations)
+                var finalImage = DocumentRenderer.shared.render(document: document) ?? document.baseImage
+                if let bConfig = beautifyConfig, bConfig.isEnabled {
+                    if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
+                        finalImage = beautified
+                    }
                 }
+                try clipboard.copy(finalImage, annotations: [])
             } catch {
                 logger.error("Clipboard copy failed: \(error.localizedDescription)")
             }
@@ -192,13 +198,50 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
         case .translate:
             onTranslationRequested?(document)
 
-        case .openEditor:
-            onCaptureComplete?(document)
+        case .beautify:
+            if beautifyConfig == nil {
+                beautifyConfig = .default
+            }
+            beautifyConfig?.isEnabled.toggle()
+
+        case .smartMosaic:
+            // Handled inside the selection overlay (adds mosaic annotations in place)
+            break
 
         case .save:
             playCaptureSound()
-            // Forward to preview view model or save directly
-            onCaptureComplete?(document)
+            let settings = AppSettings.shared
+            let exporter = ImageExporter.shared
+            let directory = settings.saveLocation
+            let format = settings.defaultFormat
+            let url = exporter.generateFileURL(in: directory, format: format)
+            var finalImage = DocumentRenderer.shared.render(document: document) ?? document.baseImage
+            if let bConfig = beautifyConfig, bConfig.isEnabled {
+                if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
+                    finalImage = beautified
+                }
+            }
+            do {
+                try exporter.save(finalImage, annotations: [], to: url, format: format, beautifyConfig: nil)
+            } catch {
+                logger.error("Save failed: \(error.localizedDescription)")
+            }
+
+        case .upload:
+            playCaptureSound()
+            Task { @MainActor in
+                var finalImage = DocumentRenderer.shared.render(document: document) ?? document.baseImage
+                if let bConfig = self.beautifyConfig, bConfig.isEnabled {
+                    if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
+                        finalImage = beautified
+                    }
+                }
+                do {
+                    _ = try await ImageUploadService.shared.upload(image: finalImage)
+                } catch {
+                    self.logger.error("Upload failed: \(error.localizedDescription)")
+                }
+            }
 
         case .cancel:
             break
@@ -221,6 +264,10 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
         // 1. Local event monitor when app is active
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // ESC
+                if let editingOverlay = self?.activeOverlays.first(where: { $0.overlayView?.isEditingText == true }) {
+                    editingOverlay.overlayView?.cancelTextInput()
+                    return nil
+                }
                 self?.closeAllOverlays()
                 return nil
             }

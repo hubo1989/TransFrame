@@ -1,8 +1,10 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 /// Tool for drawing ellipse annotations.
 /// User drags to define the bounding rectangle of the ellipse.
+/// Hold ⌘ while dragging to constrain to a circle.
 @MainActor
 struct EllipseTool: AnnotationTool {
     // MARK: - Properties
@@ -16,6 +18,9 @@ struct EllipseTool: AnnotationTool {
     /// Whether to create filled (solid) ellipses
     var isFilled: Bool = false
 
+    /// Background fill color for filled ellipses (nil = stroke color)
+    var fillColor: CodableColor? = nil
+
     private var drawingState = DrawingState()
 
     // MARK: - AnnotationTool Conformance
@@ -28,7 +33,7 @@ struct EllipseTool: AnnotationTool {
         guard isActive else { return nil }
         let rect = calculateRect()
         guard rect.width > 0 && rect.height > 0 else { return nil }
-        return .ellipse(EllipseAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .ellipse(EllipseAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func beginDrawing(at point: CGPoint) {
@@ -54,7 +59,7 @@ struct EllipseTool: AnnotationTool {
 
         guard rect.width >= 5 && rect.height >= 5 else { return nil }
 
-        return .ellipse(EllipseAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .ellipse(EllipseAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func cancelDrawing() {
@@ -69,10 +74,17 @@ struct EllipseTool: AnnotationTool {
         let start = drawingState.startPoint
         guard let end = drawingState.points.last else { return .zero }
 
-        let minX = min(start.x, end.x)
-        let minY = min(start.y, end.y)
-        let maxX = max(start.x, end.x)
-        let maxY = max(start.y, end.y)
+        var minX = min(start.x, end.x)
+        var minY = min(start.y, end.y)
+        var maxX = max(start.x, end.x)
+        var maxY = max(start.y, end.y)
+
+        // ⌘ held: constrain the bounding rect to a 1:1 square (perfect circle)
+        if NSEvent.modifierFlags.contains(.command) {
+            let side = max(maxX - minX, maxY - minY)
+            if end.x >= start.x { maxX = start.x + side } else { minX = start.x - side }
+            if end.y >= start.y { maxY = start.y + side } else { minY = start.y - side }
+        }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }

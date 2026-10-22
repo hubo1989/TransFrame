@@ -5,6 +5,9 @@ import AppKit
 extension PreviewViewModel {
     @discardableResult
     func copyToClipboard(dismissOnSuccess: Bool = false) -> Bool {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
         guard !isCopying else { return false }
         isCopying = true
 
@@ -37,6 +40,9 @@ extension PreviewViewModel {
     }
 
     func saveScreenshot() {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
         guard !isSaving else { return }
         isSaving = true
 

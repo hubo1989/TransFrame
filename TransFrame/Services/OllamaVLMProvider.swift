@@ -66,13 +66,17 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
             throw VLMProviderError.imageEncodingFailed
         }
 
         let base64Image = imageData.base64EncodedString()
         let imageSize = CGSize(width: image.width, height: image.height)
-        let request = try buildRequest(base64Image: base64Image)
+        let request = try buildRequest(base64Image: base64Image, prompts: prompt)
         let responseData = try await executeRequest(request)
         let vlmResponse = try parseOllamaResponse(responseData)
 
@@ -125,7 +129,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     /// Builds the URLRequest for local server (Ollama /api/generate or OpenAI /chat/completions)
-    private func buildRequest(base64Image: String) throws -> URLRequest {
+    private func buildRequest(base64Image: String, prompts: VLMPromptPair = .ocr) throws -> URLRequest {
         let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
         let endpoint: URL
         if isChatCompletions {
@@ -155,7 +159,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
                     [
                         "role": "user",
                         "content": [
-                            ["type": "text", "text": "\(VLMPromptTemplate.systemPrompt)\n\n\(VLMPromptTemplate.userPrompt)"],
+                            ["type": "text", "text": "\(prompts.system)\n\n\(prompts.user)"],
                             ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                         ]
                     ]
@@ -165,9 +169,9 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {
             let prompt = """
-                \(VLMPromptTemplate.systemPrompt)
+                \(prompts.system)
 
-                \(VLMPromptTemplate.userPrompt)
+                \(prompts.user)
                 """
 
             let requestBody = OllamaGenerateRequest(

@@ -93,6 +93,10 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     private let maxContinuationAttempts = 3
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
             throw VLMProviderError.imageEncodingFailed
         }
@@ -106,7 +110,8 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         let vlmResponse = try await analyzeWithContinuation(
             base64Image: base64Image,
             imageSize: imageSize,
-            maxAttempts: maxContinuationAttempts
+            maxAttempts: maxContinuationAttempts,
+            prompts: prompt
         )
 
         return vlmResponse.toScreenAnalysisResult(imageSize: imageSize)
@@ -137,19 +142,20 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     private func analyzeWithContinuation(
         base64Image: String,
         imageSize: CGSize,
-        maxAttempts: Int
+        maxAttempts: Int,
+        prompts: VLMPromptPair = .ocr
     ) async throws -> VLMAnalysisResponse {
         var allSegments: [VLMTextSegment] = []
 
         var conversationMessages: [OpenAIChatMessage] = [
             OpenAIChatMessage(
                 role: "system",
-                content: .text(VLMPromptTemplate.systemPrompt)
+                content: .text(prompts.system)
             ),
             OpenAIChatMessage(
                 role: "user",
                 content: .vision([
-                    .text(VLMPromptTemplate.userPrompt),
+                    .text(prompts.user),
                     .imageURL(OpenAIImageURL(
                         url: "data:image/jpeg;base64,\(base64Image)"
                     )),

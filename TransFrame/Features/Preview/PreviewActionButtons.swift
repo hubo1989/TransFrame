@@ -36,6 +36,12 @@ struct PreviewActionButtons: View {
                 .frame(height: 16)
                 .accessibilityHidden(true)
 
+            smartMosaicButton
+
+            Divider()
+                .frame(height: 16)
+                .accessibilityHidden(true)
+
             confirmButton
         }
         .buttonStyle(.accessoryBar)
@@ -56,7 +62,7 @@ struct PreviewActionButtons: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .help(String(localized: "preview.tooltip.crop"))
+        .customTooltip(String(localized: "preview.tooltip.crop"))
         .accessibilityLabel(Text("preview.crop"))
         .accessibilityHint(Text("Press C to toggle"))
     }
@@ -74,7 +80,7 @@ struct PreviewActionButtons: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .help(String(localized: "preview.tooltip.pin"))
+        .customTooltip(String(localized: "preview.tooltip.pin"))
         .accessibilityLabel(Text("preview.pin"))
         .accessibilityHint(Text("Press P to pin"))
     }
@@ -87,7 +93,7 @@ struct PreviewActionButtons: View {
                 Image(systemName: "arrow.uturn.backward")
             }
             .disabled(!viewModel.canUndo)
-            .help(String(localized: "preview.tooltip.undo"))
+            .customTooltip(String(localized: "preview.tooltip.undo"))
             .accessibilityLabel(Text("action.undo"))
             .accessibilityHint(Text("Command Z"))
 
@@ -97,7 +103,7 @@ struct PreviewActionButtons: View {
                 Image(systemName: "arrow.uturn.forward")
             }
             .disabled(!viewModel.canRedo)
-            .help(String(localized: "preview.tooltip.redo"))
+            .customTooltip(String(localized: "preview.tooltip.redo"))
             .accessibilityLabel(Text("action.redo"))
             .accessibilityHint(Text("Command Shift Z"))
         }
@@ -114,7 +120,7 @@ struct PreviewActionButtons: View {
             }
         }
         .disabled(viewModel.isSaving)
-        .help(String(localized: "preview.tooltip.save"))
+        .customTooltip(String(localized: "preview.tooltip.save"))
         .accessibilityLabel(Text(String(localized: viewModel.isSaving ? "preview.accessibility.saving" : "preview.accessibility.save")))
         .accessibilityHint(Text(String(localized: "preview.accessibility.hint.commandS")))
     }
@@ -132,7 +138,24 @@ struct PreviewActionButtons: View {
             }
         }
         .disabled(viewModel.isPerformingOCR)
-        .help(String(localized: "preview.tooltip.ocr"))
+        .customTooltip(String(localized: "preview.tooltip.ocr"))
+    }
+
+    /// Smart mosaic: detects sensitive privacy regions and masks them in one batch
+    private var smartMosaicButton: some View {
+        Button {
+            viewModel.performSmartRedaction()
+        } label: {
+            if viewModel.isDetectingPrivacy {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 16, height: 16)
+            } else {
+                Image(systemName: "camera.metering.unknown")
+            }
+        }
+        .disabled(viewModel.isDetectingPrivacy)
+        .customTooltip(String(localized: "preview.tooltip.smartMosaic"))
     }
 
     /// Confirm button: copies to clipboard and dismisses (only on success)
@@ -149,7 +172,7 @@ struct PreviewActionButtons: View {
             }
         }
         .disabled(viewModel.isCopying)
-        .help(String(localized: "preview.tooltip.confirm"))
+        .customTooltip(String(localized: "preview.tooltip.confirm"))
         .accessibilityLabel(Text(String(localized: viewModel.isCopying ? "preview.accessibility.copying" : "preview.accessibility.confirm")))
         .accessibilityHint(Text(String(localized: "preview.accessibility.hint.enter")))
     }

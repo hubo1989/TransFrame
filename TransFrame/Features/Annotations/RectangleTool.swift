@@ -1,8 +1,10 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 /// Tool for drawing rectangle annotations.
 /// User drags to define opposite corners of the rectangle.
+/// Hold ⌘ while dragging to constrain to a square.
 @MainActor
 struct RectangleTool: AnnotationTool {
     // MARK: - Properties
@@ -16,6 +18,9 @@ struct RectangleTool: AnnotationTool {
     /// Whether to create filled (solid) rectangles
     var isFilled: Bool = false
 
+    /// Background fill color for filled rectangles (nil = stroke color)
+    var fillColor: CodableColor? = nil
+
     private var drawingState = DrawingState()
 
     // MARK: - AnnotationTool Conformance
@@ -28,7 +33,7 @@ struct RectangleTool: AnnotationTool {
         guard isActive else { return nil }
         let rect = calculateRect()
         guard rect.width > 0 && rect.height > 0 else { return nil }
-        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func beginDrawing(at point: CGPoint) {
@@ -56,7 +61,7 @@ struct RectangleTool: AnnotationTool {
         // Only create annotation if it has meaningful size
         guard rect.width >= 2 && rect.height >= 2 else { return nil }
 
-        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func cancelDrawing() {
@@ -75,10 +80,17 @@ struct RectangleTool: AnnotationTool {
             return .zero
         }
 
-        let minX = min(start.x, end.x)
-        let minY = min(start.y, end.y)
-        let maxX = max(start.x, end.x)
-        let maxY = max(start.y, end.y)
+        var minX = min(start.x, end.x)
+        var minY = min(start.y, end.y)
+        var maxX = max(start.x, end.x)
+        var maxY = max(start.y, end.y)
+
+        // ⌘ held: constrain width and height to a 1:1 square
+        if NSEvent.modifierFlags.contains(.command) {
+            let side = max(maxX - minX, maxY - minY)
+            if end.x >= start.x { maxX = start.x + side } else { minX = start.x - side }
+            if end.y >= start.y { maxY = start.y + side } else { minY = start.y - side }
+        }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }

@@ -9,39 +9,97 @@ struct PreviewContentView: View {
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Whether the right-side results drawer should occupy layout space
+    private var showsResultsPanel: Bool {
+        viewModel.hasOCRResults || viewModel.isPerformingOCR
+            || viewModel.hasTranslationResults || viewModel.isTranslating
+            || isResultsPanelExpanded
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                PreviewAnnotatedImageView(
-                    viewModel: viewModel,
-                    imageDisplaySize: $imageDisplaySize,
-                    imageScale: $imageScale,
-                    isTextFieldFocused: $isTextFieldFocused
-                )
+        ZStack(alignment: .bottom) {
+            // Main Canvas Area + Embedded Right Results Drawer
+            HStack(spacing: 0) {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    PreviewAnnotatedImageView(
+                        viewModel: viewModel,
+                        imageDisplaySize: $imageDisplaySize,
+                        imageScale: $imageScale,
+                        isTextFieldFocused: $isTextFieldFocused
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(16)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if showsResultsPanel && isResultsPanelExpanded {
+                    PreviewResultsPanel(viewModel: viewModel, isExpanded: $isResultsPanelExpanded)
+                        .frame(width: 300)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isResultsPanelExpanded)
 
-            Divider()
-
-            infoBar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.bar)
-
-            if viewModel.hasOCRResults {
-                Divider()
-                PreviewResultsPanel(viewModel: viewModel, isExpanded: $isResultsPanelExpanded)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.bar)
+            // Attached Floating Pill Toolbar
+            HStack(spacing: 12) {
+                PreviewToolBar(viewModel: viewModel)
+                Divider().frame(height: 16)
+                PreviewActionButtons(viewModel: viewModel)
             }
+            .cursor(.arrow)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+            .padding(.bottom, 12)
         }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                viewModel.dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary, Color.black.opacity(0.1))
+                    .padding(10)
+            }
+            .buttonStyle(.plain)
+            .customTooltip(String(localized: "preview.tooltip.dismiss"), placement: .bottom)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        )
         .onChange(of: viewModel.hasOCRResults) { _, hasResults in
             if hasResults {
                 isResultsPanelExpanded = true
             }
         }
+        .onChange(of: viewModel.isTranslating) { _, translating in
+            if translating {
+                isResultsPanelExpanded = true
+            }
+        }
+        .overlay(alignment: .top) {
+            if let message = viewModel.smartRedactionMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: viewModel.isDetectingPrivacy ? "camera.metering.unknown" : "checkmark.circle.fill")
+                        .foregroundColor(viewModel.isDetectingPrivacy ? .secondary : .green)
+                    if viewModel.isDetectingPrivacy {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(message)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .cornerRadius(8)
+                .shadow(radius: 4)
+                .padding(.top, 20)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.smartRedactionMessage != nil)
         .alert(
             String(localized: "error.title"),
             isPresented: .constant(viewModel.errorMessage != nil),
@@ -84,43 +142,6 @@ struct PreviewContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.copySuccessMessage != nil)
-    }
-
-    private var infoBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text(viewModel.dimensionsText)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "preview.image.dimensions"))
-
-                Text("•")
-                    .foregroundStyle(.tertiary)
-
-                Text(viewModel.fileSizeText)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "preview.estimated.size"))
-            }
-            .fixedSize()
-
-            Divider()
-                .frame(height: 16)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    PreviewToolBar(viewModel: viewModel)
-                }
-                .padding(.horizontal, 4)
-            }
-            .frame(minWidth: 100)
-
-            Divider()
-                .frame(height: 16)
-
-            PreviewActionButtons(viewModel: viewModel)
-                .fixedSize()
-        }
     }
 }
 

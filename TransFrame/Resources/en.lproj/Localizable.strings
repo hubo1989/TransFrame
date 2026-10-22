@@ -83,6 +83,8 @@
 "menu.capture.fullscreen" = "Capture Full Screen";
 "menu.capture.selection" = "Capture Selection";
 "menu.translation.mode" = "Translation Mode";
+"menu.pick.color" = "Pick Screen Color";
+"menu.open.image" = "Open Image for Editing...";
 "menu.translation.history" = "Translation History";
 "menu.settings" = "Settings...";
 "menu.about" = "About TransFrame";
@@ -136,6 +138,8 @@
 "preview.tooltip.confirm" = "Copy to Clipboard and Close (Enter)";
 "preview.tooltip.dismiss" = "Dismiss (Escape)";
 "preview.tooltip.delete" = "Delete selected annotation";
+"preview.tooltip.editText" = "Edit Text";
+"preview.tooltip.beautify" = "Beautify (Background & Shadow)";
 
 /* Accessibility Labels */
 "preview.accessibility.save" = "Save screenshot";
@@ -164,6 +168,8 @@
 "tool.highlight" = "Highlight";
 "tool.mosaic" = "Mosaic";
 "tool.numberLabel" = "Number Label";
+"tool.privacyRedaction" = "Privacy Redaction";
+"tool.calloutBubble" = "Callout Bubble";
 
 
 /* ========================================
@@ -830,3 +836,34 @@
 "menu.pinned.show_all" = "Bring All Pins to Front";
 "tool.privacyRedaction" = "Privacy Redaction";
 "tool.calloutBubble" = "Callout Bubble";
+
+/* Annotation color palette */
+"preview.color.custom" = "Custom Color";
+"preview.color.eyedropper" = "Pick Screen Color";
+"preview.fill.color" = "Fill Color";
+
+/* Smart privacy mosaic */
+"smartMosaic.error.notConfigured" = "Please configure a Vision API key in Settings first";
+"smartMosaic.detecting" = "Detecting privacy regions...";
+"smartMosaic.noneFound" = "No sensitive information detected";
+"smartMosaic.redacted" = "Masked %d privacy regions";
+"smartMosaic.error.failed" = "Privacy detection failed. Check your network and retry.";
+"preview.tooltip.smartMosaic" = "Smart Mosaic";
+
+/* Embedded results side panel */
+"preview.panel.ocrTab" = "Text Recognition";
+"preview.panel.translateTab" = "Translation";
+"preview.panel.rerun" = "Recognize Again";
+"preview.panel.copyAll" = "Copy All";
+"preview.panel.close" = "Close";
+"preview.panel.recognizing" = "Recognizing...";
+"preview.panel.copyLine" = "Copy";
+"preview.panel.original" = "Original";
+"preview.panel.translation" = "Translation";
+"preview.panel.targetLanguage" = "Target Language";
+"preview.panel.noResults" = "No results yet. Click Text Recognition to start";
+"preview.panel.translating" = "Translating...";
+"preview.panel.translate" = "Translate";
+"mosaic.intensity.light" = "Light";
+"mosaic.intensity.medium" = "Medium";
+"mosaic.intensity.strong" = "Strong";

@@ -24,6 +24,10 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
             throw VLMProviderError.imageEncodingFailed
         }
@@ -31,7 +35,7 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
         let base64Image = imageData.base64EncodedString()
         let imageSize = CGSize(width: image.width, height: image.height)
 
-        let request = try buildRequest(base64Image: base64Image)
+        let request = try buildRequest(base64Image: base64Image, prompts: prompt)
         let responseData = try await executeRequest(request)
         let content = try extractContent(from: responseData)
 
@@ -49,7 +53,7 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
         }
     }
 
-    private func buildRequest(base64Image: String) throws -> URLRequest {
+    private func buildRequest(base64Image: String, prompts: VLMPromptPair = .ocr) throws -> URLRequest {
         let baseURL = configuration.baseURL.resolvingLocalhost
         let model = configuration.modelName.isEmpty ? "gemini-2.0-flash" : configuration.modelName
 
@@ -86,7 +90,7 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
                     [
                         "role": "user",
                         "content": [
-                            ["type": "text", "text": VLMPromptTemplate.userPrompt],
+                            ["type": "text", "text": prompts.user],
                             ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                         ]
                     ]
@@ -95,7 +99,7 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {
             // Gemini generateContent payload
-            let prompt = "\(VLMPromptTemplate.systemPrompt)\n\n\(VLMPromptTemplate.userPrompt)"
+            let prompt = "\(prompts.system)\n\n\(prompts.user)"
             let body: [String: Any] = [
                 "contents": [
                     [

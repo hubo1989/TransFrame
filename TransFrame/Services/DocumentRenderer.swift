@@ -139,17 +139,21 @@ final class DocumentRenderer: @unchecked Sendable {
         context.saveGState()
 
         // 1. Draw pointer tail from bubble to target point
+        let attachX = max(cgBubbleRect.minX + 10, min(cgBubbleRect.maxX - 10, cgTarget.x))
+        let attachY = cgTarget.y < cgBubbleRect.minY ? cgBubbleRect.minY : (cgTarget.y > cgBubbleRect.maxY ? cgBubbleRect.maxY : cgBubbleRect.midY)
+        let halfBase = min(8.0, max(4.0, cgBubbleRect.width * 0.1))
         let tailPath = CGMutablePath()
         tailPath.move(to: cgTarget)
-        // Find attachment point
-        let attachPoint = CGPoint(
-            x: max(cgBubbleRect.minX + 8, min(cgBubbleRect.maxX - 8, cgTarget.x)),
-            y: cgTarget.y < cgBubbleRect.minY ? cgBubbleRect.minY : cgBubbleRect.maxY
-        )
-        tailPath.addLine(to: attachPoint)
+        tailPath.addLine(to: CGPoint(x: attachX - halfBase, y: attachY))
+        tailPath.addLine(to: CGPoint(x: attachX + halfBase, y: attachY))
+        tailPath.closeSubpath()
+        context.setFillColor(annotation.bubbleColor.cgColor)
+        context.addPath(tailPath)
+        context.fillPath()
         context.setStrokeColor(annotation.bubbleColor.cgColor)
         context.setLineWidth(2.0)
-        context.addPath(tailPath)
+        context.move(to: cgTarget)
+        context.addLine(to: CGPoint(x: attachX, y: attachY))
         context.strokePath()
 
         // 2. Draw bubble body
@@ -193,7 +197,7 @@ final class DocumentRenderer: @unchecked Sendable {
 
         context.saveGState()
         if annotation.isFilled {
-            context.setFillColor(annotation.style.color.cgColor)
+            context.setFillColor(annotation.effectiveFillColor.cgColor)
             context.fill(rect)
         } else {
             context.setStrokeColor(annotation.style.color.cgColor)
@@ -219,7 +223,7 @@ final class DocumentRenderer: @unchecked Sendable {
 
         context.saveGState()
         if annotation.isFilled {
-            context.setFillColor(annotation.style.color.cgColor)
+            context.setFillColor(annotation.effectiveFillColor.cgColor)
             context.fillEllipse(in: rect)
         } else {
             context.setStrokeColor(annotation.style.color.cgColor)
@@ -300,25 +304,33 @@ final class DocumentRenderer: @unchecked Sendable {
     ) {
         let start = annotation.startPoint.applying(transform)
         let end = annotation.endPoint.applying(transform)
+        let control = annotation.controlPoint.map { $0.applying(transform) }
 
         let cgStart = CGPoint(x: start.x, y: targetHeight - start.y)
         let cgEnd = CGPoint(x: end.x, y: targetHeight - end.y)
+        let cgControl = control.map { CGPoint(x: $0.x, y: targetHeight - $0.y) }
 
         context.saveGState()
         context.setStrokeColor(annotation.style.color.cgColor)
         context.setFillColor(annotation.style.color.cgColor)
         context.setLineWidth(annotation.style.lineWidth)
         context.setLineCap(.round)
+        context.setLineJoin(.round)
 
-        // Draw shaft
+        // Draw shaft (curved if controlPoint is set)
         context.beginPath()
         context.move(to: cgStart)
-        context.addLine(to: cgEnd)
+        if let cp = cgControl {
+            context.addQuadCurve(to: cgEnd, control: cp)
+        } else {
+            context.addLine(to: cgEnd)
+        }
         context.strokePath()
 
-        // Draw arrowhead
-        let dx = cgEnd.x - cgStart.x
-        let dy = cgEnd.y - cgStart.y
+        // Draw arrowhead aligned with tangent at end
+        let prevPoint = cgControl ?? cgStart
+        let dx = cgEnd.x - prevPoint.x
+        let dy = cgEnd.y - prevPoint.y
         let angle = atan2(dy, dx)
         let arrowLength = max(annotation.style.lineWidth * 4, 14.0)
         let arrowAngle = CGFloat.pi / 6
@@ -409,19 +421,35 @@ final class DocumentRenderer: @unchecked Sendable {
         targetHeight: CGFloat,
         transform: CGAffineTransform
     ) {
-        let pos = annotation.position.applying(transform)
+        guard !annotation.content.isEmpty else { return }
+
         let fontSize = max(10, annotation.style.fontSize)
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+        let font = NSFont(name: annotation.style.fontName, size: fontSize)
+            ?? NSFont.systemFont(ofSize: fontSize, weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .paragraphStyle: paragraph,
             .foregroundColor: NSColor(cgColor: annotation.style.color.cgColor) ?? .black
         ]
         let attrString = NSAttributedString(string: annotation.content, attributes: attributes)
-        let line = CTLineCreateWithAttributedString(attrString)
+
+        // Frame in the measured bounds so wrapped lines and hard line breaks both fit
+        let transformedBounds = annotation.bounds.applying(transform)
+        let frameRect = CGRect(
+            x: transformedBounds.minX,
+            y: targetHeight - transformedBounds.maxY,
+            width: transformedBounds.width,
+            height: transformedBounds.height
+        )
+        guard frameRect.width > 0, frameRect.height > 0 else { return }
 
         context.saveGState()
-        context.textPosition = CGPoint(x: pos.x, y: targetHeight - pos.y - fontSize)
-        CTLineDraw(line, context)
+        let framesetter = CTFramesetterCreateWithAttributedString(attrString)
+        let path = CGPath(rect: frameRect, transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, attrString.length), path, nil)
+        CTFrameDraw(frame, context)
         context.restoreGState()
     }
 
@@ -432,15 +460,38 @@ final class DocumentRenderer: @unchecked Sendable {
         transform: CGAffineTransform
     ) {
         let pos = annotation.position.applying(transform)
+        let cgCenter = CGPoint(x: pos.x, y: targetHeight - pos.y)
         let radius = annotation.size / 2.0
         let rect = CGRect(
-            x: pos.x - radius,
-            y: targetHeight - pos.y - radius,
+            x: cgCenter.x - radius,
+            y: cgCenter.y - radius,
             width: annotation.size,
             height: annotation.size
         )
 
         context.saveGState()
+
+        if let lp = annotation.leadPoint?.applying(transform) {
+            let cgLead = CGPoint(x: lp.x, y: targetHeight - lp.y)
+            let lineWidth = max(2.0, annotation.size / 12.0)
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(lineWidth)
+            context.setLineCap(.round)
+            context.beginPath()
+            context.move(to: cgCenter)
+            context.addLine(to: cgLead)
+            context.strokePath()
+
+            let dotRadius = max(3.5, annotation.size * 0.14)
+            context.setFillColor(annotation.color.cgColor)
+            context.fillEllipse(in: CGRect(
+                x: cgLead.x - dotRadius,
+                y: cgLead.y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            ))
+        }
+
         context.setFillColor(annotation.color.cgColor)
         context.fillEllipse(in: rect)
 

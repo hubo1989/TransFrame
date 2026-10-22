@@ -4,6 +4,9 @@ import AppKit
 
 extension PreviewViewModel {
     func performOCR() {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
         guard !isPerformingOCR else { return }
         isPerformingOCR = true
         ocrTranslationError = nil
