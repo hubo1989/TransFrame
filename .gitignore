@@ -99,3 +99,4 @@ build_artifacts/
 .omc/
 .omd/
 *.dmg
+scripts/e2e/eventsynth

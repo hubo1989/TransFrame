@@ -867,3 +867,59 @@
 "mosaic.intensity.light" = "轻微";
 "mosaic.intensity.medium" = "中度";
 "mosaic.intensity.strong" = "高强度";
+
+/* MTranServer engine errors */
+"error.mtran.http.error" = "MTranServer 请求失败。";
+"error.mtran.http.error.recovery" = "请检查网络与服务器状态后重试。";
+"error.mtran.invalid.request" = "MTranServer 请求无效。";
+"error.mtran.invalid.request.recovery" = "请检查翻译配置后重试。";
+"error.mtran.invalid.url" = "MTranServer 地址无效。";
+"error.mtran.invalid.url.recovery" = "请在设置中修正服务器地址。";
+"error.mtran.not.available" = "MTranServer 服务不可用。";
+"error.mtran.not.available.recovery" = "请启动 MTranServer 后重试。";
+
+/* OCR engine errors */
+"error.ocr.engine.not.available" = "OCR 引擎不可用。";
+"error.ocr.engine.not.available.recovery" = "请在设置中选择可用的 OCR 引擎。";
+"error.ocr.in.progress" = "文字识别正在进行中。";
+"error.ocr.in.progress.recovery" = "请等待当前识别完成。";
+"error.ocr.invalid.image" = "图像无效，无法识别。";
+"error.ocr.invalid.image.recovery" = "请使用有效的图像重试。";
+"error.ocr.no.languages" = "未选择识别语言。";
+"error.ocr.no.languages.recovery" = "请在设置中选择识别语言。";
+"error.ocr.no.text.found" = "未在图像中找到文字。";
+"error.ocr.no.text.found.recovery" = "请截取包含文字的区域重试。";
+"error.ocr.recognition.failed" = "文字识别失败。";
+"error.ocr.recognition.failed.recovery" = "请使用更清晰的图像重试。";
+
+/* OCR language names */
+"lang.arabic" = "阿拉伯语";
+"lang.chinese" = "中文";
+"lang.chinese.simplified" = "简体中文";
+"lang.chinese.traditional" = "繁体中文";
+"lang.english" = "英语";
+"lang.french" = "法语";
+"lang.german" = "德语";
+"lang.hindi" = "印地语";
+"lang.italian" = "意大利语";
+"lang.japanese" = "日语";
+"lang.korean" = "韩语";
+"lang.portuguese" = "葡萄牙语";
+"lang.russian" = "俄语";
+"lang.spanish" = "西班牙语";
+"lang.thai" = "泰语";
+"lang.vietnamese" = "越南语";
+
+/* Preview accessibility */
+"preview.pin" = "固定";
+
+/* Translation provider recovery hints */
+"translation.provider.recovery.connectionFailed" = "请检查网络连接后重试。";
+"translation.provider.recovery.emptyInput" = "翻译内容为空。";
+"translation.provider.recovery.invalidConfiguration" = "请检查翻译引擎配置。";
+"translation.provider.recovery.notAvailable" = "该翻译引擎当前不可用，请切换引擎或稍后重试。";
+"translation.provider.recovery.rateLimited" = "请求过于频繁，请稍后重试。";
+"translation.provider.recovery.timeout" = "翻译请求超时，请重试。";
+"translation.provider.recovery.translationFailed" = "翻译失败，请重试。";
+"translation.provider.recovery.unsupportedLanguage" = "不支持该语言对，请更换目标语言。";
+"translation.unknown" = "未知";

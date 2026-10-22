@@ -867,3 +867,59 @@
 "mosaic.intensity.light" = "Light";
 "mosaic.intensity.medium" = "Medium";
 "mosaic.intensity.strong" = "Strong";
+
+/* MTranServer engine errors */
+"error.mtran.http.error" = "MTranServer request failed.";
+"error.mtran.http.error.recovery" = "Check your network and server status, then retry.";
+"error.mtran.invalid.request" = "Invalid MTranServer request.";
+"error.mtran.invalid.request.recovery" = "Check the translation configuration and retry.";
+"error.mtran.invalid.url" = "Invalid MTranServer URL.";
+"error.mtran.invalid.url.recovery" = "Fix the server URL in Settings.";
+"error.mtran.not.available" = "MTranServer is unavailable.";
+"error.mtran.not.available.recovery" = "Start MTranServer and retry.";
+
+/* OCR engine errors */
+"error.ocr.engine.not.available" = "OCR engine is not available.";
+"error.ocr.engine.not.available.recovery" = "Select an available OCR engine in Settings.";
+"error.ocr.in.progress" = "Text recognition is already in progress.";
+"error.ocr.in.progress.recovery" = "Wait for the current recognition to finish.";
+"error.ocr.invalid.image" = "The image is invalid and cannot be recognized.";
+"error.ocr.invalid.image.recovery" = "Use a valid image and retry.";
+"error.ocr.no.languages" = "No recognition language selected.";
+"error.ocr.no.languages.recovery" = "Select recognition languages in Settings.";
+"error.ocr.no.text.found" = "No text found in the image.";
+"error.ocr.no.text.found.recovery" = "Capture an area that contains text and retry.";
+"error.ocr.recognition.failed" = "Text recognition failed.";
+"error.ocr.recognition.failed.recovery" = "Retry with a clearer image.";
+
+/* OCR language names */
+"lang.arabic" = "Arabic";
+"lang.chinese" = "Chinese";
+"lang.chinese.simplified" = "Chinese (Simplified)";
+"lang.chinese.traditional" = "Chinese (Traditional)";
+"lang.english" = "English";
+"lang.french" = "French";
+"lang.german" = "German";
+"lang.hindi" = "Hindi";
+"lang.italian" = "Italian";
+"lang.japanese" = "Japanese";
+"lang.korean" = "Korean";
+"lang.portuguese" = "Portuguese";
+"lang.russian" = "Russian";
+"lang.spanish" = "Spanish";
+"lang.thai" = "Thai";
+"lang.vietnamese" = "Vietnamese";
+
+/* Preview accessibility */
+"preview.pin" = "Pin";
+
+/* Translation provider recovery hints */
+"translation.provider.recovery.connectionFailed" = "Check your internet connection and retry.";
+"translation.provider.recovery.emptyInput" = "The text to translate is empty.";
+"translation.provider.recovery.invalidConfiguration" = "Check the translation engine configuration.";
+"translation.provider.recovery.notAvailable" = "This translation engine is unavailable. Switch engines or retry later.";
+"translation.provider.recovery.rateLimited" = "Too many requests. Retry later.";
+"translation.provider.recovery.timeout" = "The translation request timed out. Retry.";
+"translation.provider.recovery.translationFailed" = "Translation failed. Retry.";
+"translation.provider.recovery.unsupportedLanguage" = "Unsupported language pair. Choose another target language.";
+"translation.unknown" = "Unknown";

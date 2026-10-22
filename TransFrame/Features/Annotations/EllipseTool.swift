@@ -31,7 +31,7 @@ struct EllipseTool: AnnotationTool {
 
     var currentAnnotation: Annotation? {
         guard isActive else { return nil }
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         guard rect.width > 0 && rect.height > 0 else { return nil }
         return .ellipse(EllipseAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
@@ -54,7 +54,7 @@ struct EllipseTool: AnnotationTool {
         guard isActive else { return nil }
 
         continueDrawing(to: point)
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         drawingState.reset()
 
         guard rect.width >= 5 && rect.height >= 5 else { return nil }
@@ -66,26 +66,24 @@ struct EllipseTool: AnnotationTool {
         drawingState.reset()
     }
 
-    // MARK: - Private Methods
+    // MARK: - Internal Methods
 
-    private func calculateRect() -> CGRect {
+    /// Current drag rect. `constrainSquare` mirrors the ⌘ state and is
+    /// injectable so tests can exercise the 1:1 circle constraint without synthesizing keys.
+    func calculatedRect(constrainSquare: Bool) -> CGRect {
         guard drawingState.points.count >= 2 else { return .zero }
 
         let start = drawingState.startPoint
         guard let end = drawingState.points.last else { return .zero }
 
-        var minX = min(start.x, end.x)
-        var minY = min(start.y, end.y)
-        var maxX = max(start.x, end.x)
-        var maxY = max(start.y, end.y)
-
-        // ⌘ held: constrain the bounding rect to a 1:1 square (perfect circle)
-        if NSEvent.modifierFlags.contains(.command) {
-            let side = max(maxX - minX, maxY - minY)
-            if end.x >= start.x { maxX = start.x + side } else { minX = start.x - side }
-            if end.y >= start.y { maxY = start.y + side } else { minY = start.y - side }
+        if constrainSquare {
+            return GeometryConstraint.squareRect(from: start, to: end)
         }
 
+        let minX = min(start.x, end.x)
+        let minY = min(start.y, end.y)
+        let maxX = max(start.x, end.x)
+        let maxY = max(start.y, end.y)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

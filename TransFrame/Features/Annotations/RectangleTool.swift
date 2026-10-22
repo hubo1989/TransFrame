@@ -31,7 +31,7 @@ struct RectangleTool: AnnotationTool {
 
     var currentAnnotation: Annotation? {
         guard isActive else { return nil }
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         guard rect.width > 0 && rect.height > 0 else { return nil }
         return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
@@ -55,7 +55,7 @@ struct RectangleTool: AnnotationTool {
         guard isActive else { return nil }
 
         continueDrawing(to: point)
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         drawingState.reset()
 
         // Only create annotation if it has meaningful size
@@ -68,9 +68,11 @@ struct RectangleTool: AnnotationTool {
         drawingState.reset()
     }
 
-    // MARK: - Private Methods
+    // MARK: - Internal Methods
 
-    private func calculateRect() -> CGRect {
+    /// Current drag rect. `constrainSquare` mirrors the ⌘ state and is
+    /// injectable so tests can exercise the 1:1 constraint without synthesizing keys.
+    func calculatedRect(constrainSquare: Bool) -> CGRect {
         guard drawingState.points.count >= 2 else {
             return .zero
         }
@@ -80,18 +82,14 @@ struct RectangleTool: AnnotationTool {
             return .zero
         }
 
-        var minX = min(start.x, end.x)
-        var minY = min(start.y, end.y)
-        var maxX = max(start.x, end.x)
-        var maxY = max(start.y, end.y)
-
-        // ⌘ held: constrain width and height to a 1:1 square
-        if NSEvent.modifierFlags.contains(.command) {
-            let side = max(maxX - minX, maxY - minY)
-            if end.x >= start.x { maxX = start.x + side } else { minX = start.x - side }
-            if end.y >= start.y { maxY = start.y + side } else { minY = start.y - side }
+        if constrainSquare {
+            return GeometryConstraint.squareRect(from: start, to: end)
         }
 
+        let minX = min(start.x, end.x)
+        let minY = min(start.y, end.y)
+        let maxX = max(start.x, end.x)
+        let maxY = max(start.y, end.y)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

@@ -579,6 +579,19 @@ struct CalloutBubbleAnnotation: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - Geometry Constraints
+
+/// Pure geometry helpers shared by drawing tools and the in-place overlay.
+enum GeometryConstraint {
+    /// 1:1 square bounding box from a start point toward a drag point (⌘ constraint).
+    static func squareRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        let side = max(abs(end.x - start.x), abs(end.y - start.y))
+        let originX = end.x >= start.x ? start.x : start.x - side
+        let originY = end.y >= start.y ? start.y : start.y - side
+        return CGRect(x: originX, y: originY, width: side, height: side)
+    }
+}
+
 // MARK: - Precise Geometric Hit Testing
 
 extension Annotation {

@@ -511,6 +511,7 @@ private struct ToolbarContentView: View {
         }
         .buttonStyle(.plain)
         .customTooltip(tool.tooltip)
+        .accessibilityLabel(tool.tooltip)
     }
 
     private func actionButton(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
@@ -521,5 +522,6 @@ private struct ToolbarContentView: View {
         }
         .buttonStyle(.plain)
         .customTooltip(help)
+        .accessibilityLabel(help)
     }
 }

@@ -1970,10 +1970,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
     /// 1:1 rectangle from start to current point (⌘ constraint)
     private func squareRect(from start: CGPoint, to end: CGPoint) -> CGRect {
-        let side = max(abs(end.x - start.x), abs(end.y - start.y))
-        let originX = end.x >= start.x ? start.x : start.x - side
-        let originY = end.y >= start.y ? start.y : start.y - side
-        return CGRect(x: originX, y: originY, width: side, height: side)
+        GeometryConstraint.squareRect(from: start, to: end)
     }
 
     private func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {
