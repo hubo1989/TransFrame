@@ -211,6 +211,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     private var statusLabel: NSTextField?
     private var statusHideWorkItem: DispatchWorkItem?
 
+    // In-place results drawer (OCR / translation)
+    private let resultsModel = InPlaceResultsModel()
+    private var resultsPanelHost: NSHostingView<InPlaceResultsPanel>?
+
     private let handleSize: CGFloat = 8.0
 
     init(
@@ -903,12 +907,8 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             }
 
             // 3. Check hit on any existing annotation (allows selecting/dragging existing annotations even when a tool is active)
+            //    Single click selects and drags; double click (handled above) re-edits text
             if let hitIdx = hitTestAnnotation(at: p) {
-                if activeAnnotationTool == .text, case .text = committedAnnotations[hitIdx] {
-                    beginEditingTextAnnotation(at: hitIdx)
-                    updateCursor(at: p)
-                    return
-                }
                 selectedAnnotationIndex = hitIdx
                 hideToolbar()
                 state = .movingAnnotation(
@@ -983,7 +983,11 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
         case .resizingAnnotation(let index, _, let handle, _):
             if index < committedAnnotations.count {
-                committedAnnotations[index] = committedAnnotations[index].applyingHandleDrag(handle, to: p)
+                // ⌘ held: lock the current aspect ratio
+                let options = HandleDragOptions(
+                    preserveAspectRatio: NSEvent.modifierFlags.contains(.command)
+                )
+                committedAnnotations[index] = committedAnnotations[index].applyingHandleDrag(handle, to: p, options: options)
             }
 
         case .drawingAnnotation(let tool, let selRect, let start, _):
@@ -1114,13 +1118,20 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
     private func updateDraftAnnotation(start: CGPoint, current: CGPoint, tool: SelectionInPlaceToolbar.AnnotationTool) {
         let style = StrokeStyle(color: CodableColor(Color(nsColor: annotationColor)), lineWidth: annotationLineWidth)
-        let rect = normalizedRect(from: start, to: current)
+        var rect = normalizedRect(from: start, to: current)
+
+        // ⌘ held: constrain rectangle/ellipse to a square / circle (1:1)
+        if NSEvent.modifierFlags.contains(.command), tool == .rectangle || tool == .ellipse {
+            rect = squareRect(from: start, to: current)
+        }
 
         switch tool {
         case .rectangle:
             currentDraftAnnotation = .rectangle(RectangleAnnotation(rect: rect, style: style))
         case .ellipse:
             currentDraftAnnotation = .ellipse(EllipseAnnotation(rect: rect, style: style))
+        case .line:
+            currentDraftAnnotation = .line(LineAnnotation(startPoint: start, endPoint: current, style: style))
         case .arrow:
             currentDraftAnnotation = .arrow(ArrowAnnotation(startPoint: start, endPoint: current, style: style))
         case .pen:
@@ -1372,6 +1383,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     }
 
     private func dismissToolbar() {
+        hideResultsPanel()
         toolbar?.removeFromSuperview()
         toolbar = nil
     }
@@ -1409,6 +1421,16 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
         if action == .smartMosaic {
             runSmartRedaction(in: rect)
+            return
+        }
+
+        // OCR / Translate: expand the in-place results drawer, never leave this window
+        if action == .ocr {
+            runInPlaceAnalysis(tab: .ocr, in: rect)
+            return
+        }
+        if action == .translate {
+            runInPlaceAnalysis(tab: .translate, in: rect)
             return
         }
 
@@ -1553,6 +1575,127 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         }
         statusHideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: work)
+    }
+
+    // MARK: - In-Place Results Drawer (OCR / Translation)
+
+    /// Runs OCR or translation on the selection and shows results in the
+    /// embedded right-side drawer. The capture window stays open.
+    private func runInPlaceAnalysis(tab: InPlaceResultsModel.Tab, in selectionRect: CGRect) {
+        // Second click on the same tab closes the drawer (PRD toggle behaviour)
+        if resultsModel.isVisible, resultsModel.activeTab == tab, !resultsModel.isLoading {
+            hideResultsPanel()
+            return
+        }
+
+        guard let cropped = cropSelection(selectionRect) else {
+            showStatusMessage(String(localized: "error.ocr.failed"), isError: true)
+            return
+        }
+
+        showResultsPanel(for: selectionRect, tab: tab)
+        resultsModel.isLoading = true
+        resultsModel.ocrLines = []
+        resultsModel.segments = []
+        resultsModel.statusMessage = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.resultsModel.isLoading = false
+                self.layoutResultsPanel(for: selectionRect)
+            }
+            do {
+                switch tab {
+                case .ocr:
+                    let result = try await OCRService.shared.recognize(
+                        cropped,
+                        languages: [.english, .chineseSimplified]
+                    )
+                    let lines = result.observations
+                        .sorted { $0.boundingBox.minY < $1.boundingBox.minY }
+                        .map(\.text)
+                    self.resultsModel.ocrLines = lines
+                    if lines.isEmpty {
+                        self.resultsModel.statusMessage = String(localized: "error.ocr.no.text")
+                    }
+                case .translate:
+                    let pipeline = ImageTranslationPipeline()
+                    let context = PipelineContext()
+                    let analysis = try await pipeline.analyze(image: cropped, context: context)
+                    let filtered = analysis.filteredForTranslation()
+                    guard !filtered.segments.isEmpty else {
+                        self.resultsModel.statusMessage = String(localized: "error.ocr.no.text")
+                        return
+                    }
+                    let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
+                    self.resultsModel.segments = try await pipeline.translate(
+                        analysisResult: filtered,
+                        config: config,
+                        context: context
+                    )
+                }
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self.resultsModel.statusMessage = message
+            }
+        }
+    }
+
+    /// Crops the selection region from the frozen snapshot (pixel space).
+    private func cropSelection(_ selectionRect: CGRect) -> CGImage? {
+        let scale = displaySnapshot.scaleFactor
+        let imageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(displaySnapshot.image.width),
+            height: CGFloat(displaySnapshot.image.height)
+        )
+        let pixelRect = CGRect(
+            x: selectionRect.origin.x * scale,
+            y: selectionRect.origin.y * scale,
+            width: selectionRect.width * scale,
+            height: selectionRect.height * scale
+        ).intersection(imageBounds)
+        guard pixelRect.width > 1, pixelRect.height > 1 else { return nil }
+        return displaySnapshot.image.cropping(to: pixelRect)
+    }
+
+    private func showResultsPanel(for selectionRect: CGRect, tab: InPlaceResultsModel.Tab) {
+        if resultsPanelHost == nil {
+            resultsModel.onRerun = { [weak self] in
+                guard let self, case .selected(let rect) = self.state else { return }
+                self.runInPlaceAnalysis(tab: self.resultsModel.activeTab, in: rect)
+            }
+            resultsModel.onClose = { [weak self] in
+                self?.hideResultsPanel()
+            }
+            let host = NSHostingView(rootView: InPlaceResultsPanel(model: resultsModel))
+            host.autoresizingMask = []
+            addSubview(host)
+            resultsPanelHost = host
+        }
+        resultsModel.activeTab = tab
+        resultsModel.isVisible = true
+        resultsPanelHost?.isHidden = false
+        layoutResultsPanel(for: selectionRect)
+    }
+
+    private func layoutResultsPanel(for selectionRect: CGRect) {
+        guard let host = resultsPanelHost, resultsModel.isVisible else { return }
+        let size = NSSize(width: 300, height: 280)
+        // Prefer the right side of the selection; fall back to the left when clipped
+        var x = selectionRect.maxX + 12
+        if x + size.width > bounds.maxX - 8 {
+            x = max(8, selectionRect.minX - size.width - 12)
+        }
+        let y = max(8, min(selectionRect.minY, bounds.maxY - size.height - 8))
+        host.frame = NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private func hideResultsPanel() {
+        resultsModel.isVisible = false
+        resultsPanelHost?.isHidden = true
     }
 
     func toolbarDidChangeMosaicIntensity(_ blockSize: Int) {
@@ -1823,6 +1966,14 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         case .hovering:
             NSCursor.crosshair.set()
         }
+    }
+
+    /// 1:1 rectangle from start to current point (⌘ constraint)
+    private func squareRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        let side = max(abs(end.x - start.x), abs(end.y - start.y))
+        let originX = end.x >= start.x ? start.x : start.x - side
+        let originY = end.y >= start.y ? start.y : start.y - side
+        return CGRect(x: originX, y: originY, width: side, height: side)
     }
 
     private func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {

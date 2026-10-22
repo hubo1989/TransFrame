@@ -843,7 +843,7 @@
 "preview.fill.color" = "Fill Color";
 
 /* Smart privacy mosaic */
-"smartMosaic.error.notConfigured" = "Please configure a Vision API key in Settings first";
+"smartMosaic.error.notConfigured" = "Please configure the VLM API key in Settings first (Smart Mosaic shares the VLM configuration)";
 "smartMosaic.detecting" = "Detecting privacy regions...";
 "smartMosaic.noneFound" = "No sensitive information detected";
 "smartMosaic.redacted" = "Masked %d privacy regions";

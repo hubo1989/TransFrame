@@ -23,12 +23,19 @@ final class SmartPrivacyRedactionService: Sendable {
 
     private init() {}
 
-    /// Whether the current VLM provider has an API key configured.
+    /// Whether the shared VLM provider configuration is ready.
+    /// Smart mosaic uses the same VLM settings as screen analysis — no separate config.
     @MainActor
     var isConfigured: Bool {
         let settings = AppSettings.shared
         let provider = settings.vlmProvider
+        // Local providers (Ollama etc.) need no API key
         if !provider.requiresAPIKey { return true }
+        // In-memory key (may be freshly typed in Settings) …
+        if !settings.vlmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        // … or the persisted per-provider key in Keychain
         return !settings.vlmAPIKey(for: provider).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 

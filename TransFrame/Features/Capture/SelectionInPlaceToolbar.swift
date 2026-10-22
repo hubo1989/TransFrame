@@ -57,6 +57,7 @@ public final class SelectionInPlaceToolbar: NSView {
     public enum AnnotationTool: String, CaseIterable, Sendable {
         case rectangle
         case ellipse
+        case line
         case arrow
         case pen
         case text
@@ -69,6 +70,7 @@ public final class SelectionInPlaceToolbar: NSView {
             switch self {
             case .rectangle: return String(localized: "tool.rectangle")
             case .ellipse: return String(localized: "tool.ellipse")
+            case .line: return String(localized: "tool.line")
             case .arrow: return String(localized: "tool.arrow")
             case .pen: return String(localized: "tool.freehand")
             case .text: return String(localized: "tool.text")
@@ -83,6 +85,7 @@ public final class SelectionInPlaceToolbar: NSView {
             switch self {
             case .rectangle: return "R"
             case .ellipse: return "O"
+            case .line: return "L"
             case .arrow: return "A"
             case .pen: return "D"
             case .text: return "T"
@@ -111,7 +114,7 @@ public final class SelectionInPlaceToolbar: NSView {
                 return NSCursor.symbolCursor(systemName: "eye.slash.fill", hotSpot: NSPoint(x: 10, y: 10)) ?? .crosshair
             case .numberLabel:
                 return NSCursor.symbolCursor(systemName: "number.circle.fill", hotSpot: NSPoint(x: 10, y: 10)) ?? .crosshair
-            case .rectangle, .ellipse, .arrow:
+            case .rectangle, .ellipse, .line, .arrow:
                 return .crosshair
             }
         }
@@ -279,6 +282,7 @@ private struct ToolbarContentView: View {
                 Group {
                     toolButton(.rectangle, icon: "rectangle")
                     toolButton(.ellipse, icon: "circle")
+                    toolButton(.line, icon: "line.diagonal")
                     toolButton(.arrow, icon: "arrow.up.right")
                     toolButton(.pen, icon: "pencil.tip")
                     toolButton(.text, icon: "textbox")

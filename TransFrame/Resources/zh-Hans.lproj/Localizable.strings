@@ -843,7 +843,7 @@
 "preview.fill.color" = "填充色";
 
 /* Smart privacy mosaic */
-"smartMosaic.error.notConfigured" = "请先在设置中配置 Vision API Key";
+"smartMosaic.error.notConfigured" = "请先在设置中配置 VLM API Key（智能马赛克与 VLM 共用同一配置）";
 "smartMosaic.detecting" = "正在识别图中隐私...";
 "smartMosaic.noneFound" = "未检测到敏感隐私信息";
 "smartMosaic.redacted" = "已自动遮挡 %d 处隐私";

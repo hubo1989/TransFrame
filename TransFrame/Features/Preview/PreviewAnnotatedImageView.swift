@@ -169,6 +169,28 @@ struct PreviewAnnotatedImageView: View {
                                 viewModel.beginResizingAnnotation(handle: handle, at: startPoint)
                                 return
                             }
+                            // Clicking an existing annotation selects and drags it;
+                            // double click re-edits text/callout content in place
+                            if let hitIdx = viewModel.hitTest(at: startPoint) {
+                                let now = Date()
+                                let isDoubleTap = now.timeIntervalSince(lastTapTime) < 0.35
+                                    && lastTappedAnnotationIndex == hitIdx
+                                lastTapTime = now
+                                lastTappedAnnotationIndex = hitIdx
+                                if isDoubleTap {
+                                    switch viewModel.annotations[hitIdx] {
+                                    case .text, .calloutBubble:
+                                        viewModel.beginEditingTextAnnotation(at: hitIdx)
+                                        return
+                                    default:
+                                        break
+                                    }
+                                }
+                                viewModel.selectedAnnotationIndex = hitIdx
+                                viewModel.beginDraggingAnnotation(at: startPoint)
+                                return
+                            }
+                            lastTappedAnnotationIndex = nil
                             viewModel.beginDrawing(at: startPoint)
                         } else {
                             if viewModel.isResizingAnnotation {

@@ -246,6 +246,10 @@ extension PreviewViewModel {
                     screenshot = screenshot.replacingAnnotation(at: editIdx, with: .text(textAnno))
                     redoStack.removeAll()
                 }
+                // Keep the text box selected so its handles show for drag/resize
+                if editIdx < annotations.count {
+                    selectedAnnotationIndex = editIdx
+                }
             case .calloutBubble(var bubbleAnno):
                 let finalText = trimmedText.isEmpty ? bubbleAnno.text : trimmedText
                 if bubbleAnno.text != finalText {
@@ -276,6 +280,8 @@ extension PreviewViewModel {
             TextAnnotation(position: position, content: trimmedText, style: textStyle)
         )
         addAnnotation(annotation)
+        // Select the new text box so its handles show for drag/resize (PRD 5.2)
+        selectedAnnotationIndex = annotations.count - 1
         drawingUpdateCounter += 1
     }
 

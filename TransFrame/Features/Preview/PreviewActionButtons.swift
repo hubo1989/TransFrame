@@ -36,6 +36,12 @@ struct PreviewActionButtons: View {
                 .frame(height: 16)
                 .accessibilityHidden(true)
 
+            translateButton
+
+            Divider()
+                .frame(height: 16)
+                .accessibilityHidden(true)
+
             smartMosaicButton
 
             Divider()
@@ -139,6 +145,23 @@ struct PreviewActionButtons: View {
         }
         .disabled(viewModel.isPerformingOCR)
         .customTooltip(String(localized: "preview.tooltip.ocr"))
+    }
+
+    /// Translation: runs the shared pipeline and shows results in the embedded drawer
+    private var translateButton: some View {
+        Button {
+            viewModel.performTranslation()
+        } label: {
+            if viewModel.isTranslating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 16, height: 16)
+            } else {
+                Image(systemName: "character.book.closed")
+            }
+        }
+        .disabled(viewModel.isTranslating)
+        .customTooltip(String(localized: "preview.panel.translate"))
     }
 
     /// Smart mosaic: detects sensitive privacy regions and masks them in one batch
