@@ -426,6 +426,65 @@ final class PRDAcceptanceTests: XCTestCase {
         }
     }
 
+    // MARK: - Regression tests (user report 2026-10-23)
+
+    /// AppKit's `hitTest(_:)` hands the point in the **superview's** coordinate
+    /// system. The in-place toolbar previously compared it against its own
+    /// `bounds`, so real clicks/hovers fell through and tools went dead.
+    func testInPlaceToolbarHitTestAcceptsSuperviewCoordinates() {
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 1400, height: 900))
+        let bar = SelectionInPlaceToolbar(frame: NSRect(x: 400, y: 300, width: 520, height: 42))
+        parent.addSubview(bar)
+
+        // A point inside the bar's frame, expressed in the parent's coordinates
+        let insideInSuperview = NSPoint(x: 450, y: 320)
+        XCTAssertNotNil(
+            bar.hitTest(insideInSuperview),
+            "hitTest must treat its argument as superview coordinates"
+        )
+
+        // A point far outside the bar must pass through to the overlay
+        XCTAssertNil(bar.hitTest(NSPoint(x: 50, y: 50)))
+    }
+
+    /// The toolbar must report a size that fits every button. The legacy
+    /// hard-coded 520pt predates the line/smart-mosaic/eyedropper additions
+    /// and pushed the leftmost buttons (rectangle, ellipse) outside the view,
+    /// which killed their hover tooltips and clicks.
+    func testInPlaceToolbarPreferredSizeAccommodatesEveryButton() {
+        let bar = SelectionInPlaceToolbar(frame: .zero)
+        let fitted = bar.fittingContentSize
+        XCTAssertGreaterThan(fitted.width, 0, "SwiftUI content must lay out")
+        XCTAssertGreaterThanOrEqual(
+            bar.preferredSize.width + 0.5,
+            fitted.width,
+            "preferredSize must never be narrower than the button row it hosts"
+        )
+        // 10 tools + beautify/SM/OCR/pin/save/upload + undo/redo + cancel/confirm
+        XCTAssertGreaterThanOrEqual(
+            bar.preferredSize.width,
+            CGFloat(SelectionInPlaceToolbar.AnnotationTool.allCases.count + 9) * 24,
+            "every tool and action button needs a click slot"
+        )
+    }
+
+    /// 截图翻译 must differ from 区域截图: it runs translation right after a
+    /// region is selected instead of waiting for the confirm button.
+    func testCaptureModesHaveDistinctPostSelectionActions() {
+        XCTAssertNil(
+            CaptureSessionController.CaptureMode.region.automaticActionAfterSelection,
+            "区域截图 must not auto-trigger any analysis"
+        )
+        XCTAssertEqual(
+            CaptureSessionController.CaptureMode.screenshotTranslation.automaticActionAfterSelection,
+            .translate,
+            "截图翻译 must auto-trigger translation after selection"
+        )
+        XCTAssertNil(
+            CaptureSessionController.CaptureMode.fullScreen.automaticActionAfterSelection
+        )
+    }
+
     // MARK: - Utilities
 
     private static func makeImage(width: Int, height: Int) -> CGImage {

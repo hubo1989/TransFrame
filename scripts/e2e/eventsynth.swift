@@ -69,6 +69,11 @@ case "type":
         }
     }
 
+case "move":
+    // Hover without clicking — used to verify tooltips
+    let mx = Double(args[2])!, my = Double(args[3])!
+    mouse(.mouseMoved, mx, my)
+
 case "copy":
     // Cmd+C to copy the current selection
     for down in [true, false] {

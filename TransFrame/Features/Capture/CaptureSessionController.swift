@@ -16,6 +16,17 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
         case region
         case screenshotTranslation
         case fullScreen
+
+        /// Action the overlay runs automatically once a fresh region selection
+        /// is committed. This is what keeps 截图翻译 distinct from 区域截图.
+        var automaticActionAfterSelection: SelectionInPlaceToolbar.Action? {
+            switch self {
+            case .screenshotTranslation:
+                return .translate
+            case .region, .fullScreen:
+                return nil
+            }
+        }
     }
 
     var onCaptureComplete: ((CaptureDocument) -> Void)?
@@ -90,6 +101,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
                         snapshotSet: snapshotSet
                     )
                     overlay.setDelegate(self)
+                    overlay.setAutomaticActionAfterSelection(mode.automaticActionAfterSelection)
                     windows.append(overlay)
                 }
 
@@ -155,10 +167,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             )
 
             CaptureDocumentStore.shared.register(doc)
-
-            // If triggered via screenshot translation shortcut, force translate action
-            let finalAction = (currentMode == .screenshotTranslation && action == .copy) ? .translate : action
-            dispatchAction(finalAction, for: doc)
+            dispatchAction(action, for: doc)
 
         } catch {
             logger.error("Failed to crop snapshot: \(error.localizedDescription)")

@@ -42,7 +42,7 @@ public final class SelectionToolbarState {
 
 /// In-place floating toolbar displayed immediately adjacent to the selected region on frozen overlay.
 public final class SelectionInPlaceToolbar: NSView {
-    public enum Action: Sendable {
+    public enum Action: Equatable, Sendable {
         case copy
         case pin
         case ocr
@@ -141,8 +141,22 @@ public final class SelectionInPlaceToolbar: NSView {
         set { state.activeLineWidth = newValue }
     }
 
+    /// Ideal content size reported to layout code.
     public var preferredSize: CGSize {
-        CGSize(width: 520, height: state.showStyleBar ? 78 : 42)
+        let minimum = CGSize(width: 520, height: state.showStyleBar ? 78 : 42)
+        guard let hosting = hostingView else { return minimum }
+        let fitted = hosting.fittingSize
+        guard fitted.width > 1, fitted.height > 1 else { return minimum }
+        return CGSize(
+            width: max(fitted.width, minimum.width),
+            height: max(fitted.height, minimum.height)
+        )
+    }
+
+    /// The unclamped SwiftUI ideal size — exposed so tests can prove the
+    /// reported `preferredSize` never truncates the button row.
+    var fittingContentSize: CGSize {
+        hostingView?.fittingSize ?? .zero
     }
 
     private var hostingView: NSHostingView<ToolbarContentView>?
@@ -156,10 +170,14 @@ public final class SelectionInPlaceToolbar: NSView {
 
     /// Consume every click within the bar so edge clicks can never fall
     /// through to the overlay and cancel/re-pick the selection. Buttons
-    /// still get their events via `super` (with padded hit areas); the
-    /// leftover dead zones become inert instead of destructive.
+    /// still get their events via `super`; leftover dead zones become
+    /// inert instead of destructive.
+    ///
+    /// - Important: `hitTest(_:)` receives `point` in the **superview's**
+    ///   coordinate system, so containment is checked against `frame`
+    ///   (also superview space) — not `bounds`, which is local.
     public override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
+        guard frame.contains(point) else { return nil }
         return super.hitTest(point) ?? self
     }
 

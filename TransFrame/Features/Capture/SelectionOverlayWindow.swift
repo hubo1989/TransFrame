@@ -124,6 +124,13 @@ final class SelectionOverlayWindow: NSPanel {
         overlayView?.delegate = delegate
     }
 
+    /// Action to run automatically when the user commits a fresh region
+    /// selection (e.g. .translate for the screenshot-translation hotkey).
+    @MainActor
+    func setAutomaticActionAfterSelection(_ action: SelectionInPlaceToolbar.Action?) {
+        overlayView?.automaticActionAfterSelection = action
+    }
+
     @MainActor
     func showOverlay(isKey: Bool = true) {
         if isKey {
@@ -218,6 +225,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     /// Selection snapshot captured when a click starts outside the current
     /// selection; tiny clicks (no drag) must restore it instead of re-picking.
     private var selectionBeforeOutsideClick: CGRect?
+
+    /// Action auto-run once after a fresh region selection is committed.
+    /// Distinguishes screenshot-translation mode from plain region capture.
+    var automaticActionAfterSelection: SelectionInPlaceToolbar.Action?
 
     private let handleSize: CGFloat = 8.0
 
@@ -1021,6 +1032,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             if rect.width >= 5 && rect.height >= 5 {
                 selectionBeforeOutsideClick = nil
                 commitSelection(rect)
+                performAutomaticSelectionAction(in: rect)
             } else if let previous = selectionBeforeOutsideClick {
                 // Plain click outside the selection: no reaction, keep the
                 // selection and its toolbar exactly as they were.
@@ -1599,6 +1611,20 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     }
 
     // MARK: - In-Place Results Drawer (OCR / Translation)
+
+    /// Runs the mode's automatic action after a fresh selection commit.
+    /// A plain click (selection restore) never reaches here.
+    private func performAutomaticSelectionAction(in selectionRect: CGRect) {
+        guard let action = automaticActionAfterSelection else { return }
+        switch action {
+        case .translate:
+            runInPlaceAnalysis(tab: .translate, in: selectionRect)
+        case .ocr:
+            runInPlaceAnalysis(tab: .ocr, in: selectionRect)
+        default:
+            toolbarDidSelectAction(action)
+        }
+    }
 
     /// Runs OCR or translation on the selection and shows results in the
     /// embedded right-side drawer. The capture window stays open.

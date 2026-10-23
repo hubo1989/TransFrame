@@ -621,10 +621,88 @@ run_crossline() {
   finish_overlay
 }
 
+# --- Scenario: regressions 2026-10-23 ---
+# 1) hover tooltips on rectangle/ellipse tools  2) real clicks activate tools
+# 3) 截图翻译 auto-translates; 区域截图 does not
+run_regressions() {
+  echo "=== SCENARIO: regressions ==="
+  reset_overlay
+  TF=$(setup_textedit)
+  [ -n "$TF" ] || TF="260 180 720 420"
+  set -- $TF
+  SELX=$(( $1 + 4 )); SELY=$(( $2 + 30 )); SELW=$(( $3 - 8 )); SELH=$(( $4 - 60 ))
+
+  # ---- 3a) 区域截图: selection must NOT open any drawer ----
+  trigger_capture
+  $EV drag $SELX $SELY $((SELX + SELW)) $((SELY + SELH))
+  sleep 1.2
+  R=$(press_button "id=xmark" 550)
+  case "$R" in
+    notfound*) ok "区域截图选区后无自动抽屉" ;;
+    *) bad "区域截图误开了抽屉 ($R)" ;;
+  esac
+  finish_overlay
+  sleep 0.8
+
+  # ---- tooltip: hover rectangle tool, tooltip must render ----
+  trigger_capture
+  $EV drag $SELX $SELY $((SELX + SELW)) $((SELY + SELH))
+  sleep 1.2
+  FRAME=$(button_frame "rectangle")
+  if [ -z "$FRAME" ]; then
+    bad "读取矩形工具位置"
+  else
+    set -- $FRAME
+    BX=$1; BY=$2; BW=$3; BH=$4
+    # baseline without hover
+    $EV shot $((BX - 30)) $((BY - 50)) $((BW + 60)) $((BH + 30)) "$SHOT/tip-before.png"
+    $EV move $((BX + BW / 2)) $((BY + BH / 2))
+    sleep 0.8
+    $EV shot $((BX - 30)) $((BY - 50)) $((BW + 60)) $((BH + 30)) "$SHOT/tip-after.png"
+    TD=$($EV diff "$SHOT/tip-before.png" "$SHOT/tip-after.png")
+    echo "  hover rect tooltip diff=$TD"
+    awk -v d="$TD" 'BEGIN{exit !(d > 0.0002)}' && ok "矩形工具悬停出现提示" || bad "矩形工具无悬停提示 (diff=$TD)"
+  fi
+
+  # ---- real click on ellipse tool activates it (style bar appears) ----
+  FRAME2=$(button_frame "circle")
+  if [ -z "$FRAME2" ]; then
+    bad "读取椭圆工具位置"
+  else
+    set -- $FRAME2
+    CX=$1; CY=$2; CW=$3; CH=$4
+    $EV click $((CX + CW / 2)) $((CY + CH / 2))
+    sleep 0.7
+    FRAME3=$(button_frame "circle.fill")
+    [ -n "$FRAME3" ] && ok "真实点击激活椭圆工具（出现填充切换）" || bad "真实点击无法激活工具"
+  fi
+  finish_overlay
+  sleep 0.8
+
+  # ---- 3b) 截图翻译: selection must auto-open the translate drawer ----
+  osascript >/dev/null 2>&1 <<'AS'
+tell application "System Events" to tell process "TransFrame"
+  click menu bar item 1 of menu bar 2
+  delay 0.35
+  click menu item "截图翻译" of menu 1 of menu bar item 1 of menu bar 2
+end tell
+AS
+  sleep 1.5
+  $EV drag $SELX $SELY $((SELX + SELW)) $((SELY + SELH))
+  sleep 1.5
+  R2=$(press_button "id=xmark" 550)
+  case "$R2" in
+    pressed*) ok "截图翻译选区后自动展开翻译抽屉" ;;
+    *) bad "截图翻译未自动展开抽屉 ($R2)" ;;
+  esac
+  finish_overlay
+}
+
 if [ "$WANT_EXTRA" = "1" ]; then
   run_edge_click
   run_outside_click
   run_crossline
+  run_regressions
 fi
 
 echo ""
