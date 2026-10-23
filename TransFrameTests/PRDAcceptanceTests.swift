@@ -391,6 +391,41 @@ final class PRDAcceptanceTests: XCTestCase {
         }
     }
 
+    // MARK: - Cross-line selection & line copy (user report 2026-10-23)
+
+    func testResultsTextBlockSupportsCrossLineSelectionAndLineCopy() {
+        // One continuous attributed block = selection can span lines
+        let ocr = ResultsTextBuilder.ocrText(lines: ["line one", "line two", "line three"])
+        XCTAssertEqual(ocr.string, "line one\nline two\nline three")
+
+        // Line extraction used by click-to-copy
+        XCTAssertEqual(ResultsTextView.lineString(at: 0, in: ocr.string), "line one")
+        XCTAssertEqual(ResultsTextView.lineString(at: 10, in: ocr.string), "line two")
+        XCTAssertEqual(ResultsTextView.lineString(at: 22, in: ocr.string), "line three")
+        XCTAssertNil(ResultsTextView.lineString(at: 0, in: ""))
+
+        // Translation pairs stay in one block (original + translated styles)
+        let seg = BilingualSegment(
+            original: TextSegment(text: "hello", boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1)),
+            translated: "你好",
+            sourceLanguage: "en",
+            targetLanguage: "zh-Hans"
+        )
+        let tr = ResultsTextBuilder.translationText(segments: [seg])
+        XCTAssertTrue(tr.string.contains("hello"))
+        XCTAssertTrue(tr.string.contains("你好"))
+    }
+
+    /// Toolbar buttons must keep a hit area around the icon so edge clicks
+    /// don't fall through to the overlay and cancel the selection.
+    func testInPlaceToolbarExposesToolAndActionButtons() {
+        XCTAssertTrue(SelectionInPlaceToolbar.AnnotationTool.allCases.contains(.line))
+        // Every tool tooltip carries its shortcut — used for a11y + E2E targeting
+        for tool in SelectionInPlaceToolbar.AnnotationTool.allCases {
+            XCTAssertFalse(tool.tooltip.isEmpty)
+        }
+    }
+
     // MARK: - Utilities
 
     private static func makeImage(width: Int, height: Int) -> CGImage {

@@ -27,7 +27,7 @@ final class InPlaceResultsModel {
 /// Shows OCR text and bilingual translation without leaving the capture window.
 struct InPlaceResultsPanel: View {
     @Bindable var model: InPlaceResultsModel
-    @State private var copiedLineIndex: Int?
+    @State private var copiedFlash: String?
 
     private static let targetLanguages: [TranslationLanguage] = [
         .chineseSimplified, .english, .japanese, .korean,
@@ -59,6 +59,13 @@ struct InPlaceResultsPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            if let flash = copiedFlash {
+                Text(flash)
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
             Picker("", selection: $model.activeTab) {
                 Text(String(localized: "preview.panel.ocrTab")).tag(InPlaceResultsModel.Tab.ocr)
                 Text(String(localized: "preview.panel.translateTab")).tag(InPlaceResultsModel.Tab.translate)
@@ -109,46 +116,22 @@ struct InPlaceResultsPanel: View {
             if model.isLoading && model.activeTab == .ocr {
                 loadingRows
             } else if !model.ocrLines.isEmpty {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(model.ocrLines.enumerated()), id: \.offset) { index, line in
-                        lineRow(index: index, text: line)
+                SelectableTextBlock(
+                    attributedText: ResultsTextBuilder.ocrText(lines: model.ocrLines),
+                    onLineCopied: { line in
+                        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
+                                copiedFlash = nil
+                            }
+                        }
                     }
-                }
+                )
                 .padding(10)
             } else {
                 emptyState
             }
         }
-    }
-
-    private func lineRow(index: Int, text: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(text)
-                .font(.body)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if copiedLineIndex == index {
-                Image(systemName: "checkmark")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
-            } else {
-                Button {
-                    copy(text)
-                    copiedLineIndex = index
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        if copiedLineIndex == index { copiedLineIndex = nil }
-                    }
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .customTooltip(String(localized: "preview.panel.copyLine"))
-            }
-        }
-        .padding(.vertical, 3)
     }
 
     // MARK: - Translation
@@ -158,24 +141,19 @@ struct InPlaceResultsPanel: View {
             if model.isLoading && model.activeTab == .translate {
                 loadingRows
             } else if !model.segments.isEmpty {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     targetLanguagePicker
-
-                    ForEach(model.segments) { segment in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(segment.original.text)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                            Text(segment.translated)
-                                .font(.body)
-                                .textSelection(.enabled)
+                    SelectableTextBlock(
+                        attributedText: ResultsTextBuilder.translationText(segments: model.segments),
+                        onLineCopied: { line in
+                            copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
+                                    copiedFlash = nil
+                                }
+                            }
                         }
-                        .padding(.bottom, 3)
-                        .overlay(alignment: .bottom) {
-                            Divider().opacity(0.4)
-                        }
-                    }
+                    )
                 }
                 .padding(10)
             } else {

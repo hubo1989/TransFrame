@@ -7,7 +7,7 @@ struct PreviewResultsPanel: View {
     @Bindable var viewModel: PreviewViewModel
     @Binding var isExpanded: Bool
     @State private var selectedTab: Tab = .ocr
-    @State private var copiedLineID: UUID?
+    @State private var copiedFlash: String?
 
     enum Tab: Hashable {
         case ocr
@@ -44,6 +44,13 @@ struct PreviewResultsPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            if let flash = copiedFlash {
+                Text(flash)
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
             Picker(String(localized: "preview.results.panel"), selection: $selectedTab) {
                 Text(String(localized: "preview.panel.ocrTab")).tag(Tab.ocr)
                 Text(String(localized: "preview.panel.translateTab")).tag(Tab.translate)
@@ -124,11 +131,19 @@ struct PreviewResultsPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
             } else if let result = viewModel.ocrResult, !result.observations.isEmpty {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(sortedObservations(result)) { line in
-                        ocrLineRow(line)
+                SelectableTextBlock(
+                    attributedText: ResultsTextBuilder.ocrText(
+                        lines: sortedObservations(result).map(\.text)
+                    ),
+                    onLineCopied: { line in
+                        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
+                                copiedFlash = nil
+                            }
+                        }
                     }
-                }
+                )
                 .padding(12)
             } else {
                 emptyState(text: String(localized: "preview.panel.noResults"))
@@ -138,36 +153,6 @@ struct PreviewResultsPanel: View {
 
     private func sortedObservations(_ result: OCRResult) -> [OCRText] {
         result.observations.sorted { $0.boundingBox.minY < $1.boundingBox.minY }
-    }
-
-    private func ocrLineRow(_ line: OCRText) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(line.text)
-                .font(.body)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if copiedLineID == line.id {
-                Image(systemName: "checkmark")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
-            } else {
-                Button {
-                    copyToClipboard(line.text)
-                    copiedLineID = line.id
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        if copiedLineID == line.id { copiedLineID = nil }
-                    }
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .customTooltip(String(localized: "preview.panel.copyLine"))
-            }
-        }
-        .padding(.vertical, 3)
     }
 
     // MARK: - Translation Tab
@@ -188,24 +173,19 @@ struct PreviewResultsPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
             } else if viewModel.hasTranslationResults {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     targetLanguagePicker
-
-                    ForEach(viewModel.bilingualSegments) { segment in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(segment.original.text)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                            Text(segment.translated)
-                                .font(.body)
-                                .textSelection(.enabled)
+                    SelectableTextBlock(
+                        attributedText: ResultsTextBuilder.translationText(segments: viewModel.bilingualSegments),
+                        onLineCopied: { line in
+                            copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
+                                    copiedFlash = nil
+                                }
+                            }
                         }
-                        .padding(.bottom, 4)
-                        .overlay(alignment: .bottom) {
-                            Divider().opacity(0.4)
-                        }
-                    }
+                    )
                 }
                 .padding(12)
             } else {

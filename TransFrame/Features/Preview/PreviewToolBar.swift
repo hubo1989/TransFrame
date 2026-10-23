@@ -40,6 +40,7 @@ struct PreviewToolBar: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle().inset(by: -2))
         .customTooltip("\(tool.displayName) (\(String(tool.keyboardShortcut).uppercased()))")
         .accessibilityLabel(Text(tool.displayName))
         .accessibilityHint(Text("Press \(String(tool.keyboardShortcut).uppercased()) to toggle"))
@@ -243,6 +244,7 @@ struct PreviewStyleCustomizationBar: View {
                 .frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle().inset(by: -2))
         .customTooltip(String(localized: "preview.color.eyedropper"))
     }
 

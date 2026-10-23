@@ -69,6 +69,16 @@ case "type":
         }
     }
 
+case "copy":
+    // Cmd+C to copy the current selection
+    for down in [true, false] {
+        if let ev = CGEvent(keyboardEventSource: nil, virtualKey: 8, keyDown: down) {
+            ev.flags = .maskCommand
+            ev.post(tap: .cghidEventTap)
+            usleep(20_000)
+        }
+    }
+
 case "key":
     let map: [String: CGKeyCode] = ["escape": 53, "return": 36, "tab": 48, "space": 49, "delete": 51]
     guard let code = map[args[2]] else { fputs("unknown key\n", stderr); exit(2) }

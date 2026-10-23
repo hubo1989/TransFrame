@@ -154,6 +154,15 @@ public final class SelectionInPlaceToolbar: NSView {
         addCursorRect(bounds, cursor: .arrow)
     }
 
+    /// Consume every click within the bar so edge clicks can never fall
+    /// through to the overlay and cancel/re-pick the selection. Buttons
+    /// still get their events via `super` (with padded hit areas); the
+    /// leftover dead zones become inert instead of destructive.
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        return super.hitTest(point) ?? self
+    }
+
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupViews()
@@ -305,6 +314,8 @@ private struct ToolbarContentView: View {
                             .padding(5)
                             .background(state.isBeautifyEnabled ? Color.accentColor.opacity(0.2) : Color.clear)
                             .cornerRadius(4)
+                            .padding(4)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .customTooltip(String(localized: "preview.tooltip.beautify"))
@@ -341,6 +352,8 @@ private struct ToolbarContentView: View {
                     Image(systemName: "xmark")
                         .foregroundColor(.secondary)
                         .padding(5)
+                        .padding(4)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .customTooltip("Cancel (Esc)")
@@ -357,6 +370,8 @@ private struct ToolbarContentView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 5))
+                    .padding(3)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .customTooltip(String(localized: "preview.tooltip.confirm"))
@@ -398,6 +413,7 @@ private struct ToolbarContentView: View {
                             .padding(3)
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle().inset(by: -2))
                     .customTooltip(String(localized: "preview.color.eyedropper"), placement: .bottom)
 
                     // System color picker
@@ -414,6 +430,7 @@ private struct ToolbarContentView: View {
                     )
                     .labelsHidden()
                     .frame(width: 18)
+                    .contentShape(Rectangle().inset(by: -2))
                     .customTooltip(String(localized: "preview.color.custom"), placement: .bottom)
 
                     if state.activeTool == .mosaic {
@@ -466,6 +483,7 @@ private struct ToolbarContentView: View {
                             .padding(3)
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle().inset(by: -2))
                     .disabled(!state.canUndo)
                     .customTooltip(String(localized: "preview.tooltip.undo"), placement: .bottom)
 
@@ -477,6 +495,7 @@ private struct ToolbarContentView: View {
                             .padding(3)
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle().inset(by: -2))
                     .disabled(!state.canRedo)
                     .customTooltip(String(localized: "preview.tooltip.redo"), placement: .bottom)
                 }
@@ -485,6 +504,7 @@ private struct ToolbarContentView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
             }
         }
+        .contentShape(Rectangle())
         .cursor(.arrow)
     }
 
@@ -500,6 +520,8 @@ private struct ToolbarContentView: View {
                 onToolSelected(tool)
             }
         } label: {
+            // Padding lives inside the label so the whole (larger) area
+            // triggers the button — edge clicks included.
             Image(systemName: icon)
                 .font(.system(size: 12))
                 .foregroundColor(state.activeTool == tool ? .accentColor : .primary)
@@ -508,6 +530,8 @@ private struct ToolbarContentView: View {
                     state.activeTool == tool ? Color.accentColor.opacity(0.2) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 4)
                 )
+                .padding(4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .customTooltip(tool.tooltip)
@@ -516,9 +540,13 @@ private struct ToolbarContentView: View {
 
     private func actionButton(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
+            // Padding lives inside the label so the whole (larger) area
+            // triggers the button — edge clicks included.
             Image(systemName: icon)
                 .font(.system(size: 12))
                 .padding(5)
+                .padding(4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .customTooltip(help)

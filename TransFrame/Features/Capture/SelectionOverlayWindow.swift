@@ -215,6 +215,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     private let resultsModel = InPlaceResultsModel()
     private var resultsPanelHost: NSHostingView<InPlaceResultsPanel>?
 
+    /// Selection snapshot captured when a click starts outside the current
+    /// selection; tiny clicks (no drag) must restore it instead of re-picking.
+    private var selectionBeforeOutsideClick: CGRect?
+
     private let handleSize: CGFloat = 8.0
 
     init(
@@ -942,8 +946,12 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                     state = .moving(anchorRect: selRect, startPoint: p, currentRect: selRect)
                 }
             } else {
+                // Click outside the selection: only a real drag starts a new
+                // selection — a plain click must leave the selection untouched.
+                selectionBeforeOutsideClick = selRect
                 selectedAnnotationIndex = nil
                 hideToolbar()
+                hideResultsPanel()
                 state = .creatingSelection(start: p, current: p)
             }
 
@@ -967,12 +975,14 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             let dy = p.y - start.y
             let newRect = resizeRect(anchor, handle: handle, dx: dx, dy: dy)
             state = .resizing(handle: handle, anchorRect: anchor, startPoint: start, currentRect: newRect)
+            layoutResultsPanel(for: newRect)
 
         case .moving(let anchor, let start, _):
             let dx = p.x - start.x
             let dy = p.y - start.y
             let moved = anchor.offsetBy(dx: dx, dy: dy).intersection(bounds)
             state = .moving(anchorRect: anchor, startPoint: start, currentRect: moved)
+            layoutResultsPanel(for: moved)
 
         case .movingAnnotation(let index, _, let start, let originalAnno, _):
             let dx = p.x - start.x
@@ -1009,7 +1019,13 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         case .creatingSelection(let start, let current):
             let rect = normalizedRect(from: start, to: current)
             if rect.width >= 5 && rect.height >= 5 {
+                selectionBeforeOutsideClick = nil
                 commitSelection(rect)
+            } else if let previous = selectionBeforeOutsideClick {
+                // Plain click outside the selection: no reaction, keep the
+                // selection and its toolbar exactly as they were.
+                selectionBeforeOutsideClick = nil
+                commitSelection(previous)
             } else if !isFreeSelectionLocked {
                 if let win = candidateWindowsUnderMouse.first {
                     let local = CoordinateMapper.quartzToDisplayLocal(
@@ -1114,6 +1130,11 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     private func commitSelection(_ rect: CGRect) {
         state = .selected(rect: rect)
         showToolbar(for: rect)
+        // Drawer and selection form one interaction unit: keep them attached
+        if resultsModel.isVisible {
+            resultsPanelHost?.isHidden = false
+            layoutResultsPanel(for: rect)
+        }
     }
 
     private func updateDraftAnnotation(start: CGPoint, current: CGPoint, tool: SelectionInPlaceToolbar.AnnotationTool) {
@@ -1683,14 +1704,17 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
     private func layoutResultsPanel(for selectionRect: CGRect) {
         guard let host = resultsPanelHost, resultsModel.isVisible else { return }
-        let size = NSSize(width: 300, height: 280)
-        // Prefer the right side of the selection; fall back to the left when clipped
-        var x = selectionRect.maxX + 12
-        if x + size.width > bounds.maxX - 8 {
-            x = max(8, selectionRect.minX - size.width - 12)
+        let gap: CGFloat = 2
+        // Merge with the selection: flush against its edge, same top edge,
+        // height follows the selection (clamped for usability)
+        let width: CGFloat = 300
+        let height = max(220, min(selectionRect.height, bounds.maxY - 16))
+        var x = selectionRect.maxX + gap
+        if x + width > bounds.maxX - 8 {
+            x = max(8, selectionRect.minX - width - gap)
         }
-        let y = max(8, min(selectionRect.minY, bounds.maxY - size.height - 8))
-        host.frame = NSRect(x: x, y: y, width: size.width, height: size.height)
+        let y = max(8, min(selectionRect.minY, bounds.maxY - height - 8))
+        host.frame = NSRect(x: x, y: y, width: width, height: height)
     }
 
     private func hideResultsPanel() {
