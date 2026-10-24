@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CoreImage
 import CoreText
 import SwiftUI
 import os
@@ -82,7 +83,8 @@ final class SelectionOverlayWindow: NSPanel {
 
     @MainActor
     private func configureWindow() {
-        level = .screenSaver
+        level = NSWindow.Level(NSWindow.Level.statusBar.rawValue + 1)
+        sharingType = .readOnly
         isOpaque = true
         backgroundColor = .black
         ignoresMouseEvents = false
@@ -122,6 +124,13 @@ final class SelectionOverlayWindow: NSPanel {
         overlayView?.delegate = delegate
     }
 
+    /// Action to run automatically when the user commits a fresh region
+    /// selection (e.g. .translate for the screenshot-translation hotkey).
+    @MainActor
+    func setAutomaticActionAfterSelection(_ action: SelectionInPlaceToolbar.Action?) {
+        overlayView?.automaticActionAfterSelection = action
+    }
+
     @MainActor
     func showOverlay(isKey: Bool = true) {
         if isKey {
@@ -145,9 +154,9 @@ enum ResizeHandle: CaseIterable {
     func cursor() -> NSCursor {
         switch self {
         case .topLeft, .bottomRight:
-            return NSCursor(image: NSImage(size: NSSize(width: 16, height: 16)), hotSpot: NSPoint(x: 8, y: 8))
+            return NSCursor.diagonalResizeCursor(northWestSouthEast: true)
         case .topRight, .bottomLeft:
-            return NSCursor.crosshair
+            return NSCursor.diagonalResizeCursor(northWestSouthEast: false)
         case .topCenter, .bottomCenter:
             return NSCursor.resizeUpDown
         case .middleLeft, .middleRight:
@@ -158,13 +167,17 @@ enum ResizeHandle: CaseIterable {
 
 // MARK: - SelectionOverlayView
 
-final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
+final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldDelegate {
+    private static let sharedCIContext = CIContext()
+
     enum InteractionState {
         case hovering
         case creatingSelection(start: CGPoint, current: CGPoint)
         case selected(rect: CGRect)
         case resizing(handle: ResizeHandle, anchorRect: CGRect, startPoint: CGPoint, currentRect: CGRect)
         case moving(anchorRect: CGRect, startPoint: CGPoint, currentRect: CGRect)
+        case movingAnnotation(index: Int, selectionRect: CGRect, startPoint: CGPoint, originalAnno: Annotation, originalAnnotations: [Annotation])
+        case resizingAnnotation(index: Int, selectionRect: CGRect, handle: AnnotationHandle, originalAnnotations: [Annotation])
         case drawingAnnotation(tool: SelectionInPlaceToolbar.AnnotationTool, selectionRect: CGRect, start: CGPoint, current: CGPoint)
     }
 
@@ -184,14 +197,38 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
 
     // Annotations in progress
     private var committedAnnotations: [Annotation] = []
+    private var selectedAnnotationIndex: Int?
     private var activeAnnotationTool: SelectionInPlaceToolbar.AnnotationTool?
     private var annotationColor: NSColor = .systemRed
     private var annotationLineWidth: CGFloat = 3.0
+    private var mosaicBlockSize: Int = 6
     private var currentDraftAnnotation: Annotation?
     private var freehandPoints: [CGPoint] = []
 
+    // In-place text editing & beautify state
+    private var activeTextField: NSTextField?
+    private var textInputPosition: CGPoint?
+    private var editingAnnotationIndex: Int?
+    private(set) var isBeautifyEnabled: Bool = false
+
+    var isEditingText: Bool { activeTextField != nil }
+
     private var toolbar: SelectionInPlaceToolbar?
     private let editHistory = EditHistory()
+    private var statusLabel: NSTextField?
+    private var statusHideWorkItem: DispatchWorkItem?
+
+    // In-place results drawer (OCR / translation)
+    let resultsModel = InPlaceResultsModel()
+    private var resultsPanelHost: NSHostingView<InPlaceResultsPanel>?
+
+    /// Selection snapshot captured when a click starts outside the current
+    /// selection; tiny clicks (no drag) must restore it instead of re-picking.
+    private var selectionBeforeOutsideClick: CGRect?
+
+    /// Action auto-run once after a fresh region selection is committed.
+    /// Distinguishes screenshot-translation mode from plain region capture.
+    var automaticActionAfterSelection: SelectionInPlaceToolbar.Action?
 
     private let handleSize: CGFloat = 8.0
 
@@ -251,6 +288,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
                 return currentRect
             case .moving(_, _, let currentRect):
                 return currentRect
+            case .movingAnnotation(_, let selRect, _, _, _):
+                return selRect
+            case .resizingAnnotation(_, let selRect, _, _):
+                return selRect
             case .drawingAnnotation(_, let selRect, _, _):
                 return selRect
             case .hovering:
@@ -279,8 +320,14 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         }
         context.restoreGState()
 
-        // 3. Draw selection border, resize handles, and dimension tag
+        // 3. Draw selection border, beautify preview, resize handles, and dimension tag
         if let sel = currentSelection, !sel.isEmpty {
+            if isBeautifyEnabled {
+                drawBeautifyPreview(for: sel, context: context)
+            }
+            if case .selected = state {
+                drawBilingualOverlay(for: sel)
+            }
             drawSelectionBox(sel, context: context)
             switch state {
             case .selected:
@@ -294,11 +341,43 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         }
 
         // 4. Draw committed and draft annotations
-        for annotation in committedAnnotations {
+        for (idx, annotation) in committedAnnotations.enumerated() {
+            if idx == editingAnnotationIndex {
+                continue
+            }
             drawAnnotation(annotation, context: context)
         }
         if let draft = currentDraftAnnotation {
             drawAnnotation(draft, context: context)
+        }
+
+        // 4.1 Draw selection outline and interactive handles around selected annotation
+        if let selIdx = selectedAnnotationIndex, selIdx < committedAnnotations.count {
+            let selectedAnno = committedAnnotations[selIdx]
+            let annoBounds = selectedAnno.bounds.insetBy(dx: -4, dy: -4)
+            context.saveGState()
+            context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            context.setLineWidth(1.5)
+            context.setLineDash(phase: 0, lengths: [4, 4])
+            context.stroke(annoBounds)
+            context.setLineDash(phase: 0, lengths: [])
+
+            for item in selectedAnno.controlHandles(padding: 4) {
+                let isSpecial = item.handle.isSpecialPoint
+                let hSize: CGFloat = 8.0
+                let hRect = CGRect(
+                    x: item.point.x - hSize / 2,
+                    y: item.point.y - hSize / 2,
+                    width: hSize,
+                    height: hSize
+                )
+                context.setFillColor((isSpecial ? NSColor.systemYellow : NSColor.white).cgColor)
+                context.fillEllipse(in: hRect)
+                context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+                context.setLineWidth(1.5)
+                context.strokeEllipse(in: hRect)
+            }
+            context.restoreGState()
         }
 
         // 5. Draw pixel loupe when hovering
@@ -308,6 +387,56 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
     }
 
     // MARK: - Selection Rendering Helpers
+
+    private func drawBeautifyPreview(for rect: CGRect, context: CGContext) {
+        let pad: CGFloat = 18.0
+        let outerRect = rect.insetBy(dx: -pad, dy: -pad)
+        context.saveGState()
+        let framePath = CGMutablePath()
+        framePath.addRoundedRect(in: outerRect, cornerWidth: 14, cornerHeight: 14)
+        framePath.addRoundedRect(in: rect, cornerWidth: 8, cornerHeight: 8)
+        context.addPath(framePath)
+        context.clip(using: .evenOdd)
+
+        let colors = BeautifyConfig.BackgroundStyle.Preset.ocean.colors.map { $0.cgColor } as CFArray
+        let colorSpace = context.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0.0, 1.0]) {
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: outerRect.minX, y: outerRect.minY),
+                end: CGPoint(x: outerRect.maxX, y: outerRect.maxY),
+                options: []
+            )
+        }
+        context.restoreGState()
+    }
+
+    /// Draws each translated segment as a strip just below its original
+    /// text inside the selection — in-image bilingual view; the original
+    /// screenshot stays fully visible. Only while the translate tab is active.
+    private func drawBilingualOverlay(for selRect: CGRect) {
+        guard resultsModel.isVisible,
+              resultsModel.activeTab == .translate,
+              !resultsModel.segments.isEmpty else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: selRect).addClip()
+        for segment in resultsModel.segments {
+            guard let strip = BilingualOverlayLayout.translationStrip(for: segment, in: selRect.size) else { continue }
+            let attr = NSAttributedString(string: segment.translated, attributes: [
+                .font: NSFont.systemFont(ofSize: strip.fontSize, weight: .medium),
+                .foregroundColor: NSColor.white
+            ])
+            let frame = strip.frame.offsetBy(dx: selRect.minX, dy: selRect.minY)
+            NSColor.black.withAlphaComponent(0.78).setFill()
+            NSBezierPath(roundedRect: frame, xRadius: 3, yRadius: 3).fill()
+            attr.draw(
+                with: strip.textFrame.offsetBy(dx: selRect.minX, dy: selRect.minY),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+        }
+    }
 
     private func drawSelectionBox(_ rect: CGRect, context: CGContext) {
         context.saveGState()
@@ -522,9 +651,23 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         case .arrow(let a):
             context.setStrokeColor(a.style.color.nsColor.cgColor)
             context.setLineWidth(a.style.lineWidth)
-            context.move(to: a.startPoint)
-            context.addLine(to: a.endPoint)
-            context.strokePath()
+            let angle: CGFloat
+            if let cp = a.controlPoint {
+                context.move(to: a.startPoint)
+                context.addQuadCurve(to: a.endPoint, control: cp)
+                context.strokePath()
+                let dx = a.endPoint.x - cp.x
+                let dy = a.endPoint.y - cp.y
+                angle = atan2(dy, dx)
+            } else {
+                context.move(to: a.startPoint)
+                context.addLine(to: a.endPoint)
+                context.strokePath()
+                let dx = a.endPoint.x - a.startPoint.x
+                let dy = a.endPoint.y - a.startPoint.y
+                angle = atan2(dy, dx)
+            }
+            drawArrowHead(at: a.endPoint, angle: angle, length: max(10, a.style.lineWidth * 3.5), context: context, color: a.style.color.nsColor)
 
         case .freehand(let f):
             guard f.points.count >= 2 else { break }
@@ -546,22 +689,32 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
             (t.content as NSString).draw(in: t.bounds, withAttributes: attrs)
 
         case .mosaic(let m):
-            context.setFillColor(NSColor.gray.withAlphaComponent(0.6).cgColor)
-            context.fill(m.rect)
+            drawMosaicAnnotation(m, context: context)
 
         case .highlight(let h):
             context.setFillColor(h.color.nsColor.withAlphaComponent(h.opacity).cgColor)
             context.fill(h.rect)
 
         case .numberLabel(let n):
+            let circleRect = n.circleRect
+            if let lead = n.leadPoint {
+                context.setStrokeColor(n.color.nsColor.cgColor)
+                context.setLineWidth(2.0)
+                context.move(to: CGPoint(x: circleRect.midX, y: circleRect.midY))
+                context.addLine(to: lead)
+                context.strokePath()
+
+                context.setFillColor(n.color.nsColor.cgColor)
+                context.fillEllipse(in: CGRect(x: lead.x - 3.5, y: lead.y - 3.5, width: 7, height: 7))
+            }
             context.setFillColor(n.color.nsColor.cgColor)
-            context.fillEllipse(in: n.bounds)
+            context.fillEllipse(in: circleRect)
             let numStr = "\(n.number)"
             let font = NSFont.boldSystemFont(ofSize: n.size * 0.6)
             let strSize = measureText(numStr, font: font)
             drawText(
                 numStr,
-                at: CGPoint(x: n.bounds.midX - strSize.width / 2, y: n.bounds.midY - strSize.height / 2),
+                at: CGPoint(x: circleRect.midX - strSize.width / 2, y: circleRect.midY - strSize.height / 2),
                 font: font,
                 color: .white,
                 in: context
@@ -573,6 +726,26 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
 
         case .calloutBubble(let cb):
             context.setFillColor(cb.bubbleColor.nsColor.cgColor)
+            if !cb.rect.contains(cb.targetPoint) {
+                let center = CGPoint(x: cb.rect.midX, y: cb.rect.midY)
+                let dx = cb.targetPoint.x - center.x
+                let dy = cb.targetPoint.y - center.y
+                let dist = max(1, hypot(dx, dy))
+                let perpX = -dy / dist
+                let perpY = dx / dist
+                let tailHalfWidth = min(10.0, min(cb.rect.width, cb.rect.height) * 0.22)
+
+                let base1 = CGPoint(x: center.x + perpX * tailHalfWidth, y: center.y + perpY * tailHalfWidth)
+                let base2 = CGPoint(x: center.x - perpX * tailHalfWidth, y: center.y - perpY * tailHalfWidth)
+
+                let tailPath = CGMutablePath()
+                tailPath.move(to: base1)
+                tailPath.addLine(to: cb.targetPoint)
+                tailPath.addLine(to: base2)
+                tailPath.closeSubpath()
+                context.addPath(tailPath)
+                context.fillPath()
+            }
             let path = CGPath(roundedRect: cb.rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
             context.addPath(path)
             context.fillPath()
@@ -582,6 +755,93 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
             ]
             (cb.text as NSString).draw(in: cb.rect.insetBy(dx: 6, dy: 4), withAttributes: attrs)
         }
+        context.restoreGState()
+    }
+
+    private func drawMosaicAnnotation(_ mosaic: MosaicAnnotation, context: CGContext) {
+        let rect = mosaic.rect
+        guard rect.width > 1, rect.height > 1 else { return }
+
+        let scale = displaySnapshot.scaleFactor
+        let imageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(displaySnapshot.image.width),
+            height: CGFloat(displaySnapshot.image.height)
+        )
+        let pixelRect = CGRect(
+            x: rect.origin.x * scale,
+            y: rect.origin.y * scale,
+            width: rect.width * scale,
+            height: rect.height * scale
+        ).intersection(imageBounds)
+
+        guard pixelRect.width > 1, pixelRect.height > 1 else {
+            context.setFillColor(NSColor.gray.withAlphaComponent(0.6).cgColor)
+            context.fill(rect)
+            return
+        }
+
+        let pixelBlockSize = max(2, Int(round(CGFloat(mosaic.blockSize) * scale)))
+        let cacheKey = MosaicCache.shared.key(
+            rect: pixelRect,
+            blockSize: pixelBlockSize,
+            imageID: ObjectIdentifier(displaySnapshot.image)
+        )
+
+        let pixelatedCG: CGImage?
+        if let cached = MosaicCache.shared.image(for: cacheKey) {
+            pixelatedCG = cached
+        } else if let cropped = displaySnapshot.image.cropping(to: pixelRect) {
+            let ciImage = CIImage(cgImage: cropped)
+            if let filter = CIFilter(name: "CIPixellate") {
+                filter.setValue(ciImage, forKey: kCIInputImageKey)
+                filter.setValue(
+                    CIVector(x: ciImage.extent.midX, y: ciImage.extent.midY),
+                    forKey: kCIInputCenterKey
+                )
+                filter.setValue(NSNumber(value: pixelBlockSize), forKey: kCIInputScaleKey)
+                if let output = filter.outputImage {
+                    let croppedOutput = output.cropped(to: ciImage.extent)
+                    let generated = Self.sharedCIContext.createCGImage(croppedOutput, from: ciImage.extent)
+                    if let generated {
+                        MosaicCache.shared.setImage(generated, for: cacheKey)
+                    }
+                    pixelatedCG = generated
+                } else {
+                    pixelatedCG = nil
+                }
+            } else {
+                pixelatedCG = nil
+            }
+        } else {
+            pixelatedCG = nil
+        }
+
+        if let pixelatedCG {
+            context.saveGState()
+            context.translateBy(x: rect.minX, y: rect.maxY)
+            context.scaleBy(x: 1.0, y: -1.0)
+            context.draw(pixelatedCG, in: CGRect(origin: .zero, size: rect.size))
+            context.restoreGState()
+        } else {
+            context.setFillColor(NSColor.gray.withAlphaComponent(0.6).cgColor)
+            context.fill(rect)
+        }
+    }
+
+    private func drawArrowHead(at point: CGPoint, angle: CGFloat, length: CGFloat, context: CGContext, color: NSColor) {
+        let arrowAngle: CGFloat = .pi / 6.0
+        let p1 = CGPoint(x: point.x - length * cos(angle - arrowAngle), y: point.y - length * sin(angle - arrowAngle))
+        let p2 = CGPoint(x: point.x - length * cos(angle + arrowAngle), y: point.y - length * sin(angle + arrowAngle))
+
+        context.saveGState()
+        context.setFillColor(color.cgColor)
+        context.move(to: point)
+        context.addLine(to: p1)
+        context.addLine(to: p2)
+        context.closePath()
+        context.fillPath()
         context.restoreGState()
     }
 
@@ -627,48 +887,120 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        commitTextInput()
         dismissToolbar()
         delegate?.selectionOverlayDidCancel()
+    }
+
+    private func hitTestAnnotation(at point: CGPoint) -> Int? {
+        committedAnnotations.indices.reversed().first { idx in
+            committedAnnotations[idx].hitTest(point: point, tolerance: 8.0)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
 
-        // 1. Double click: immediately confirm capture for target window/selection
-        if event.clickCount >= 2 {
-            handleDoubleClick(at: p)
-            return
+        if isEditingText {
+            commitTextInput()
         }
 
-        if let tool = activeAnnotationTool, case .selected(let selRect) = state, selRect.contains(p) {
-            // Start drawing annotation within selected region
-            dismissToolbar()
-            freehandPoints = [p]
-            state = .drawingAnnotation(tool: tool, selectionRect: selRect, start: p, current: p)
-            updateDraftAnnotation(start: p, current: p, tool: tool)
-            needsDisplay = true
+        // 1. Double click: re-edit text annotation if hit, otherwise confirm capture
+        if event.clickCount >= 2 {
+            if case .selected = state,
+               let hitIdx = hitTestAnnotation(at: p),
+               case .text = committedAnnotations[hitIdx] {
+                beginEditingTextAnnotation(at: hitIdx)
+                updateCursor(at: p)
+                return
+            }
+            handleDoubleClick(at: p)
             return
         }
 
         switch state {
         case .hovering:
-            dismissToolbar()
+            hideToolbar()
+            selectedAnnotationIndex = nil
             state = .creatingSelection(start: p, current: p)
 
         case .selected(let selRect):
-            dismissToolbar()
+            // 1. Check control handles of currently selected annotation
+            if let selIdx = selectedAnnotationIndex,
+               selIdx < committedAnnotations.count,
+               let annoHandle = committedAnnotations[selIdx].hitTestHandle(at: p, padding: 4, tolerance: 10) {
+                hideToolbar()
+                state = .resizingAnnotation(
+                    index: selIdx,
+                    selectionRect: selRect,
+                    handle: annoHandle,
+                    originalAnnotations: committedAnnotations
+                )
+                updateCursor(at: p)
+                needsDisplay = true
+                return
+            }
+
+            // 2. Check selection box resize handles
             if let handle = hitTestHandle(at: p, in: selRect) {
+                hideToolbar()
+                selectedAnnotationIndex = nil
                 state = .resizing(handle: handle, anchorRect: selRect, startPoint: p, currentRect: selRect)
-            } else if selRect.contains(p) {
-                state = .moving(anchorRect: selRect, startPoint: p, currentRect: selRect)
+                updateCursor(at: p)
+                needsDisplay = true
+                return
+            }
+
+            // 3. Check hit on any existing annotation (allows selecting/dragging existing annotations even when a tool is active)
+            //    Single click selects and drags; double click (handled above) re-edits text
+            if let hitIdx = hitTestAnnotation(at: p) {
+                selectedAnnotationIndex = hitIdx
+                hideToolbar()
+                state = .movingAnnotation(
+                    index: hitIdx,
+                    selectionRect: selRect,
+                    startPoint: p,
+                    originalAnno: committedAnnotations[hitIdx],
+                    originalAnnotations: committedAnnotations
+                )
+                updateCursor(at: p)
+                needsDisplay = true
+                return
+            }
+
+            // 4. Inside selection rect: start drawing with active tool or move selection box
+            if selRect.contains(p) {
+                if let tool = activeAnnotationTool {
+                    if tool == .text {
+                        beginTextInput(at: p, editingIndex: nil)
+                        updateCursor(at: p)
+                        return
+                    }
+                    selectedAnnotationIndex = nil
+                    hideToolbar()
+                    freehandPoints = [p]
+                    state = .drawingAnnotation(tool: tool, selectionRect: selRect, start: p, current: p)
+                    updateDraftAnnotation(start: p, current: p, tool: tool)
+                } else {
+                    selectedAnnotationIndex = nil
+                    hideToolbar()
+                    state = .moving(anchorRect: selRect, startPoint: p, currentRect: selRect)
+                }
             } else {
-                // Click outside: reset selection back to creating selection
+                // Click outside the selection: only a real drag starts a new
+                // selection — a plain click must leave the selection untouched.
+                // The results drawer is hidden later, on confirmed drag/new
+                // selection, so a stray click doesn't discard OCR results.
+                selectionBeforeOutsideClick = selRect
+                selectedAnnotationIndex = nil
+                hideToolbar()
                 state = .creatingSelection(start: p, current: p)
             }
 
         default:
             break
         }
+        updateCursor(at: p)
         needsDisplay = true
     }
 
@@ -679,18 +1011,40 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         switch state {
         case .creatingSelection(let start, _):
             state = .creatingSelection(start: start, current: p)
+            // A real drag is starting: retire the previous selection's drawer.
+            if resultsModel.isVisible, hypot(p.x - start.x, p.y - start.y) > 4 {
+                hideResultsPanel()
+            }
 
         case .resizing(let handle, let anchor, let start, _):
             let dx = p.x - start.x
             let dy = p.y - start.y
             let newRect = resizeRect(anchor, handle: handle, dx: dx, dy: dy)
             state = .resizing(handle: handle, anchorRect: anchor, startPoint: start, currentRect: newRect)
+            layoutResultsPanel(for: newRect)
 
         case .moving(let anchor, let start, _):
             let dx = p.x - start.x
             let dy = p.y - start.y
             let moved = anchor.offsetBy(dx: dx, dy: dy).intersection(bounds)
             state = .moving(anchorRect: anchor, startPoint: start, currentRect: moved)
+            layoutResultsPanel(for: moved)
+
+        case .movingAnnotation(let index, _, let start, let originalAnno, _):
+            let dx = p.x - start.x
+            let dy = p.y - start.y
+            if index < committedAnnotations.count {
+                committedAnnotations[index] = originalAnno.offsetBy(dx: dx, dy: dy)
+            }
+
+        case .resizingAnnotation(let index, _, let handle, _):
+            if index < committedAnnotations.count {
+                // ⌘ held: lock the current aspect ratio
+                let options = HandleDragOptions(
+                    preserveAspectRatio: NSEvent.modifierFlags.contains(.command)
+                )
+                committedAnnotations[index] = committedAnnotations[index].applyingHandleDrag(handle, to: p, options: options)
+            }
 
         case .drawingAnnotation(let tool, let selRect, let start, _):
             freehandPoints.append(p)
@@ -700,15 +1054,26 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         default:
             break
         }
+        updateCursor(at: p)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+
         switch state {
         case .creatingSelection(let start, let current):
             let rect = normalizedRect(from: start, to: current)
             if rect.width >= 5 && rect.height >= 5 {
+                selectionBeforeOutsideClick = nil
+                hideResultsPanel()
                 commitSelection(rect)
+                performAutomaticSelectionAction(in: rect)
+            } else if let previous = selectionBeforeOutsideClick {
+                // Plain click outside the selection: no reaction, keep the
+                // selection and its toolbar exactly as they were.
+                selectionBeforeOutsideClick = nil
+                commitSelection(previous)
             } else if !isFreeSelectionLocked {
                 if let win = candidateWindowsUnderMouse.first {
                     let local = CoordinateMapper.quartzToDisplayLocal(
@@ -729,19 +1094,31 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         case .moving(_, _, let currentRect):
             commitSelection(currentRect)
 
+        case .movingAnnotation(_, let selRect, _, _, let originalAnnotations):
+            recordAnnotationHistory(
+                description: "Move annotation",
+                from: originalAnnotations,
+                to: committedAnnotations
+            )
+            commitSelection(selRect)
+
+        case .resizingAnnotation(_, let selRect, _, let originalAnnotations):
+            recordAnnotationHistory(
+                description: "Resize annotation",
+                from: originalAnnotations,
+                to: committedAnnotations
+            )
+            commitSelection(selRect)
+
         case .drawingAnnotation(let tool, let selRect, _, _):
             if let draft = currentDraftAnnotation {
+                let oldSnapshot = committedAnnotations
                 committedAnnotations.append(draft)
-                editHistory.record(
+                selectedAnnotationIndex = committedAnnotations.count - 1
+                recordAnnotationHistory(
                     description: "Add \(tool.rawValue)",
-                    undo: { [weak self] in
-                        _ = self?.committedAnnotations.popLast()
-                        self?.needsDisplay = true
-                    },
-                    redo: { [weak self] in
-                        self?.committedAnnotations.append(draft)
-                        self?.needsDisplay = true
-                    }
+                    from: oldSnapshot,
+                    to: committedAnnotations
                 )
             }
             currentDraftAnnotation = nil
@@ -751,10 +1128,13 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         default:
             break
         }
+        updateCursor(at: p)
         needsDisplay = true
     }
 
     private func handleDoubleClick(at point: CGPoint) {
+        commitTextInput()
+
         let targetRect: CGRect
         switch state {
         case .selected(let rect):
@@ -785,11 +1165,12 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
             displayQuartzBounds: displaySnapshot.quartzBounds
         )
 
+        let exportAnnotations = transformedAnnotationsForExport(in: targetRect)
         dismissToolbar()
         delegate?.selectionOverlay(
             didConfirmSelection: quartzSel,
             action: .copy,
-            annotations: committedAnnotations,
+            annotations: exportAnnotations,
             on: displaySnapshot
         )
     }
@@ -797,48 +1178,297 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
     private func commitSelection(_ rect: CGRect) {
         state = .selected(rect: rect)
         showToolbar(for: rect)
+        // Drawer and selection form one interaction unit: keep them attached
+        if resultsModel.isVisible {
+            resultsPanelHost?.isHidden = false
+            layoutResultsPanel(for: rect)
+        }
     }
 
     private func updateDraftAnnotation(start: CGPoint, current: CGPoint, tool: SelectionInPlaceToolbar.AnnotationTool) {
         let style = StrokeStyle(color: CodableColor(Color(nsColor: annotationColor)), lineWidth: annotationLineWidth)
-        let rect = normalizedRect(from: start, to: current)
+        var rect = normalizedRect(from: start, to: current)
+
+        // ⌘ held: constrain rectangle/ellipse to a square / circle (1:1)
+        if NSEvent.modifierFlags.contains(.command), tool == .rectangle || tool == .ellipse {
+            rect = squareRect(from: start, to: current)
+        }
 
         switch tool {
         case .rectangle:
             currentDraftAnnotation = .rectangle(RectangleAnnotation(rect: rect, style: style))
         case .ellipse:
             currentDraftAnnotation = .ellipse(EllipseAnnotation(rect: rect, style: style))
+        case .line:
+            currentDraftAnnotation = .line(LineAnnotation(startPoint: start, endPoint: current, style: style))
         case .arrow:
             currentDraftAnnotation = .arrow(ArrowAnnotation(startPoint: start, endPoint: current, style: style))
         case .pen:
             currentDraftAnnotation = .freehand(FreehandAnnotation(points: freehandPoints.isEmpty ? [start, current] : freehandPoints, style: style))
         case .text:
-            currentDraftAnnotation = .text(TextAnnotation(position: rect.origin, content: "Text"))
+            break
+        case .numberLabel:
+            let nextNum = committedAnnotations.filter {
+                if case .numberLabel = $0 { return true } else { return false }
+            }.count + 1
+            currentDraftAnnotation = .numberLabel(
+                NumberLabelAnnotation(
+                    position: start,
+                    number: nextNum,
+                    size: 26,
+                    color: CodableColor(Color(nsColor: annotationColor)),
+                    leadPoint: (hypot(current.x - start.x, current.y - start.y) > 4) ? current : nil
+                )
+            )
+        case .highlight:
+            currentDraftAnnotation = .highlight(
+                HighlightAnnotation(
+                    rect: rect,
+                    color: CodableColor(Color(nsColor: annotationColor)),
+                    opacity: 0.4
+                )
+            )
         case .mosaic:
-            currentDraftAnnotation = .mosaic(MosaicAnnotation(rect: rect))
+            currentDraftAnnotation = .mosaic(MosaicAnnotation(rect: rect, blockSize: mosaicBlockSize))
         case .privacyRedaction:
             currentDraftAnnotation = .privacyRedaction(PrivacyRedactionAnnotation(rect: rect))
+        }
+    }
+
+    // MARK: - In-Place Text Editing
+
+    private func beginEditingTextAnnotation(at index: Int) {
+        guard index >= 0, index < committedAnnotations.count else { return }
+        if case .text(let textAnno) = committedAnnotations[index] {
+            selectedAnnotationIndex = index
+            beginTextInput(at: textAnno.position, editingIndex: index, initialText: textAnno.content, fontSize: textAnno.style.fontSize, color: textAnno.style.color.nsColor)
+        }
+    }
+
+    private func beginTextInput(
+        at point: CGPoint,
+        editingIndex: Int?,
+        initialText: String = "",
+        fontSize: CGFloat? = nil,
+        color: NSColor? = nil
+    ) {
+        if isEditingText {
+            commitTextInput()
+        }
+
+        let resolvedFontSize = fontSize ?? max(14.0, annotationLineWidth * 5.0)
+        let resolvedColor = color ?? annotationColor
+        let font = NSFont.systemFont(ofSize: resolvedFontSize)
+
+        editingAnnotationIndex = editingIndex
+        textInputPosition = point
+
+        let tf = NSTextField(frame: .zero)
+        tf.isBordered = false
+        tf.drawsBackground = true
+        tf.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        tf.focusRingType = .none
+        tf.font = font
+        tf.textColor = resolvedColor
+        tf.placeholderString = String(localized: "preview.enter.text")
+        tf.stringValue = initialText
+        tf.delegate = self
+        tf.wantsLayer = true
+        tf.layer?.cornerRadius = 4
+        tf.layer?.borderWidth = 1.5
+        tf.layer?.borderColor = NSColor.controlAccentColor.cgColor
+
+        addSubview(tf)
+        activeTextField = tf
+        updateActiveTextFieldFrame()
+        window?.makeFirstResponder(tf)
+        if let editor = tf.currentEditor() {
+            editor.selectedRange = NSRange(location: tf.stringValue.count, length: 0)
+        }
+        needsDisplay = true
+    }
+
+    private func updateActiveTextFieldFrame() {
+        guard let tf = activeTextField, let pos = textInputPosition else { return }
+        let font = tf.font ?? NSFont.systemFont(ofSize: 16)
+        let sample = tf.stringValue.isEmpty ? (tf.placeholderString ?? "Text") : tf.stringValue
+        let measured = measureText(sample, font: font)
+        let width = max(90, measured.width + 20)
+        let height = max(24, measured.height + 8)
+        let clampedX = max(4, min(bounds.maxX - width - 4, pos.x))
+        let clampedY = max(4, min(bounds.maxY - height - 4, pos.y))
+        tf.frame = CGRect(x: clampedX, y: clampedY, width: width, height: height)
+    }
+
+    func commitTextInput() {
+        guard let tf = activeTextField else { return }
+        let rawText = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let editIdx = editingAnnotationIndex
+        let pos = textInputPosition
+        let fontSize = tf.font?.pointSize ?? max(14.0, annotationLineWidth * 5.0)
+        let textColor = tf.textColor ?? annotationColor
+
+        tf.delegate = nil
+        tf.removeFromSuperview()
+        activeTextField = nil
+        editingAnnotationIndex = nil
+        textInputPosition = nil
+        window?.makeFirstResponder(self)
+
+        if let editIdx, editIdx >= 0, editIdx < committedAnnotations.count {
+            if case .text(var textAnno) = committedAnnotations[editIdx] {
+                let oldSnapshot = committedAnnotations
+                if rawText.isEmpty {
+                    committedAnnotations.remove(at: editIdx)
+                    selectedAnnotationIndex = nil
+                    recordAnnotationHistory(description: "Delete text", from: oldSnapshot, to: committedAnnotations)
+                } else if textAnno.content != rawText {
+                    textAnno.content = rawText
+                    committedAnnotations[editIdx] = .text(textAnno)
+                    recordAnnotationHistory(description: "Edit text", from: oldSnapshot, to: committedAnnotations)
+                }
+            }
+        } else if let pos, !rawText.isEmpty {
+            let oldSnapshot = committedAnnotations
+            let style = TextStyle(
+                color: CodableColor(Color(nsColor: textColor)),
+                fontSize: fontSize,
+                fontName: ".AppleSystemUIFont"
+            )
+            let newAnno = Annotation.text(TextAnnotation(position: pos, content: rawText, style: style))
+            committedAnnotations.append(newAnno)
+            selectedAnnotationIndex = committedAnnotations.count - 1
+            recordAnnotationHistory(description: "Add text", from: oldSnapshot, to: committedAnnotations)
+        }
+
+        needsDisplay = true
+    }
+
+    func cancelTextInput() {
+        guard let tf = activeTextField else { return }
+        tf.delegate = nil
+        tf.removeFromSuperview()
+        activeTextField = nil
+        editingAnnotationIndex = nil
+        textInputPosition = nil
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        updateActiveTextFieldFrame()
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        if activeTextField != nil {
+            commitTextInput()
+        }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            commitTextInput()
+            return true
+        }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            cancelTextInput()
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Undo/Redo History Helpers
+
+    private func recordAnnotationHistory(
+        description: String,
+        from oldAnnotations: [Annotation],
+        to newAnnotations: [Annotation]
+    ) {
+        guard oldAnnotations != newAnnotations else { return }
+        editHistory.record(
+            description: description,
+            undo: { [weak self] in
+                guard let self else { return }
+                self.committedAnnotations = oldAnnotations
+                if let sel = self.selectedAnnotationIndex, sel >= self.committedAnnotations.count {
+                    self.selectedAnnotationIndex = nil
+                }
+                self.syncToolbarUndoState()
+                self.needsDisplay = true
+            },
+            redo: { [weak self] in
+                guard let self else { return }
+                self.committedAnnotations = newAnnotations
+                if let sel = self.selectedAnnotationIndex, sel >= self.committedAnnotations.count {
+                    self.selectedAnnotationIndex = nil
+                }
+                self.syncToolbarUndoState()
+                self.needsDisplay = true
+            }
+        )
+        syncToolbarUndoState()
+    }
+
+    private func syncToolbarUndoState() {
+        toolbar?.state.canUndo = editHistory.canUndo
+        toolbar?.state.canRedo = editHistory.canRedo
+    }
+
+    private func transformedAnnotationsForExport(in selectionRect: CGRect) -> [Annotation] {
+        let originX = selectionRect.origin.x
+        let originY = selectionRect.origin.y
+        let scale = displaySnapshot.scaleFactor
+        return committedAnnotations.map { anno in
+            anno.offsetBy(dx: -originX, dy: -originY).scaled(by: scale)
         }
     }
 
     // MARK: - Toolbar & Actions
 
     private func showToolbar(for selectionRect: CGRect) {
-        dismissToolbar()
-        let bar = SelectionInPlaceToolbar(frame: .zero)
-        bar.delegate = self
-        let targetFrame = SelectionInPlaceToolbar.preferredFrame(for: selectionRect, in: bounds)
+        let bar: SelectionInPlaceToolbar
+        if let existing = toolbar {
+            bar = existing
+        } else {
+            let newBar = SelectionInPlaceToolbar(frame: .zero)
+            newBar.delegate = self
+            addSubview(newBar)
+            self.toolbar = newBar
+            bar = newBar
+        }
+        syncToolbarUndoState()
+        bar.state.isBeautifyEnabled = isBeautifyEnabled
+        let targetFrame = SelectionInPlaceToolbar.preferredFrame(
+            for: selectionRect,
+            in: bounds,
+            toolbarSize: bar.preferredSize
+        )
         bar.frame = targetFrame
-        addSubview(bar)
-        self.toolbar = bar
+        bar.isHidden = false
+    }
+
+    private func hideToolbar() {
+        toolbar?.isHidden = true
     }
 
     private func dismissToolbar() {
+        hideResultsPanel()
         toolbar?.removeFromSuperview()
         toolbar = nil
     }
 
+    func toolbarDidUpdateLayout() {
+        guard case .selected(let rect) = state, let bar = toolbar, !bar.isHidden else { return }
+        bar.frame = SelectionInPlaceToolbar.preferredFrame(
+            for: rect,
+            in: bounds,
+            toolbarSize: bar.preferredSize
+        )
+    }
+
     func toolbarDidSelectAction(_ action: SelectionInPlaceToolbar.Action) {
+        commitTextInput()
+
         guard case .selected(let rect) = state else {
             if action == .cancel {
                 delegate?.selectionOverlayDidCancel()
@@ -851,47 +1481,448 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
             return
         }
 
+        if action == .beautify {
+            isBeautifyEnabled.toggle()
+            toolbar?.state.isBeautifyEnabled = isBeautifyEnabled
+            needsDisplay = true
+            return
+        }
+
+        if action == .smartMosaic {
+            runSmartRedaction(in: rect)
+            return
+        }
+
+        // OCR / Translate: expand the in-place results drawer, never leave this window
+        if action == .ocr {
+            runInPlaceAnalysis(tab: .ocr, in: rect)
+            return
+        }
+        if action == .translate {
+            runInPlaceAnalysis(tab: .translate, in: rect)
+            return
+        }
+
         // Convert DisplayLocal selection rect to Quartz global rect
         let quartzSel = CoordinateMapper.displayLocalToQuartz(
             DisplayLocalRect(rect),
             displayQuartzBounds: displaySnapshot.quartzBounds
         )
 
+        let exportAnnotations = transformedAnnotationsForExport(in: rect)
+
         delegate?.selectionOverlay(
             didConfirmSelection: quartzSel,
             action: action,
-            annotations: committedAnnotations,
+            annotations: exportAnnotations,
             on: displaySnapshot
         )
     }
 
     func toolbarDidChangeTool(_ tool: SelectionInPlaceToolbar.AnnotationTool?) {
+        commitTextInput()
         activeAnnotationTool = tool
     }
 
     func toolbarDidChangeColor(_ color: NSColor) {
         annotationColor = color
+        if let tf = activeTextField {
+            tf.textColor = color
+        }
+        if let idx = selectedAnnotationIndex, idx < committedAnnotations.count {
+            let oldSnapshot = committedAnnotations
+            committedAnnotations[idx] = committedAnnotations[idx].updatingColor(CodableColor(Color(nsColor: color)))
+            recordAnnotationHistory(description: "Change color", from: oldSnapshot, to: committedAnnotations)
+            needsDisplay = true
+        }
+    }
+
+    // MARK: - Smart Privacy Mosaic
+
+    /// Detects sensitive privacy regions inside the selection and adds mosaic
+    /// annotations in one undoable step. Requires a configured VLM API key.
+    private func runSmartRedaction(in selectionRect: CGRect) {
+
+        let scale = displaySnapshot.scaleFactor
+        let imageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(displaySnapshot.image.width),
+            height: CGFloat(displaySnapshot.image.height)
+        )
+        let pixelRect = CGRect(
+            x: selectionRect.origin.x * scale,
+            y: selectionRect.origin.y * scale,
+            width: selectionRect.width * scale,
+            height: selectionRect.height * scale
+        ).intersection(imageBounds)
+        guard pixelRect.width > 1, pixelRect.height > 1,
+              let cropped = displaySnapshot.image.cropping(to: pixelRect) else {
+            showStatusMessage(String(localized: "smartMosaic.error.failed"), isError: true)
+            return
+        }
+
+        showStatusMessage(String(localized: "smartMosaic.detecting"), isError: false)
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let regions = try await SmartPrivacyRedactionService.shared.detectPrivacyRegions(in: cropped)
+                guard !regions.isEmpty else {
+                    self.showStatusMessage(String(localized: "smartMosaic.noneFound"), isError: false)
+                    return
+                }
+
+                // Convert crop-pixel rects back to display-local coordinates
+                let localRects = regions.map { region -> CGRect in
+                    CGRect(
+                        x: selectionRect.origin.x + region.origin.x / scale,
+                        y: selectionRect.origin.y + region.origin.y / scale,
+                        width: region.width / scale,
+                        height: region.height / scale
+                    )
+                }
+
+                let oldSnapshot = self.committedAnnotations
+                for rect in localRects {
+                    self.committedAnnotations.append(
+                        .mosaic(MosaicAnnotation(rect: rect, blockSize: self.mosaicBlockSize))
+                    )
+                }
+                self.recordAnnotationHistory(
+                    description: "Smart redaction",
+                    from: oldSnapshot,
+                    to: self.committedAnnotations
+                )
+                self.needsDisplay = true
+                self.showStatusMessage(
+                    String(format: String(localized: "smartMosaic.redacted"), localRects.count),
+                    isError: false
+                )
+            } catch {
+                self.showStatusMessage(String(localized: "smartMosaic.error.failed"), isError: true)
+            }
+        }
+    }
+
+    /// Transient status message near the toolbar
+    private func showStatusMessage(_ message: String, isError: Bool) {
+        statusHideWorkItem?.cancel()
+
+        let label = statusLabel ?? {
+            let field = NSTextField(labelWithString: "")
+            field.wantsLayer = true
+            field.layer?.cornerRadius = 6
+            field.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
+            field.textColor = .white
+            field.font = .systemFont(ofSize: 12, weight: .medium)
+            field.alignment = .center
+            addSubview(field)
+            statusLabel = field
+            return field
+        }()
+
+        label.stringValue = message
+        label.textColor = isError ? NSColor.systemOrange : NSColor.white
+        label.sizeToFit()
+        let size = NSSize(width: label.frame.width + 20, height: label.frame.height + 10)
+        let anchor = toolbar?.frame ?? NSRect(x: bounds.midX, y: 40, width: 0, height: 0)
+        label.frame = NSRect(
+            x: max(8, anchor.midX - size.width / 2),
+            y: anchor.minY + anchor.height + 8,
+            width: size.width,
+            height: size.height
+        )
+        label.isHidden = false
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.statusLabel?.isHidden = true
+        }
+        statusHideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: work)
+    }
+
+    // MARK: - In-Place Results Drawer (OCR / Translation)
+
+    /// Runs the mode's automatic action after a fresh selection commit.
+    /// A plain click (selection restore) never reaches here.
+    private func performAutomaticSelectionAction(in selectionRect: CGRect) {
+        guard let action = automaticActionAfterSelection else { return }
+        switch action {
+        case .translate:
+            runInPlaceAnalysis(tab: .translate, in: selectionRect)
+        case .ocr:
+            runInPlaceAnalysis(tab: .ocr, in: selectionRect)
+        default:
+            toolbarDidSelectAction(action)
+        }
+    }
+
+    /// Runs OCR or translation on the selection and shows results in the
+    /// embedded right-side drawer. The capture window stays open.
+    private func runInPlaceAnalysis(tab: InPlaceResultsModel.Tab, in selectionRect: CGRect) {
+        // Second click on the same tab closes the drawer (PRD toggle behaviour)
+        if resultsModel.isVisible, resultsModel.activeTab == tab, !resultsModel.isLoading {
+            hideResultsPanel()
+            return
+        }
+
+        guard let cropped = cropSelection(selectionRect) else {
+            showStatusMessage(String(localized: "error.ocr.failed"), isError: true)
+            return
+        }
+
+        showResultsPanel(for: selectionRect, tab: tab)
+        resultsModel.isLoading = true
+        resultsModel.ocrLines = []
+        resultsModel.segments = []
+        resultsModel.statusMessage = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.resultsModel.isLoading = false
+                self.layoutResultsPanel(for: selectionRect)
+                self.needsDisplay = true
+            }
+            do {
+                switch tab {
+                case .ocr:
+                    let result = try await OCRService.shared.recognize(
+                        cropped,
+                        languages: [.english, .chineseSimplified]
+                    )
+                    let lines = result.observations
+                        .sorted { $0.boundingBox.minY < $1.boundingBox.minY }
+                        .map(\.text)
+                    self.resultsModel.ocrLines = lines
+                    if lines.isEmpty {
+                        self.resultsModel.statusMessage = String(localized: "error.ocr.no.text")
+                    }
+                case .translate:
+                    let pipeline = ImageTranslationPipeline()
+                    let context = PipelineContext()
+                    // Stage-split so failures are attributed correctly: the
+                    // drawer reads VLM errors as recognition, not translation.
+                    let analysis: ScreenAnalysisResult
+                    do {
+                        analysis = try await pipeline.analyze(image: cropped, context: context)
+                    } catch {
+                        self.resultsModel.statusMessage = String(
+                            format: String(localized: "error.pipeline.ocrFailed"),
+                            Self.pipelineErrorMessage(error)
+                        )
+                        return
+                    }
+                    let filtered = analysis.filteredForTranslation()
+                    guard !filtered.segments.isEmpty else {
+                        self.resultsModel.statusMessage = String(localized: "error.ocr.no.text")
+                        return
+                    }
+                    let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
+                    do {
+                        self.resultsModel.segments = try await pipeline.translate(
+                            analysisResult: filtered,
+                            config: config,
+                            context: context
+                        )
+                    } catch {
+                        self.resultsModel.statusMessage = String(
+                            format: String(localized: "error.pipeline.translateFailed"),
+                            Self.pipelineErrorMessage(error)
+                        )
+                    }
+                }
+            } catch {
+                let message = Self.pipelineErrorMessage(error)
+                self.resultsModel.statusMessage = message
+            }
+        }
+    }
+
+    private static func pipelineErrorMessage(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// Crops the selection region from the frozen snapshot (pixel space).
+    private func cropSelection(_ selectionRect: CGRect) -> CGImage? {
+        let scale = displaySnapshot.scaleFactor
+        let imageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(displaySnapshot.image.width),
+            height: CGFloat(displaySnapshot.image.height)
+        )
+        let pixelRect = CGRect(
+            x: selectionRect.origin.x * scale,
+            y: selectionRect.origin.y * scale,
+            width: selectionRect.width * scale,
+            height: selectionRect.height * scale
+        ).intersection(imageBounds)
+        guard pixelRect.width > 1, pixelRect.height > 1 else { return nil }
+        return displaySnapshot.image.cropping(to: pixelRect)
+    }
+
+    private func showResultsPanel(for selectionRect: CGRect, tab: InPlaceResultsModel.Tab) {
+        if resultsPanelHost == nil {
+            resultsModel.onRerun = { [weak self] in
+                guard let self, case .selected(let rect) = self.state else { return }
+                self.runInPlaceAnalysis(tab: self.resultsModel.activeTab, in: rect)
+            }
+            resultsModel.onClose = { [weak self] in
+                self?.hideResultsPanel()
+            }
+            let host = NSHostingView(rootView: InPlaceResultsPanel(model: resultsModel))
+            host.autoresizingMask = []
+            addSubview(host)
+            resultsPanelHost = host
+        }
+        resultsModel.visualInvalidator = { [weak self] in self?.needsDisplay = true }
+        resultsModel.activeTab = tab
+        resultsModel.isVisible = true
+        resultsPanelHost?.isHidden = false
+        layoutResultsPanel(for: selectionRect)
+    }
+
+    private func layoutResultsPanel(for selectionRect: CGRect) {
+        guard let host = resultsPanelHost, resultsModel.isVisible else { return }
+        host.frame = Self.resultsPanelFrame(
+            selectionRect: selectionRect,
+            bounds: bounds,
+            handleSize: handleSize
+        )
+    }
+
+    /// Frame for the merged results drawer, in flipped (Y-down) local coords.
+    /// Sits beside the selection's right edge with a gap that clears the
+    /// resize handles (whose hit areas reach `handleSize + 2` past the edge —
+    /// child views win hit testing, so an overlapping handle would swallow
+    /// its clicks), and never enters the toolbar zone below the selection
+    /// (toolbar top sits at maxY + 8).
+    static func resultsPanelFrame(
+        selectionRect: CGRect,
+        bounds: CGRect,
+        handleSize: CGFloat
+    ) -> CGRect {
+        let gap: CGFloat = handleSize + 6
+        let width: CGFloat = 300
+        let desiredHeight = max(220, min(selectionRect.height, bounds.maxY - 16))
+        let x: CGFloat = {
+            let preferred = selectionRect.maxX + gap
+            if preferred + width <= bounds.maxX - 8 { return preferred }
+            // Left side preferred; when neither side fits (near-fullscreen
+            // selection) hug the screen's right edge.
+            let left = selectionRect.minX - width - gap
+            return left >= 8 ? left : bounds.maxX - width - 8
+        }()
+        let y = max(8, min(selectionRect.maxY - desiredHeight, bounds.maxY - desiredHeight - 8))
+        // Cap the height so the drawer bottom never crosses the toolbar top.
+        let toolbarZoneTop = selectionRect.maxY + 8
+        let height = min(desiredHeight, max(40, toolbarZoneTop - y), bounds.maxY - 8 - y)
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func hideResultsPanel() {
+        resultsModel.isVisible = false
+        resultsPanelHost?.isHidden = true
+        needsDisplay = true
+    }
+
+    func toolbarDidChangeMosaicIntensity(_ blockSize: Int) {
+        mosaicBlockSize = blockSize
+        if let idx = selectedAnnotationIndex, idx < committedAnnotations.count,
+           case .mosaic(var mosaic) = committedAnnotations[idx] {
+            let oldSnapshot = committedAnnotations
+            mosaic.blockSize = blockSize
+            committedAnnotations[idx] = .mosaic(mosaic)
+            recordAnnotationHistory(description: "Change mosaic intensity", from: oldSnapshot, to: committedAnnotations)
+            needsDisplay = true
+        }
     }
 
     func toolbarDidChangeLineWidth(_ width: CGFloat) {
         annotationLineWidth = width
+        if let tf = activeTextField {
+            tf.font = NSFont.systemFont(ofSize: max(14.0, width * 5.0))
+            updateActiveTextFieldFrame()
+        }
+        if let idx = selectedAnnotationIndex, idx < committedAnnotations.count {
+            let oldSnapshot = committedAnnotations
+            committedAnnotations[idx] = committedAnnotations[idx].updatingLineWidth(width)
+            recordAnnotationHistory(description: "Change line width", from: oldSnapshot, to: committedAnnotations)
+            needsDisplay = true
+        }
     }
 
     func toolbarDidRequestUndo() {
+        commitTextInput()
         editHistory.undo()
+        syncToolbarUndoState()
     }
 
     func toolbarDidRequestRedo() {
+        commitTextInput()
         editHistory.redo()
+        syncToolbarUndoState()
     }
 
     // MARK: - Keyboard Controls
 
     override func keyDown(with event: NSEvent) {
+        // While the results drawer owns keyboard focus, its controls (and the
+        // text view) keep their keys: only Escape falls through, closing the
+        // drawer instead of cancelling the whole capture session.
+        if resultsPanelHasKeyboardFocus {
+            if event.keyCode == 53 {
+                hideResultsPanel()
+                window?.makeFirstResponder(self)
+                return
+            }
+            super.keyDown(with: event)
+            return
+        }
+
+        if isEditingText {
+            if event.keyCode == 53 {
+                cancelTextInput()
+                return
+            }
+            if event.keyCode == 36 || event.keyCode == 76 {
+                commitTextInput()
+                return
+            }
+            super.keyDown(with: event)
+            return
+        }
+
+        // ⌘Z / ⌘⇧Z for Undo / Redo
+        if event.modifierFlags.contains(.command) && event.keyCode == 6 {
+            if event.modifierFlags.contains(.shift) {
+                toolbarDidRequestRedo()
+            } else {
+                toolbarDidRequestUndo()
+            }
+            return
+        }
+
         switch event.keyCode {
         case 53: // Escape
             dismissToolbar()
             delegate?.selectionOverlayDidCancel()
+
+        case 51: // Backspace / Delete
+            if let idx = selectedAnnotationIndex, idx < committedAnnotations.count {
+                let oldSnapshot = committedAnnotations
+                committedAnnotations.remove(at: idx)
+                selectedAnnotationIndex = nil
+                recordAnnotationHistory(description: "Delete annotation", from: oldSnapshot, to: committedAnnotations)
+                needsDisplay = true
+            }
+
+        case 1: // S -> Save
+            if event.modifierFlags.contains(.command) {
+                toolbarDidSelectAction(.save)
+            }
 
         case 36: // Enter
             toolbarDidSelectAction(.copy)
@@ -1010,18 +2041,99 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate {
         return normalizedRect(from: CGPoint(x: minX, y: minY), to: CGPoint(x: maxX, y: maxY))
     }
 
+    /// True when a control inside the results drawer (e.g. its text view or
+    /// the language menu) is the window's first responder.
+    private var resultsPanelHasKeyboardFocus: Bool {
+        guard let host = resultsPanelHost, !host.isHidden,
+              let responder = window?.firstResponder as? NSView else { return false }
+        var current: NSView? = responder
+        while let view = current {
+            if view === host { return true }
+            current = view.superview
+        }
+        return false
+    }
+
     private func updateCursor(at point: CGPoint) {
-        if case .selected(let selRect) = state {
+        if let tf = activeTextField, !tf.isHidden, tf.frame.contains(point) {
+            NSCursor.iBeam.set()
+            return
+        }
+
+        if let bar = toolbar, !bar.isHidden, bar.frame.contains(point) {
+            NSCursor.arrow.set()
+            return
+        }
+
+        // The results drawer hosts its own cursor management (arrow/iBeam);
+        // never show selection cursors (crosshair/grab) on top of it.
+        if let panel = resultsPanelHost, !panel.isHidden, panel.frame.contains(point) {
+            NSCursor.arrow.set()
+            return
+        }
+
+        switch state {
+        case .moving, .movingAnnotation:
+            NSCursor.closedHand.set()
+            return
+
+        case .resizing(let handle, _, _, _):
+            handle.cursor().set()
+            return
+
+        case .resizingAnnotation(_, _, let handle, _):
+            handle.cursor.set()
+            return
+
+        case .drawingAnnotation(let tool, _, _, _):
+            tool.cursor.set()
+            return
+
+        case .creatingSelection:
+            NSCursor.crosshair.set()
+            return
+
+        case .selected(let selRect):
+            if let selIdx = selectedAnnotationIndex,
+               selIdx < committedAnnotations.count,
+               let annoHandle = committedAnnotations[selIdx].hitTestHandle(at: point, padding: 4, tolerance: 10) {
+                annoHandle.cursor.set()
+                return
+            }
+
             if let handle = hitTestHandle(at: point, in: selRect) {
                 handle.cursor().set()
                 return
             }
-            if selRect.contains(point) {
+
+            if let hitIdx = hitTestAnnotation(at: point) {
+                if activeAnnotationTool == .text, case .text = committedAnnotations[hitIdx] {
+                    NSCursor.iBeam.set()
+                    return
+                }
                 NSCursor.openHand.set()
                 return
             }
+
+            if selRect.contains(point) {
+                if let tool = activeAnnotationTool {
+                    tool.cursor.set()
+                    return
+                }
+                NSCursor.openHand.set()
+                return
+            }
+
+            NSCursor.crosshair.set()
+
+        case .hovering:
+            NSCursor.crosshair.set()
         }
-        NSCursor.crosshair.set()
+    }
+
+    /// 1:1 rectangle from start to current point (⌘ constraint)
+    private func squareRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        GeometryConstraint.squareRect(from: start, to: end)
     }
 
     private func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {

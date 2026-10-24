@@ -9,7 +9,25 @@ extension PreviewViewModel {
     /// Begins a drawing gesture at the given point
     /// - Parameter point: The point in image coordinates
     func beginDrawing(at point: CGPoint) {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
+
         guard let selectedTool else { return }
+
+        // If user clicks on an existing text or callout bubble while using text/callout tool, edit it in-place
+        if selectedTool == .text || selectedTool == .calloutBubble,
+           let hitIdx = hitTest(at: point) {
+            switch annotations[hitIdx] {
+            case .text, .calloutBubble:
+                beginEditingTextAnnotation(at: hitIdx)
+                return
+            default:
+                break
+            }
+        }
+
+        let scaleFactor = screenshot.sourceDisplay.scaleFactor
 
         // Apply current stroke/text styles from settings
         let strokeStyle = StrokeStyle(
@@ -26,10 +44,12 @@ extension PreviewViewModel {
         case .rectangle:
             rectangleTool.strokeStyle = strokeStyle
             rectangleTool.isFilled = settings.rectangleFilled
+            rectangleTool.fillColor = settings.shapeFillColor
             rectangleTool.beginDrawing(at: point)
         case .ellipse:
             ellipseTool.strokeStyle = strokeStyle
             ellipseTool.isFilled = settings.ellipseFilled
+            ellipseTool.fillColor = settings.shapeFillColor
             ellipseTool.beginDrawing(at: point)
         case .line:
             lineTool.strokeStyle = strokeStyle
@@ -41,19 +61,23 @@ extension PreviewViewModel {
             arrowTool.strokeStyle = strokeStyle
             arrowTool.beginDrawing(at: point)
         case .highlight:
+            highlightTool.highlightColor = settings.strokeColor
             highlightTool.beginDrawing(at: point)
         case .mosaic:
             mosaicTool.blockSize = Int(settings.mosaicBlockSize)
             mosaicTool.beginDrawing(at: point)
         case .text:
+            editingAnnotationIndex = nil
             textTool.textStyle = textStyle
             textTool.beginDrawing(at: point)
             isWaitingForTextInputInternal = true
             textInputPositionInternal = point
         case .numberLabel:
+            numberLabelTool.labelColor = settings.strokeColor
+            numberLabelTool.circleSize = 24 * scaleFactor
             numberLabelTool.beginDrawing(at: point)
         case .privacyRedaction:
-            rectangleTool.strokeStyle = strokeStyle
+            rectangleTool.strokeStyle = StrokeStyle(color: CodableColor(.black), lineWidth: strokeStyle.lineWidth)
             rectangleTool.isFilled = true
             rectangleTool.beginDrawing(at: point)
         case .calloutBubble:
@@ -102,6 +126,7 @@ extension PreviewViewModel {
         guard let selectedTool else { return }
 
         var annotation: Annotation?
+        let scaleFactor = screenshot.sourceDisplay.scaleFactor
 
         switch selectedTool {
         case .rectangle:
@@ -129,10 +154,34 @@ extension PreviewViewModel {
                 annotation = .privacyRedaction(PrivacyRedactionAnnotation(rect: r.rect, fillColor: CodableColor(.black)))
             }
         case .calloutBubble:
-            if let rectAnno = rectangleTool.endDrawing(at: point), case .rectangle(let r) = rectAnno {
-                let target = CGPoint(x: r.rect.midX, y: r.rect.maxY + 20)
-                annotation = .calloutBubble(CalloutBubbleAnnotation(rect: r.rect, targetPoint: target, text: "Note"))
+            let rawAnno = rectangleTool.endDrawing(at: point)
+            let bubbleRect: CGRect
+            if let rawAnno, case .rectangle(let r) = rawAnno, r.rect.width >= 30 * scaleFactor, r.rect.height >= 24 * scaleFactor {
+                bubbleRect = r.rect
+            } else {
+                let defaultW = 120 * scaleFactor
+                let defaultH = 48 * scaleFactor
+                bubbleRect = CGRect(x: point.x, y: point.y, width: defaultW, height: defaultH)
             }
+            let target = CGPoint(x: bubbleRect.midX, y: bubbleRect.maxY + 20 * scaleFactor)
+            let textStyle = TextStyle(
+                color: CodableColor(.black),
+                fontSize: settings.textSize,
+                fontName: ".AppleSystemUIFont"
+            )
+            let bubble = CalloutBubbleAnnotation(
+                rect: bubbleRect,
+                targetPoint: target,
+                text: "Note",
+                style: textStyle,
+                bubbleColor: CodableColor(.white)
+            )
+            currentAnnotationInternal = nil
+            drawingUpdateCounter += 1
+            addAnnotation(.calloutBubble(bubble))
+            let newIdx = annotations.count - 1
+            beginEditingTextAnnotation(at: newIdx)
+            return
         }
 
         currentAnnotationInternal = nil
@@ -143,7 +192,7 @@ extension PreviewViewModel {
         }
     }
 
-    /// Cancels the current drawing operation
+    /// Cancels the current drawing or in-place text editing operation without losing existing annotations
     func cancelCurrentDrawing() {
         rectangleTool.cancelDrawing()
         ellipseTool.cancelDrawing()
@@ -157,6 +206,7 @@ extension PreviewViewModel {
         currentAnnotationInternal = nil
         isWaitingForTextInputInternal = false
         textInputPositionInternal = nil
+        editingAnnotationIndex = nil
         drawingUpdateCounter += 1
     }
 
@@ -166,13 +216,58 @@ extension PreviewViewModel {
         drawingUpdateCounter += 1
     }
 
-    /// Commits the current text input and adds the annotation
+    /// Commits the current text input and adds or updates the annotation
     func commitTextInput() {
-        guard let position = textInputPositionInternal else { return }
+        guard isWaitingForTextInputInternal else { return }
 
         let trimmedText = textInputContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else {
-            cancelCurrentDrawing()
+
+        // Reset observable text input state first to prevent re-entrancy
+        let editIdx = editingAnnotationIndex
+        let position = textInputPositionInternal
+        textInputContent = ""
+        isWaitingForTextInputInternal = false
+        textInputPositionInternal = nil
+        editingAnnotationIndex = nil
+        textTool.cancelDrawing()
+
+        // Case 1: Updating an existing text or calloutBubble annotation in-place (preserving Z-Order and Undo history)
+        if let editIdx, editIdx >= 0, editIdx < annotations.count {
+            switch annotations[editIdx] {
+            case .text(var textAnno):
+                if trimmedText.isEmpty {
+                    removeAnnotation(at: editIdx)
+                    if selectedAnnotationIndex == editIdx {
+                        selectedAnnotationIndex = nil
+                    }
+                } else if textAnno.content != trimmedText {
+                    pushUndoState()
+                    textAnno.content = trimmedText
+                    screenshot = screenshot.replacingAnnotation(at: editIdx, with: .text(textAnno))
+                    redoStack.removeAll()
+                }
+                // Keep the text box selected so its handles show for drag/resize
+                if editIdx < annotations.count {
+                    selectedAnnotationIndex = editIdx
+                }
+            case .calloutBubble(var bubbleAnno):
+                let finalText = trimmedText.isEmpty ? bubbleAnno.text : trimmedText
+                if bubbleAnno.text != finalText {
+                    pushUndoState()
+                    bubbleAnno.text = finalText
+                    screenshot = screenshot.replacingAnnotation(at: editIdx, with: .calloutBubble(bubbleAnno))
+                    redoStack.removeAll()
+                }
+            default:
+                break
+            }
+            drawingUpdateCounter += 1
+            return
+        }
+
+        // Case 2: Creating a new text annotation
+        guard let position, !trimmedText.isEmpty else {
+            drawingUpdateCounter += 1
             return
         }
 
@@ -185,25 +280,29 @@ extension PreviewViewModel {
             TextAnnotation(position: position, content: trimmedText, style: textStyle)
         )
         addAnnotation(annotation)
-
-        // Reset observable text input state
-        textInputContent = ""
-        isWaitingForTextInputInternal = false
-        textInputPositionInternal = nil
+        // Select the new text box so its handles show for drag/resize (PRD 5.2)
+        selectedAnnotationIndex = annotations.count - 1
+        drawingUpdateCounter += 1
     }
 
-    // MARK: - Annotation Selection & Editing
+    // MARK: - Annotation Selection, Resizing & Editing
 
-    /// Tests if a point hits an annotation and returns its index
+    /// Tests if a point hits a control handle of the currently selected annotation
+    func hitTestSelectedAnnotationHandle(at point: CGPoint) -> AnnotationHandle? {
+        guard let index = selectedAnnotationIndex,
+              index >= 0,
+              index < annotations.count else { return nil }
+        let tolerance = 10.0 * screenshot.sourceDisplay.scaleFactor
+        return annotations[index].hitTestHandle(at: point, padding: 4, tolerance: tolerance)
+    }
+
+    /// Tests if a point hits an annotation using exact geometric distance and returns its index
     /// - Parameter point: The point to test in image coordinates
     /// - Returns: The index of the hit annotation, or nil if none hit
     func hitTest(at point: CGPoint) -> Int? {
-        // Check in reverse order (top-most first)
+        let tolerance = 8.0 * screenshot.sourceDisplay.scaleFactor
         for (index, annotation) in annotations.enumerated().reversed() {
-            let bounds = annotation.bounds
-            // Add some padding for easier selection
-            let expandedBounds = bounds.insetBy(dx: -10, dy: -10)
-            if expandedBounds.contains(point) {
+            if annotation.hitTest(point: point, tolerance: tolerance) {
                 return index
             }
         }
@@ -212,6 +311,9 @@ extension PreviewViewModel {
 
     /// Selects the annotation at the given index
     func selectAnnotation(at index: Int?) {
+        if isWaitingForTextInputInternal && editingAnnotationIndex != index {
+            commitTextInput()
+        }
         // Deselect any tool when selecting an annotation
         if index != nil && selectedTool != nil {
             selectedTool = nil
@@ -221,19 +323,76 @@ extension PreviewViewModel {
 
     /// Deselects any selected annotation
     func deselectAnnotation() {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
         selectedAnnotationIndex = nil
         isDraggingAnnotation = false
+        activeResizeHandle = nil
         dragStartPoint = nil
         dragOriginalPosition = nil
+        dragOriginalAnnotation = nil
+        dragInitialScreenshot = nil
     }
 
     /// Deletes the currently selected annotation
     func deleteSelectedAnnotation() {
         guard let index = selectedAnnotationIndex else { return }
+        if editingAnnotationIndex == index {
+            cancelCurrentDrawing()
+        }
         pushUndoState()
         screenshot = screenshot.removingAnnotation(at: index)
         redoStack.removeAll()
         selectedAnnotationIndex = nil
+    }
+
+    /// Begins resizing or adjusting a control handle on the selected annotation
+    func beginResizingAnnotation(handle: AnnotationHandle, at point: CGPoint) {
+        guard let index = selectedAnnotationIndex,
+              index >= 0,
+              index < annotations.count else { return }
+
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
+
+        activeResizeHandle = handle
+        dragStartPoint = point
+        dragOriginalAnnotation = annotations[index]
+        dragInitialScreenshot = screenshot
+    }
+
+    /// Continues resizing or adjusting a control handle on the selected annotation
+    func continueResizingAnnotation(to point: CGPoint) {
+        guard let handle = activeResizeHandle,
+              let index = selectedAnnotationIndex,
+              index >= 0,
+              index < annotations.count else { return }
+
+        // ⌘ held: preserve the annotation's current aspect ratio
+        let options = HandleDragOptions(
+            preserveAspectRatio: NSEvent.modifierFlags.contains(.command)
+        )
+        let updated = annotations[index].applyingHandleDrag(handle, to: point, options: options)
+        screenshot.annotations[index] = updated
+        drawingUpdateCounter += 1
+    }
+
+    /// Ends resizing or adjusting a control handle and records Undo if modified
+    func endResizingAnnotation() {
+        guard activeResizeHandle != nil else { return }
+        if let initial = dragInitialScreenshot, initial.annotations != screenshot.annotations {
+            undoStack.append(initial)
+            if undoStack.count > maxUndoLevels {
+                undoStack.removeFirst()
+            }
+            redoStack.removeAll()
+        }
+        activeResizeHandle = nil
+        dragStartPoint = nil
+        dragOriginalAnnotation = nil
+        dragInitialScreenshot = nil
     }
 
     /// Begins dragging the selected annotation
@@ -241,35 +400,15 @@ extension PreviewViewModel {
         guard let index = selectedAnnotationIndex,
               index < annotations.count else { return }
 
+        if isWaitingForTextInputInternal && editingAnnotationIndex != index {
+            commitTextInput()
+        }
+
         isDraggingAnnotation = true
         dragStartPoint = point
-
-        // Store the original position based on annotation type
-        let annotation = annotations[index]
-        switch annotation {
-        case .rectangle(let rect):
-            dragOriginalPosition = rect.rect.origin
-        case .ellipse(let ellipse):
-            dragOriginalPosition = ellipse.rect.origin
-        case .line(let line):
-            dragOriginalPosition = line.bounds.origin
-        case .freehand(let freehand):
-            dragOriginalPosition = freehand.bounds.origin
-        case .arrow(let arrow):
-            dragOriginalPosition = arrow.bounds.origin
-        case .highlight(let highlight):
-            dragOriginalPosition = highlight.rect.origin
-        case .mosaic(let mosaic):
-            dragOriginalPosition = mosaic.rect.origin
-        case .text(let text):
-            dragOriginalPosition = text.position
-        case .numberLabel(let label):
-            dragOriginalPosition = label.position
-        case .privacyRedaction(let redaction):
-            dragOriginalPosition = redaction.rect.origin
-        case .calloutBubble(let bubble):
-            dragOriginalPosition = bubble.rect.origin
-        }
+        dragOriginalAnnotation = annotations[index]
+        dragInitialScreenshot = screenshot
+        dragOriginalPosition = annotations[index].bounds.origin
     }
 
     /// Continues dragging the selected annotation
@@ -277,7 +416,7 @@ extension PreviewViewModel {
         guard isDraggingAnnotation,
               let index = selectedAnnotationIndex,
               let startPoint = dragStartPoint,
-              let originalPosition = dragOriginalPosition,
+              let originalAnnotation = dragOriginalAnnotation,
               index < annotations.count else { return }
 
         let delta = CGPoint(
@@ -285,116 +424,27 @@ extension PreviewViewModel {
             y: point.y - startPoint.y
         )
 
-        let annotation = annotations[index]
-        var updatedAnnotation: Annotation?
-
-        switch annotation {
-        case .rectangle(var rect):
-            rect.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .rectangle(rect)
-
-        case .ellipse(var ellipse):
-            ellipse.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .ellipse(ellipse)
-
-        case .line(var line):
-            let bounds = line.bounds
-            let offsetX = originalPosition.x + delta.x - bounds.origin.x
-            let offsetY = originalPosition.y + delta.y - bounds.origin.y
-            line.startPoint = CGPoint(x: line.startPoint.x + offsetX, y: line.startPoint.y + offsetY)
-            line.endPoint = CGPoint(x: line.endPoint.x + offsetX, y: line.endPoint.y + offsetY)
-            updatedAnnotation = .line(line)
-
-        case .freehand(var freehand):
-            let bounds = freehand.bounds
-            let offsetX = originalPosition.x + delta.x - bounds.origin.x
-            let offsetY = originalPosition.y + delta.y - bounds.origin.y
-            freehand.points = freehand.points.map { point in
-                CGPoint(x: point.x + offsetX, y: point.y + offsetY)
-            }
-            updatedAnnotation = .freehand(freehand)
-
-        case .arrow(var arrow):
-            let bounds = arrow.bounds
-            let offsetX = originalPosition.x + delta.x - bounds.origin.x
-            let offsetY = originalPosition.y + delta.y - bounds.origin.y
-            arrow.startPoint = CGPoint(
-                x: arrow.startPoint.x + offsetX,
-                y: arrow.startPoint.y + offsetY
-            )
-            arrow.endPoint = CGPoint(
-                x: arrow.endPoint.x + offsetX,
-                y: arrow.endPoint.y + offsetY
-            )
-            updatedAnnotation = .arrow(arrow)
-
-        case .highlight(var highlight):
-            highlight.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .highlight(highlight)
-
-        case .mosaic(var mosaic):
-            mosaic.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .mosaic(mosaic)
-
-        case .text(var text):
-            text.position = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .text(text)
-
-        case .numberLabel(var label):
-            label.position = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .numberLabel(label)
-
-        case .privacyRedaction(var redaction):
-            redaction.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            updatedAnnotation = .privacyRedaction(redaction)
-
-        case .calloutBubble(var bubble):
-            let shiftX = originalPosition.x + delta.x - bubble.rect.origin.x
-            let shiftY = originalPosition.y + delta.y - bubble.rect.origin.y
-            bubble.rect.origin = CGPoint(
-                x: originalPosition.x + delta.x,
-                y: originalPosition.y + delta.y
-            )
-            bubble.targetPoint = CGPoint(
-                x: bubble.targetPoint.x + shiftX,
-                y: bubble.targetPoint.y + shiftY
-            )
-            updatedAnnotation = .calloutBubble(bubble)
-        }
-
-        if let updated = updatedAnnotation {
-            // Update without pushing undo (will push on end)
-            screenshot.annotations[index] = updated
-            drawingUpdateCounter += 1
-        }
+        let updated = originalAnnotation.offsetBy(dx: delta.x, dy: delta.y)
+        screenshot.annotations[index] = updated
+        drawingUpdateCounter += 1
     }
 
-    /// Ends dragging the selected annotation
+    /// Ends dragging the selected annotation and records Undo state if moved
     func endDraggingAnnotation() {
+        if isDraggingAnnotation,
+           let initial = dragInitialScreenshot,
+           initial.annotations != screenshot.annotations {
+            undoStack.append(initial)
+            if undoStack.count > maxUndoLevels {
+                undoStack.removeFirst()
+            }
+            redoStack.removeAll()
+        }
         isDraggingAnnotation = false
         dragStartPoint = nil
         dragOriginalPosition = nil
+        dragOriginalAnnotation = nil
+        dragInitialScreenshot = nil
     }
 
     /// Updates the color of the selected annotation
@@ -497,18 +547,28 @@ extension PreviewViewModel {
         }
     }
 
-    /// Updates the font size of the selected text annotation
+    /// Updates the font size of the selected text or callout bubble annotation
     func updateSelectedAnnotationFontSize(_ size: CGFloat) {
         guard let index = selectedAnnotationIndex,
               index < annotations.count else { return }
 
         let annotation = annotations[index]
-        guard case .text(var text) = annotation else { return }
-
-        pushUndoState()
-        text.style.fontSize = size
-        screenshot = screenshot.replacingAnnotation(at: index, with: .text(text))
-        redoStack.removeAll()
+        switch annotation {
+        case .text(var text):
+            guard text.style.fontSize != size else { return }
+            pushUndoState()
+            text.style.fontSize = size
+            screenshot = screenshot.replacingAnnotation(at: index, with: .text(text))
+            redoStack.removeAll()
+        case .calloutBubble(var bubble):
+            guard bubble.style.fontSize != size else { return }
+            pushUndoState()
+            bubble.style.fontSize = size
+            screenshot = screenshot.replacingAnnotation(at: index, with: .calloutBubble(bubble))
+            redoStack.removeAll()
+        default:
+            return
+        }
     }
 
     /// Updates the isFilled state of the selected rectangle or ellipse annotation
@@ -517,8 +577,7 @@ extension PreviewViewModel {
               index < annotations.count else { return }
 
         let annotation = annotations[index]
-        
-        // Check if the fill state is actually changing
+
         let shouldUpdate: Bool
         if case .rectangle(let rect) = annotation {
             shouldUpdate = rect.isFilled != isFilled
@@ -527,11 +586,11 @@ extension PreviewViewModel {
         } else {
             return
         }
-        
+
         guard shouldUpdate else { return }
-        
+
         pushUndoState()
-        
+
         if case .rectangle(var rect) = annotation {
             rect.isFilled = isFilled
             screenshot = screenshot.replacingAnnotation(at: index, with: .rectangle(rect))
@@ -539,8 +598,31 @@ extension PreviewViewModel {
             ellipse.isFilled = isFilled
             screenshot = screenshot.replacingAnnotation(at: index, with: .ellipse(ellipse))
         }
-        
+
         redoStack.removeAll()
+    }
+
+    /// Updates the background fill color of the selected rectangle or ellipse annotation
+    func updateSelectedAnnotationFillColor(_ color: CodableColor) {
+        guard let index = selectedAnnotationIndex,
+              index < annotations.count else { return }
+
+        switch annotations[index] {
+        case .rectangle(var rect):
+            guard rect.fillColor != color else { return }
+            pushUndoState()
+            rect.fillColor = color
+            screenshot = screenshot.replacingAnnotation(at: index, with: .rectangle(rect))
+            redoStack.removeAll()
+        case .ellipse(var ellipse):
+            guard ellipse.fillColor != color else { return }
+            pushUndoState()
+            ellipse.fillColor = color
+            screenshot = screenshot.replacingAnnotation(at: index, with: .ellipse(ellipse))
+            redoStack.removeAll()
+        default:
+            return
+        }
     }
 
     /// Updates the block size of the selected mosaic annotation
@@ -551,13 +633,57 @@ extension PreviewViewModel {
         let annotation = annotations[index]
         guard case .mosaic(var mosaic) = annotation else { return }
 
-        // Enforce minimum block size of 1 to prevent rendering errors
         let clampedBlockSize = max(1, blockSize)
         guard mosaic.blockSize != clampedBlockSize else { return }
 
         pushUndoState()
         mosaic.blockSize = clampedBlockSize
         screenshot = screenshot.replacingAnnotation(at: index, with: .mosaic(mosaic))
+        redoStack.removeAll()
+    }
+
+    /// Re-edits the selected text or calloutBubble annotation in-place without deleting or altering Z-Order
+    func editSelectedText() {
+        guard let index = selectedAnnotationIndex, index < annotations.count else { return }
+        beginEditingTextAnnotation(at: index)
+    }
+
+    /// Begins in-place editing of a text or calloutBubble annotation at the given index
+    func beginEditingTextAnnotation(at index: Int) {
+        guard index >= 0 && index < annotations.count else { return }
+        if isWaitingForTextInputInternal && editingAnnotationIndex != index {
+            commitTextInput()
+        }
+
+        switch annotations[index] {
+        case .text(let text):
+            selectedAnnotationIndex = index
+            editingAnnotationIndex = index
+            textInputContent = text.content
+            textInputPositionInternal = text.position
+            isWaitingForTextInputInternal = true
+        case .calloutBubble(let bubble):
+            selectedAnnotationIndex = index
+            editingAnnotationIndex = index
+            textInputContent = bubble.text
+            let scaleFactor = screenshot.sourceDisplay.scaleFactor
+            textInputPositionInternal = CGPoint(
+                x: bubble.rect.minX + 6 * scaleFactor,
+                y: bubble.rect.minY + 6 * scaleFactor
+            )
+            isWaitingForTextInputInternal = true
+        default:
+            break
+        }
+    }
+
+    /// Sets or updates the quadratic bezier control point for a curved arrow
+    func updateSelectedArrowCurve(controlPoint: CGPoint?) {
+        guard let index = selectedAnnotationIndex, index < annotations.count else { return }
+        guard case .arrow(var arrow) = annotations[index] else { return }
+        pushUndoState()
+        arrow.controlPoint = controlPoint
+        screenshot = screenshot.replacingAnnotation(at: index, with: .arrow(arrow))
         redoStack.removeAll()
     }
 }

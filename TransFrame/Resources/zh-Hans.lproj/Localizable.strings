@@ -46,6 +46,8 @@
 
 /* OCR 错误 */
 "error.ocr.failed" = "文字识别失败。";
+"error.pipeline.ocrFailed" = "文字识别（VLM）失败：%@";
+"error.pipeline.translateFailed" = "翻译失败：%@";
 "error.ocr.failed.recovery" = "请使用更清晰的图像重试。";
 "error.ocr.no.text" = "图像中未识别到文字。";
 "error.ocr.no.text.recovery" = "请尝试截取包含可见文字的区域。";
@@ -83,6 +85,8 @@
 "menu.capture.fullscreen" = "全屏截图";
 "menu.capture.selection" = "区域截图";
 "menu.translation.mode" = "截图翻译";
+"menu.pick.color" = "屏幕取色";
+"menu.open.image" = "打开图片编辑...";
 "menu.translation.history" = "翻译历史";
 "menu.settings" = "设置...";
 "menu.about" = "关于 TransFrame";
@@ -136,6 +140,8 @@
 "preview.tooltip.confirm" = "复制到剪贴板并关闭 (回车)";
 "preview.tooltip.dismiss" = "关闭 (Escape)";
 "preview.tooltip.delete" = "删除选中的标注";
+"preview.tooltip.editText" = "编辑文字";
+"preview.tooltip.beautify" = "美化 (背景与阴影)";
 
 /* 无障碍标签 */
 "preview.accessibility.save" = "保存截图";
@@ -164,6 +170,8 @@
 "tool.highlight" = "高亮";
 "tool.mosaic" = "马赛克";
 "tool.numberLabel" = "数字标签";
+"tool.privacyRedaction" = "隐私涂黑";
+"tool.calloutBubble" = "气泡标注";
 
 
 /* ========================================
@@ -816,11 +824,6 @@
 "about.acknowledgements.upstream" = "基于";
 "about.acknowledgements.author.format" = "作者：%@";
 "about.close" = "关闭";
-"settings.glmocr.mode" = "模式";
-"settings.glmocr.mode.cloud" = "云端";
-"settings.glmocr.mode.local" = "本地";
-"settings.glmocr.local.apiKey.optional" = "本地 MLX-VLM 服务无需 API 密钥";
-"vlm.provider.glmocr.local.description" = "本地 MLX-VLM GLM-OCR 服务";
 
 "engine.config.fetchModels" = "获取";
 "engine.config.fetchModels.failed" = "获取模型失败";
@@ -830,3 +833,88 @@
 "menu.pinned.show_all" = "置顶显示所有钉图";
 "tool.privacyRedaction" = "隐私遮挡";
 "tool.calloutBubble" = "引线气泡";
+
+/* Annotation color palette */
+"preview.color.custom" = "自定义颜色";
+"preview.color.eyedropper" = "屏幕吸管";
+"preview.fill.color" = "填充色";
+
+/* Smart privacy mosaic */
+"smartMosaic.error.notConfigured" = "请先在设置中配置 VLM API Key（智能马赛克与 VLM 共用同一配置）";
+"smartMosaic.detecting" = "正在识别图中隐私...";
+"smartMosaic.noneFound" = "未检测到敏感隐私信息";
+"smartMosaic.redacted" = "已自动遮挡 %d 处隐私";
+"smartMosaic.error.failed" = "隐私识别失败，请检查网络或重试";
+"preview.tooltip.smartMosaic" = "智能马赛克";
+
+/* Embedded results side panel */
+"preview.panel.ocrTab" = "文本识别";
+"preview.panel.translateTab" = "翻译";
+"preview.panel.rerun" = "重新识别";
+"preview.panel.copyAll" = "复制全部";
+"preview.panel.close" = "关闭";
+"preview.panel.recognizing" = "正在识别...";
+"preview.panel.copyLine" = "复制";
+"preview.panel.original" = "原文";
+"preview.panel.translation" = "译文";
+"preview.panel.targetLanguage" = "目标语言";
+"preview.panel.noResults" = "暂无结果，点击「文本识别」开始";
+"preview.panel.translating" = "正在翻译...";
+"preview.panel.translate" = "翻译";
+"mosaic.intensity.light" = "轻微";
+"mosaic.intensity.medium" = "中度";
+"mosaic.intensity.strong" = "高强度";
+
+/* MTranServer engine errors */
+"error.mtran.http.error" = "MTranServer 请求失败。";
+"error.mtran.http.error.recovery" = "请检查网络与服务器状态后重试。";
+"error.mtran.invalid.request" = "MTranServer 请求无效。";
+"error.mtran.invalid.request.recovery" = "请检查翻译配置后重试。";
+"error.mtran.invalid.url" = "MTranServer 地址无效。";
+"error.mtran.invalid.url.recovery" = "请在设置中修正服务器地址。";
+"error.mtran.not.available" = "MTranServer 服务不可用。";
+"error.mtran.not.available.recovery" = "请启动 MTranServer 后重试。";
+
+/* OCR engine errors */
+"error.ocr.engine.not.available" = "OCR 引擎不可用。";
+"error.ocr.engine.not.available.recovery" = "请在设置中选择可用的 OCR 引擎。";
+"error.ocr.invalid.image" = "图像无效，无法识别。";
+"error.ocr.invalid.image.recovery" = "请使用有效的图像重试。";
+"error.ocr.no.languages" = "未选择识别语言。";
+"error.ocr.no.languages.recovery" = "请在设置中选择识别语言。";
+"error.ocr.no.text.found" = "未在图像中找到文字。";
+"error.ocr.no.text.found.recovery" = "请截取包含文字的区域重试。";
+"error.ocr.recognition.failed" = "文字识别失败。";
+"error.ocr.recognition.failed.recovery" = "请使用更清晰的图像重试。";
+
+/* OCR language names */
+"lang.arabic" = "阿拉伯语";
+"lang.chinese" = "中文";
+"lang.chinese.simplified" = "简体中文";
+"lang.chinese.traditional" = "繁体中文";
+"lang.english" = "英语";
+"lang.french" = "法语";
+"lang.german" = "德语";
+"lang.hindi" = "印地语";
+"lang.italian" = "意大利语";
+"lang.japanese" = "日语";
+"lang.korean" = "韩语";
+"lang.portuguese" = "葡萄牙语";
+"lang.russian" = "俄语";
+"lang.spanish" = "西班牙语";
+"lang.thai" = "泰语";
+"lang.vietnamese" = "越南语";
+
+/* Preview accessibility */
+"preview.pin" = "固定";
+
+/* Translation provider recovery hints */
+"translation.provider.recovery.connectionFailed" = "请检查网络连接后重试。";
+"translation.provider.recovery.emptyInput" = "翻译内容为空。";
+"translation.provider.recovery.invalidConfiguration" = "请检查翻译引擎配置。";
+"translation.provider.recovery.notAvailable" = "该翻译引擎当前不可用，请切换引擎或稍后重试。";
+"translation.provider.recovery.rateLimited" = "请求过于频繁，请稍后重试。";
+"translation.provider.recovery.timeout" = "翻译请求超时，请重试。";
+"translation.provider.recovery.translationFailed" = "翻译失败，请重试。";
+"translation.provider.recovery.unsupportedLanguage" = "不支持该语言对，请更换目标语言。";
+"translation.unknown" = "未知";

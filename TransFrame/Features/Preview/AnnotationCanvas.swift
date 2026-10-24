@@ -54,6 +54,9 @@ struct AnnotationCanvas: View {
     /// Index of the selected annotation (nil = none selected)
     var selectedIndex: Int?
 
+    /// Index of the annotation currently being edited for text (nil = none)
+    var editingIndex: Int?
+
     /// The original image for mosaic effect
     var sourceImage: CGImage?
 
@@ -63,6 +66,19 @@ struct AnnotationCanvas: View {
         Canvas { context, size in
             // Draw all completed annotations
             for (index, annotation) in annotations.enumerated() {
+                if index == editingIndex {
+                    if case .text = annotation {
+                        // Hide original text while in-place TextField is active
+                        continue
+                    } else if case .calloutBubble(var bubble) = annotation {
+                        bubble.text = ""
+                        drawCalloutBubble(bubble, in: &context, size: size)
+                        if index == selectedIndex {
+                            drawSelectionIndicator(for: annotation, in: &context, size: size)
+                        }
+                        continue
+                    }
+                }
                 drawAnnotation(annotation, in: &context, size: size)
 
                 // Draw selection indicator if this annotation is selected
@@ -198,14 +214,21 @@ struct AnnotationCanvas: View {
         let scaledBubbleRect = scaleRect(annotation.rect)
         let scaledTarget = scalePoint(annotation.targetPoint)
 
-        // Draw pointer tail line
+        // Draw pointer tail triangle + line
+        let attachX = max(scaledBubbleRect.minX + 10 * scale, min(scaledBubbleRect.maxX - 10 * scale, scaledTarget.x))
+        let attachY = scaledTarget.y < scaledBubbleRect.minY ? scaledBubbleRect.minY : (scaledTarget.y > scaledBubbleRect.maxY ? scaledBubbleRect.maxY : scaledBubbleRect.midY)
+        let halfBase = min(8.0 * scale, max(4.0 * scale, scaledBubbleRect.width * 0.1))
+
+        var tailTriangle = Path()
+        tailTriangle.move(to: scaledTarget)
+        tailTriangle.addLine(to: CGPoint(x: attachX - halfBase, y: attachY))
+        tailTriangle.addLine(to: CGPoint(x: attachX + halfBase, y: attachY))
+        tailTriangle.closeSubpath()
+        context.fill(tailTriangle, with: .color(annotation.bubbleColor.color))
+
         var tailPath = Path()
         tailPath.move(to: scaledTarget)
-        let attachPoint = CGPoint(
-            x: max(scaledBubbleRect.minX + 8 * scale, min(scaledBubbleRect.maxX - 8 * scale, scaledTarget.x)),
-            y: scaledTarget.y < scaledBubbleRect.minY ? scaledBubbleRect.minY : scaledBubbleRect.maxY
-        )
-        tailPath.addLine(to: attachPoint)
+        tailPath.addLine(to: CGPoint(x: attachX, y: attachY))
         context.stroke(
             tailPath,
             with: .color(annotation.bubbleColor.color),
@@ -217,15 +240,17 @@ struct AnnotationCanvas: View {
         context.fill(bubblePath, with: .color(annotation.bubbleColor.color))
 
         // Draw text inside bubble
-        let font = Font.system(size: max(10, annotation.style.fontSize * scale), weight: .medium)
-        let text = Text(annotation.text)
-            .font(font)
-            .foregroundColor(annotation.style.color.color)
+        if !annotation.text.isEmpty {
+            let font = Font.system(size: max(10, annotation.style.fontSize * scale), weight: .medium)
+            let text = Text(annotation.text)
+                .font(font)
+                .foregroundColor(annotation.style.color.color)
 
-        context.draw(
-            context.resolve(text),
-            in: scaledBubbleRect.insetBy(dx: 6 * scale, dy: 6 * scale)
-        )
+            context.draw(
+                context.resolve(text),
+                in: scaledBubbleRect.insetBy(dx: 6 * scale, dy: 6 * scale)
+            )
+        }
     }
 
     /// Draws a rectangle annotation
@@ -238,10 +263,10 @@ struct AnnotationCanvas: View {
         let path = Path(scaledRect)
 
         if annotation.isFilled {
-            // Filled rectangle - solid color to hide underlying content
+            // Filled rectangle - background fill color (falls back to stroke color for legacy docs)
             context.fill(
                 path,
-                with: .color(annotation.style.color.color)
+                with: .color(annotation.effectiveFillColor.color)
             )
         } else {
             // Hollow rectangle - outline only
@@ -291,10 +316,14 @@ struct AnnotationCanvas: View {
         let lineWidth = annotation.style.lineWidth * scale
         let color = annotation.style.color.color
 
-        // Draw the main line
+        // Draw the main line (curved if controlPoint is set)
         var linePath = Path()
         linePath.move(to: scaledStart)
-        linePath.addLine(to: scaledEnd)
+        if let cp = annotation.controlPoint {
+            linePath.addQuadCurve(to: scaledEnd, control: scalePoint(cp))
+        } else {
+            linePath.addLine(to: scaledEnd)
+        }
 
         context.stroke(
             linePath,
@@ -310,9 +339,10 @@ struct AnnotationCanvas: View {
         let arrowHeadLength = max(lineWidth * 4, 12 * scale)
         let arrowHeadAngle: CGFloat = .pi / 6 // 30 degrees
 
-        // Calculate the angle of the line
-        let dx = scaledEnd.x - scaledStart.x
-        let dy = scaledEnd.y - scaledStart.y
+        // Calculate tangent angle at the arrowhead
+        let prevPoint = annotation.controlPoint.map { scalePoint($0) } ?? scaledStart
+        let dx = scaledEnd.x - prevPoint.x
+        let dy = scaledEnd.y - prevPoint.y
         let angle = atan2(dy, dx)
 
         // Calculate arrowhead points
@@ -343,19 +373,17 @@ struct AnnotationCanvas: View {
     ) {
         guard !annotation.content.isEmpty else { return }
 
-        let scaledPoint = scalePoint(annotation.position)
-        let scaledFontSize = annotation.style.fontSize * scale
-
+        // Draw inside the measured bounds so wrapped lines are fully visible
+        let scaledBounds = scaleRect(annotation.bounds)
         let text = Text(annotation.content)
             .font(annotation.style.fontName == ".AppleSystemUIFont"
-                  ? .system(size: scaledFontSize)
-                  : .custom(annotation.style.fontName, size: scaledFontSize))
+                  ? .system(size: annotation.style.fontSize * scale)
+                  : .custom(annotation.style.fontName, size: annotation.style.fontSize * scale))
             .foregroundColor(annotation.style.color.color)
 
         context.draw(
             context.resolve(text),
-            at: scaledPoint,
-            anchor: .topLeading
+            in: scaledBounds
         )
     }
 
@@ -369,10 +397,10 @@ struct AnnotationCanvas: View {
         let path = Path(ellipseIn: scaledRect)
         
         if annotation.isFilled {
-            // Filled ellipse - solid color to hide underlying content
+            // Filled ellipse - background fill color (falls back to stroke color for legacy docs)
             context.fill(
                 path,
-                with: .color(annotation.style.color.color)
+                with: .color(annotation.effectiveFillColor.color)
             )
         } else {
             // Hollow ellipse - outline only
@@ -532,6 +560,21 @@ struct AnnotationCanvas: View {
         let scaledSize = annotation.size * scale
         let scaledRadius = scaledSize / 2
 
+        // If there is a lead point, draw the connecting line and pointer dot
+        if let lp = annotation.leadPoint {
+            let scaledLead = scalePoint(lp)
+            var leadPath = Path()
+            leadPath.move(to: scaledPoint)
+            leadPath.addLine(to: scaledLead)
+            context.stroke(
+                leadPath,
+                with: .color(annotation.color.color),
+                style: SwiftUI.StrokeStyle(lineWidth: 2 * scale, lineCap: .round)
+            )
+            let dotRect = CGRect(x: scaledLead.x - 3 * scale, y: scaledLead.y - 3 * scale, width: 6 * scale, height: 6 * scale)
+            context.fill(Path(ellipseIn: dotRect), with: .color(annotation.color.color))
+        }
+
         // Draw circle background
         let circleRect = CGRect(
             x: scaledPoint.x - scaledRadius,
@@ -560,35 +603,33 @@ struct AnnotationCanvas: View {
         in context: inout GraphicsContext,
         size: CGSize
     ) {
+        let paddingInImageCoords: CGFloat = 4
         let bounds = annotation.bounds
-        let scaledBounds = scaleRect(bounds)
+        let scaledBounds = scaleRect(bounds.insetBy(dx: -paddingInImageCoords, dy: -paddingInImageCoords))
 
-        // Add padding around the bounds
-        let padding: CGFloat = 4 * scale
-        let selectionRect = scaledBounds.insetBy(dx: -padding, dy: -padding)
-
-        // Draw selection border (dashed blue line)
-        let borderPath = Path(roundedRect: selectionRect, cornerRadius: 3 * scale)
-        context.stroke(
-            borderPath,
-            with: .color(.accentColor),
-            style: SwiftUI.StrokeStyle(
-                lineWidth: 2,
-                lineCap: .round,
-                dash: [6, 4]
+        // Draw selection border (dashed blue line) for box-like annotations
+        switch annotation {
+        case .line, .arrow:
+            break
+        default:
+            let borderPath = Path(roundedRect: scaledBounds, cornerRadius: 3 * scale)
+            context.stroke(
+                borderPath,
+                with: .color(.accentColor),
+                style: SwiftUI.StrokeStyle(
+                    lineWidth: 1.5,
+                    lineCap: .round,
+                    dash: [6, 4]
+                )
             )
-        )
+        }
 
-        // Draw corner handles
-        let handleSize: CGFloat = 8
-        let handlePositions = [
-            CGPoint(x: selectionRect.minX, y: selectionRect.minY), // Top-left
-            CGPoint(x: selectionRect.maxX, y: selectionRect.minY), // Top-right
-            CGPoint(x: selectionRect.minX, y: selectionRect.maxY), // Bottom-left
-            CGPoint(x: selectionRect.maxX, y: selectionRect.maxY)  // Bottom-right
-        ]
+        // Draw interactive control handles
+        let handleSize: CGFloat = 9
+        let handles = annotation.controlHandles(padding: paddingInImageCoords)
 
-        for position in handlePositions {
+        for (handle, imagePoint) in handles {
+            let position = scalePoint(imagePoint)
             let handleRect = CGRect(
                 x: position.x - handleSize / 2,
                 y: position.y - handleSize / 2,
@@ -597,9 +638,15 @@ struct AnnotationCanvas: View {
             )
             let handlePath = Path(ellipseIn: handleRect)
 
-            // White fill with blue border
-            context.fill(handlePath, with: .color(.white))
-            context.stroke(handlePath, with: .color(.accentColor), lineWidth: 2)
+            if handle.isSpecialPoint {
+                // Special handles (curve controlPoint, leadPoint, targetPoint) rendered in yellow/orange with accent border
+                context.fill(handlePath, with: .color(.yellow))
+                context.stroke(handlePath, with: .color(.accentColor), lineWidth: 2)
+            } else {
+                // Standard resize/endpoint handles: white fill with accent border
+                context.fill(handlePath, with: .color(.white))
+                context.stroke(handlePath, with: .color(.accentColor), lineWidth: 2)
+            }
         }
     }
 

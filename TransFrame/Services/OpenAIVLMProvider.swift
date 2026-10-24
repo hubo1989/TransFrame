@@ -93,20 +93,21 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     private let maxContinuationAttempts = 3
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
-        guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
-            throw VLMProviderError.imageEncodingFailed
-        }
+        try await analyze(image: image, prompt: .ocr)
+    }
 
-        let base64Image = imageData.base64EncodedString()
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
+        let encoded = try AnalysisImageEncoder.jpeg(image)
         let imageSize = CGSize(width: image.width, height: image.height)
-        
-        logDebug("Image size: \(image.width)x\(image.height), JPEG bytes: \(imageData.count), base64 chars: \(base64Image.count)")
+
+        logDebug("Image size: \(image.width)x\(image.height), \(encoded.mimeType) bytes: \(encoded.data.count), base64 chars: \(encoded.base64String.count)")
 
         // Use multi-turn conversation with continuation support
         let vlmResponse = try await analyzeWithContinuation(
-            base64Image: base64Image,
+            base64Image: encoded.base64String,
             imageSize: imageSize,
-            maxAttempts: maxContinuationAttempts
+            maxAttempts: maxContinuationAttempts,
+            prompts: prompt
         )
 
         return vlmResponse.toScreenAnalysisResult(imageSize: imageSize)
@@ -137,19 +138,21 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     private func analyzeWithContinuation(
         base64Image: String,
         imageSize: CGSize,
-        maxAttempts: Int
+        maxAttempts: Int,
+        prompts: VLMPromptPair = .ocr
     ) async throws -> VLMAnalysisResponse {
         var allSegments: [VLMTextSegment] = []
+        var structuredOutputEnabled = true
 
         var conversationMessages: [OpenAIChatMessage] = [
             OpenAIChatMessage(
                 role: "system",
-                content: .text(VLMPromptTemplate.systemPrompt)
+                content: .text(prompts.system)
             ),
             OpenAIChatMessage(
                 role: "user",
                 content: .vision([
-                    .text(VLMPromptTemplate.userPrompt),
+                    .text(prompts.user),
                     .imageURL(OpenAIImageURL(
                         url: "data:image/jpeg;base64,\(base64Image)"
                     )),
@@ -159,8 +162,26 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
         for attempt in 0..<maxAttempts {
             let isContinuation = attempt > 0
-            let request = try buildRequest(messages: conversationMessages, isContinuation: isContinuation)
-            let responseData = try await executeRequest(request)
+            var responseData: Data
+            do {
+                let request = try buildRequest(
+                    messages: conversationMessages,
+                    isContinuation: isContinuation,
+                    includeResponseFormat: structuredOutputEnabled
+                )
+                responseData = try await executeRequest(request)
+            } catch VLMProviderError.invalidConfiguration where structuredOutputEnabled {
+                // Some OpenAI-compatible endpoints reject response_format
+                // (400). Retry the same attempt once without it.
+                logWarning("Endpoint rejected response_format, retrying without structured output")
+                structuredOutputEnabled = false
+                let request = try buildRequest(
+                    messages: conversationMessages,
+                    isContinuation: isContinuation,
+                    includeResponseFormat: false
+                )
+                responseData = try await executeRequest(request)
+            }
 
             let (content, isTruncated, finishReason) = try extractContentAndStatus(from: responseData)
 
@@ -261,17 +282,43 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
             throw VLMProviderError.invalidResponse(errorResponse.error.message)
         }
 
-        // Check if response matches Responses API format
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let outputText = json["output_text"] as? String, !outputText.isEmpty {
-                return (outputText, false, nil)
+        // Responses API 的 reasoning 可以排在 message 之前，不能只读 output[0]。
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           json["object"] as? String == "response" || json["output"] is [[String: Any]] || json["output_text"] is String {
+            let status = json["status"] as? String
+            let details = json["incomplete_details"] as? [String: Any]
+            let reason = details?["reason"] as? String
+            // JSON null 会解码成 NSNull；字段存在不代表生成被截断。
+            let isTruncated = status == "incomplete" && (reason == nil || reason == "max_output_tokens")
+            if let status, ["failed", "cancelled", "queued", "in_progress"].contains(status) {
+                throw VLMProviderError.invalidResponse("Responses API status: \(status)")
             }
-            if let output = json["output"] as? [[String: Any]],
-               let first = output.first,
-               let content = first["content"] as? [[String: Any]],
-               let text = content.first?["text"] as? String {
-                return (text, false, nil)
+            if status == "incomplete", !isTruncated {
+                throw VLMProviderError.invalidResponse("Responses API incomplete: \(reason ?? "unknown")")
             }
+            if let outputText = json["output_text"] as? String,
+               !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return (outputText, isTruncated, isTruncated ? "length" : nil)
+            }
+            let output = json["output"] as? [[String: Any]] ?? []
+            let texts = output.filter { item in
+                item["type"] as? String == "message" || item["type"] == nil
+            }.flatMap { item in
+                (item["content"] as? [[String: Any]] ?? []).compactMap { block -> String? in
+                    let type = block["type"] as? String
+                    guard type == nil || type == "output_text" || type == "text",
+                          let text = block["text"] as? String,
+                          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                    return text
+                }
+            }
+            guard !texts.isEmpty else {
+                let types = output.compactMap { $0["type"] as? String }.joined(separator: ", ")
+                throw VLMProviderError.invalidResponse(
+                    "Responses API returned no message text (status: \(status ?? "unknown"), output types: \(types))"
+                )
+            }
+            return (texts.joined(separator: "\n"), isTruncated, isTruncated ? "length" : nil)
         }
 
         // Try to parse as OpenAI response
@@ -281,16 +328,6 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         do {
             openAIResponse = try decoder.decode(OpenAIChatResponse.self, from: data)
         } catch {
-            // If JSON decoding fails, try to extract content manually using regex
-            // This handles cases where the JSON structure is broken
-            if let rawJSON = String(data: data, encoding: .utf8),
-               let content = extractContentManually(from: rawJSON) {
-                let isTruncated = rawJSON.contains("\"finish_reason\":\"length\"") ||
-                                 rawJSON.contains("\"finish_reason\": \"length\"")
-                logDebug("Manually extracted content (truncated: \(isTruncated))")
-                return (content, isTruncated, isTruncated ? "length" : nil)
-            }
-
             throw VLMProviderError.parsingFailed(
                 "Failed to decode OpenAI response: \(error.localizedDescription). Response length: \(data.count) bytes"
             )
@@ -401,8 +438,17 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
     // MARK: - Private Methods
 
+    /// Placeholder replacing the base64 image in continuation rounds, so the
+    /// same capture is not uploaded again for every truncation retry.
+    private static let continuationImagePlaceholder =
+        "(image omitted: the same image as in the first message)"
+
     /// Builds the URLRequest for OpenAI Chat Completions or Responses API with custom messages
-    private func buildRequest(messages: [OpenAIChatMessage], isContinuation: Bool = false) throws -> URLRequest {
+    private func buildRequest(
+        messages: [OpenAIChatMessage],
+        isContinuation: Bool = false,
+        includeResponseFormat: Bool = true
+    ) throws -> URLRequest {
         let endpoint: URL
         if apiMode == .response {
             endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("responses")
@@ -419,9 +465,27 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         }
         request.timeoutInterval = timeout
 
+        // Continuation rounds keep the conversation shape but drop the base64
+        // image payload: the assistant's partial JSON already anchors the
+        // context, and re-uploading would multiply bandwidth and prompt tokens.
+        let effectiveMessages: [OpenAIChatMessage]
+        if isContinuation {
+            effectiveMessages = messages.map { message in
+                if case .vision = message.content {
+                    return OpenAIChatMessage(
+                        role: message.role,
+                        content: .text(Self.continuationImagePlaceholder)
+                    )
+                }
+                return message
+            }
+        } else {
+            effectiveMessages = messages
+        }
+
         // Responses API
         if apiMode == .response {
-            let inputItems: [[String: Any]] = messages.map { msg in
+            let inputItems: [[String: Any]] = effectiveMessages.map { msg in
                 switch msg.content {
                 case .text(let t):
                     return ["role": msg.role, "content": t]
@@ -437,28 +501,33 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
                     return ["role": msg.role, "content": contentArray]
                 }
             }
-            let requestBody: [String: Any] = [
+            var requestBody: [String: Any] = [
                 "model": configuration.modelName,
                 "input": inputItems,
                 "temperature": 0.1
             ]
+            if includeResponseFormat {
+                requestBody["text"] = ["format": ["type": "json_object"]]
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
             return request
         }
 
-        // Use lower max_tokens for local models (they're slower and don't need as many)
+        // Local models are slower; 4096 covers ~60-80 segments before
+        // continuation kicks in, which is cheaper than a second full request.
         let maxTokens: Int
         if isLocalEndpoint {
-            maxTokens = isContinuation ? 2048 : 1024
+            maxTokens = 4096
         } else {
             maxTokens = isContinuation ? 16384 : 8192
         }
 
         let requestBody = OpenAIChatRequest(
             model: configuration.modelName,
-            messages: messages,
+            messages: effectiveMessages,
             maxTokens: maxTokens,
-            temperature: 0.1
+            temperature: 0.1,
+            responseFormat: includeResponseFormat ? .jsonObject : nil
         )
 
         let encoder = JSONEncoder()
@@ -728,14 +797,23 @@ private struct OpenAIChatRequest: Encodable, Sendable {
     let messages: [OpenAIChatMessage]
     let maxTokens: Int
     let temperature: Double
+    let responseFormat: OpenAIResponseFormat?
     let stream: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case model, messages
+        case model, messages, temperature, stream
         case maxTokens = "max_tokens"
-        case temperature
-        case stream
+        case responseFormat = "response_format"
     }
+}
+
+/// OpenAI `response_format` payload forcing JSON output, so providers that
+/// support it never emit prose that would fall through to the plain-text
+/// fallback (which fabricates bounding boxes).
+private struct OpenAIResponseFormat: Encodable, Sendable {
+    static let jsonObject = OpenAIResponseFormat(type: "json_object")
+
+    let type: String
 }
 
 /// Chat message with support for vision content

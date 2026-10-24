@@ -191,7 +191,7 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_STYLE=Automatic \
             MACOSX_DEPLOYMENT_TARGET=26.0 \
-            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
             clean build
 
       - name: Sign App & Create DMG
@@ -220,11 +220,15 @@ jobs:
 
           VERSION=${{ steps.vars.outputs.version }}
           DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
+          ARM64_DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
 
           hdiutil create -volname "${{ env.PROJECT_NAME }}" \
             -srcfolder dmg_temp \
             -ov -format UDZO \
             "$DMG_FILE"
+
+          # Also create an explicit arm64-named DMG for release downloads
+          cp "$DMG_FILE" "$ARM64_DMG_FILE"
 
           # Get file size
           DMG_SIZE=$(stat -f%z "$DMG_FILE")

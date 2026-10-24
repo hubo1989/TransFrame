@@ -6,34 +6,58 @@ struct BilingualResultView: View {
     @State private var imageScale: CGFloat = 1.0
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                Image(decorative: viewModel.image, scale: viewModel.displayScaleFactor)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .scaleEffect(viewModel.scale)
-                    .frame(
-                        width: viewModel.imagePointWidth * viewModel.scale,
-                        height: viewModel.imagePointHeight * viewModel.scale
-                    )
-                    .onScrollWheelZoom { delta in
-                        if delta > 0 {
-                            viewModel.zoomIn()
-                        } else {
-                            viewModel.zoomOut()
+        ZStack(alignment: .bottom) {
+            // Main Canvas Scroll Area
+            VStack(spacing: 0) {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    Image(decorative: viewModel.image, scale: viewModel.displayScaleFactor)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(viewModel.scale)
+                        .frame(
+                            width: viewModel.imagePointWidth * viewModel.scale,
+                            height: viewModel.imagePointHeight * viewModel.scale
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(16)
+                        .onScrollWheelZoom { delta in
+                            if delta > 0 {
+                                viewModel.zoomIn()
+                            } else {
+                                viewModel.zoomOut()
+                            }
                         }
-                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
 
-            Divider()
-
+            // Attached Floating Pill Toolbar
             toolBar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.bar)
+                .cursor(.arrow)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+                .padding(.bottom, 12)
         }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                BilingualResultWindowController.shared.close()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary, Color.black.opacity(0.1))
+                    .padding(10)
+            }
+            .buttonStyle(.plain)
+            .help("Close (Esc)")
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        )
         .onKeyPress(.escape) {
             BilingualResultWindowController.shared.close()
             return .handled
@@ -117,6 +141,15 @@ struct BilingualResultView: View {
 
                     Button(action: viewModel.saveImage) {
                         Label(String(localized: "bilingualResult.save"), systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(action: {
+                        let nsImage = NSImage(cgImage: viewModel.image, size: NSSize(width: viewModel.image.width, height: viewModel.image.height))
+                        PinnedWindowsManager.shared.pin(image: nsImage)
+                        BilingualResultWindowController.shared.close()
+                    }) {
+                        Label("钉图", systemImage: "pin")
                     }
                     .buttonStyle(.bordered)
                 }

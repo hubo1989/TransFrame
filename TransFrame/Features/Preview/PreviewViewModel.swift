@@ -19,7 +19,11 @@ final class PreviewViewModel {
     var selectedTool: AnnotationToolType? {
         didSet {
             if oldValue != selectedTool {
-                cancelCurrentDrawing()
+                if isWaitingForTextInputInternal {
+                    commitTextInput()
+                } else {
+                    cancelCurrentDrawing()
+                }
             }
             if selectedTool != nil && isCropMode {
                 isCropMode = false
@@ -30,6 +34,9 @@ final class PreviewViewModel {
 
     var isCropMode: Bool = false {
         didSet {
+            if isCropMode && isWaitingForTextInputInternal {
+                commitTextInput()
+            }
             if isCropMode && selectedTool != nil {
                 selectedTool = nil
             }
@@ -74,7 +81,19 @@ final class PreviewViewModel {
 
     var ocrResult: OCRResult?
     var isPerformingOCR: Bool = false
+    /// 面板显示哪个结果，由工具栏最后一次触发的动作决定（面板内无切换）。
+    enum ResultsPanelTab {
+        case ocr
+        case translate
+    }
+    var resultsPanelTab: ResultsPanelTab = .ocr
     var ocrTranslationError: String?
+
+    var isDetectingPrivacy: Bool = false
+    var smartRedactionMessage: String?
+
+    var bilingualSegments: [BilingualSegment] = []
+    var isTranslating: Bool = false
 
     // MARK: - Annotation Tools
 
@@ -113,13 +132,25 @@ final class PreviewViewModel {
     // MARK: - Annotation Selection & Editing
 
     var selectedAnnotationIndex: Int?
+    var editingAnnotationIndex: Int?
     var isDraggingAnnotation: Bool = false
+    var activeResizeHandle: AnnotationHandle?
+
+    var isResizingAnnotation: Bool {
+        activeResizeHandle != nil
+    }
 
     @ObservationIgnored
     var dragStartPoint: CGPoint?
 
     @ObservationIgnored
     var dragOriginalPosition: CGPoint?
+
+    @ObservationIgnored
+    var dragOriginalAnnotation: Annotation?
+
+    @ObservationIgnored
+    var dragInitialScreenshot: Screenshot?
 
     var isDrawing: Bool {
         currentTool?.isActive ?? false
@@ -214,7 +245,7 @@ final class PreviewViewModel {
     var redoStack: [Screenshot] = []
 
     @ObservationIgnored
-    private let maxUndoLevels = 15
+    let maxUndoLevels = 15
 
     var imageSizeChangeCounter: Int = 0
 
@@ -396,6 +427,19 @@ final class PreviewViewModel {
         return nil
     }
 
+    var selectedAnnotationFillColor: CodableColor? {
+        guard let index = selectedAnnotationIndex,
+              index < annotations.count else { return nil }
+
+        if case .rectangle(let rect) = annotations[index] {
+            return rect.effectiveFillColor
+        }
+        if case .ellipse(let ellipse) = annotations[index] {
+            return ellipse.effectiveFillColor
+        }
+        return nil
+    }
+
     var selectedAnnotationBlockSize: Int? {
         guard let index = selectedAnnotationIndex,
               index < annotations.count else { return nil }
@@ -418,6 +462,9 @@ final class PreviewViewModel {
 
     /// Pins the current screenshot with all annotations
     func pinScreenshot() {
+        if isWaitingForTextInputInternal {
+            commitTextInput()
+        }
         PinnedWindowsManager.shared.pinScreenshot(screenshot, annotations: annotations)
     }
 
@@ -471,7 +518,7 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
         case .mosaic: return "m"
         case .text: return "t"
         case .numberLabel: return "n"
-        case .privacyRedaction: return "p"
+        case .privacyRedaction: return "x"
         case .calloutBubble: return "b"
         }
     }
@@ -489,6 +536,25 @@ enum AnnotationToolType: String, CaseIterable, Identifiable, Sendable {
         case .numberLabel: return "number.circle"
         case .privacyRedaction: return "eye.slash.fill"
         case .calloutBubble: return "bubble.left.and.bubble.right"
+        }
+    }
+
+    var cursor: NSCursor {
+        switch self {
+        case .text:
+            return .iBeam
+        case .freehand:
+            return NSCursor.symbolCursor(systemName: "pencil", hotSpot: NSPoint(x: 3, y: 17)) ?? .crosshair
+        case .highlight:
+            return NSCursor.symbolCursor(systemName: "highlighter", hotSpot: NSPoint(x: 3, y: 17)) ?? .crosshair
+        case .mosaic:
+            return NSCursor.symbolCursor(systemName: "checkerboard.rectangle", hotSpot: NSPoint(x: 10, y: 10)) ?? .crosshair
+        case .privacyRedaction:
+            return NSCursor.symbolCursor(systemName: "eye.slash.fill", hotSpot: NSPoint(x: 10, y: 10)) ?? .crosshair
+        case .numberLabel:
+            return NSCursor.symbolCursor(systemName: "number.circle.fill", hotSpot: NSPoint(x: 10, y: 10)) ?? .crosshair
+        case .rectangle, .ellipse, .line, .arrow, .calloutBubble:
+            return .crosshair
         }
     }
 }

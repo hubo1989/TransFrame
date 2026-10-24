@@ -22,6 +22,31 @@ actor PaddleOCREngine {
 
     /// Maximum concurrent operations
     private var isProcessing = false
+    /// FIFO queue of callers waiting for the in-flight recognition; local
+    /// PaddleOCR runs a heavyweight Python process, so calls serialize.
+    private var executionWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Waits for any in-flight recognition to finish instead of failing
+    /// with `operationInProgress`.
+    private func acquireExecutionSlot() async {
+        guard isProcessing else {
+            isProcessing = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            executionWaiters.append(continuation)
+        }
+    }
+
+    /// Hands the slot to the next waiter, or frees it when nobody is queued.
+    private func releaseExecutionSlot() {
+        if let next = executionWaiters.first {
+            executionWaiters.removeFirst()
+            next.resume()
+        } else {
+            isProcessing = false
+        }
+    }
 
     // MARK: - Configuration
 
@@ -132,21 +157,24 @@ actor PaddleOCREngine {
         _ image: CGImage,
         config: Configuration = .default
     ) async throws -> OCRResult {
-        // Prevent concurrent operations
-        guard !isProcessing else {
-            throw PaddleOCREngineError.operationInProgress
-        }
-        isProcessing = true
-        defer { isProcessing = false }
+        // Serialize behind any in-flight recognition (queued, not rejected)
+        await acquireExecutionSlot()
+        defer { releaseExecutionSlot() }
+        try Task.checkCancellation()
 
         // Validate image
         guard image.width > 0 && image.height > 0 else {
             throw PaddleOCREngineError.invalidImage
         }
 
+        // Downsample Retina captures once; everything downstream (temp file,
+        // cloud upload, coordinate normalization) works against this image.
+        let analysisImage = AnalysisImageEncoder.downsampled(image)
+        let analysisSize = CGSize(width: analysisImage.width, height: analysisImage.height)
+
         // Use cloud API if configured
         if config.useCloud {
-            return try await recognizeViaCloudAPI(image: image, config: config)
+            return try await recognizeViaCloudAPI(image: analysisImage, config: config)
         }
 
         // Local mode - check availability
@@ -155,7 +183,7 @@ actor PaddleOCREngine {
         }
 
         // Save image to temporary file
-        let tempURL = try saveImageToTempFile(image)
+        let tempURL = try saveImageToTempFile(analysisImage)
 
         defer {
             // Clean up temp file
@@ -169,14 +197,14 @@ actor PaddleOCREngine {
         let result = try await executePaddleOCR(arguments: arguments)
 
         // Parse output
-        let observations = try parsePaddleOCROutput(result, imageSize: CGSize(width: image.width, height: image.height), mode: config.mode)
+        let observations = try parsePaddleOCROutput(result, imageSize: analysisSize, mode: config.mode)
 
         // Filter by confidence
         let filteredTexts = observations.filter { $0.confidence >= config.minimumConfidence }
 
         return OCRResult(
             observations: filteredTexts,
-            imageSize: CGSize(width: image.width, height: image.height)
+            imageSize: analysisSize
         )
     }
 
@@ -232,18 +260,13 @@ actor PaddleOCREngine {
         }
 
         // Convert image to base64 data URL
-        guard let data = CFDataCreateMutable(nil, 0) else {
+        let encoded: AnalysisImageEncoder.EncodedImage
+        do {
+            encoded = try AnalysisImageEncoder.png(image)
+        } catch {
             throw PaddleOCREngineError.failedToSaveImage
         }
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-            throw PaddleOCREngineError.failedToSaveImage
-        }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else {
-            throw PaddleOCREngineError.failedToSaveImage
-        }
-        let base64Image = (data as Data).base64EncodedString()
-        let imageURL = "data:image/png;base64,\(base64Image)"
+        let imageURL = encoded.dataURI
 
         // Build OpenAI-compatible request
         var request = URLRequest(url: apiURL)
@@ -927,9 +950,6 @@ enum PaddleOCREngineError: LocalizedError, Sendable {
     /// PaddleOCR is not installed
     case notInstalled
 
-    /// OCR operation is already in progress
-    case operationInProgress
-
     /// The provided image is invalid or empty
     case invalidImage
 
@@ -954,11 +974,6 @@ enum PaddleOCREngineError: LocalizedError, Sendable {
             return NSLocalizedString(
                 "error.paddleocr.not.installed",
                 comment: "PaddleOCR is not installed"
-            )
-        case .operationInProgress:
-            return NSLocalizedString(
-                "error.ocr.in.progress",
-                comment: "OCR operation is already in progress"
             )
         case .invalidImage:
             return NSLocalizedString(
@@ -993,11 +1008,6 @@ enum PaddleOCREngineError: LocalizedError, Sendable {
             return NSLocalizedString(
                 "error.paddleocr.not.installed.recovery",
                 comment: "Install PaddleOCR using: pip install paddleocr"
-            )
-        case .operationInProgress:
-            return NSLocalizedString(
-                "error.ocr.in.progress.recovery",
-                comment: "Wait for the current operation to complete"
             )
         case .invalidImage:
             return NSLocalizedString(

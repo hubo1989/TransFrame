@@ -13,6 +13,9 @@ struct HistoryView: View {
             // Search bar
             SearchBar(store: store)
 
+            // Category & Favorites Filter Bar
+            CategoryFilterBar(store: store)
+
             Divider()
 
             // History list
@@ -113,6 +116,65 @@ private struct SearchBar: View {
     }
 }
 
+// MARK: - Category Filter Bar
+
+private struct CategoryFilterBar: View {
+    @ObservedObject var store: HistoryStore
+
+    var body: some View {
+        HStack(spacing: 6) {
+            filterButton(title: "All", category: nil)
+
+            ForEach(HistoryCategory.allCases, id: \.self) { cat in
+                filterButton(title: cat.displayName, category: cat, icon: cat.systemImage)
+            }
+
+            Spacer()
+
+            Button {
+                store.onlyFavorites.toggle()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: store.onlyFavorites ? "star.fill" : "star")
+                        .foregroundColor(store.onlyFavorites ? .yellow : .secondary)
+                    Text("Starred")
+                        .font(.system(size: 11, weight: store.onlyFavorites ? .semibold : .regular))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(store.onlyFavorites ? Color.yellow.opacity(0.15) : Color.clear)
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func filterButton(title: String, category: HistoryCategory?, icon: String? = nil) -> some View {
+        let isSelected = store.selectedCategory == category
+        return Button {
+            store.selectedCategory = category
+        } label: {
+            HStack(spacing: 3) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 10))
+                }
+                Text(title)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+            }
+            .foregroundColor(isSelected ? .white : .primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Empty State
 
 /// View shown when no history entries exist.
@@ -185,13 +247,26 @@ private struct HistoryEntryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header with languages and timestamp
-            HStack {
+            // Header with category icon, description, star, and timestamp
+            HStack(spacing: 6) {
+                Image(systemName: entry.category.systemImage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Text(entry.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Spacer()
+
+                Button {
+                    store.toggleFavorite(for: entry.id)
+                } label: {
+                    Image(systemName: entry.isFavorite ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundColor(entry.isFavorite ? .yellow : .secondary.opacity(0.4))
+                }
+                .buttonStyle(.plain)
 
                 Text(entry.formattedTimestamp)
                     .font(.caption2)

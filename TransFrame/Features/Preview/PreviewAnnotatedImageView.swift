@@ -7,6 +7,11 @@ struct PreviewAnnotatedImageView: View {
     @Binding var imageScale: CGFloat
     @FocusState.Binding var isTextFieldFocused: Bool
 
+    @State private var hoverImageLocation: CGPoint?
+    @State private var didBeginGesture: Bool = false
+    @State private var lastTapTime: Date = .distantPast
+    @State private var lastTappedAnnotationIndex: Int?
+
     private var displayScaleFactor: CGFloat {
         viewModel.screenshot.sourceDisplay.scaleFactor
     }
@@ -25,20 +30,22 @@ struct PreviewAnnotatedImageView: View {
                     "Screenshot preview, \(viewModel.dimensionsText), from \(viewModel.displayName)"
                 ))
 
+            if !viewModel.isTranslating && viewModel.hasTranslationResults {
+                BilingualOverlayView(segments: viewModel.bilingualSegments)
+                    .frame(width: imageSize.width, height: imageSize.height)
+                    .clipped()
+            }
+
             AnnotationCanvas(
                 annotations: viewModel.annotations,
                 currentAnnotation: viewModel.currentAnnotation,
                 canvasSize: imageSize,
                 scale: 1.0 / displayScaleFactor,
                 selectedIndex: viewModel.selectedAnnotationIndex,
+                editingIndex: viewModel.isWaitingForTextInput ? viewModel.editingAnnotationIndex : nil,
                 sourceImage: viewModel.image
             )
             .frame(width: imageSize.width, height: imageSize.height)
-
-            if viewModel.isWaitingForTextInput,
-               let inputPosition = viewModel.textInputPosition {
-                textInputField(at: inputPosition)
-            }
 
             if viewModel.selectedTool != nil {
                 drawingGestureOverlay
@@ -46,6 +53,12 @@ struct PreviewAnnotatedImageView: View {
 
             if viewModel.selectedTool == nil && !viewModel.isCropMode {
                 selectionGestureOverlay
+            }
+
+            if viewModel.isWaitingForTextInput,
+               let inputPosition = viewModel.textInputPosition {
+                textInputField(at: inputPosition)
+                    .zIndex(10)
             }
 
             if viewModel.isCropMode {
@@ -56,9 +69,11 @@ struct PreviewAnnotatedImageView: View {
             if let tool = viewModel.selectedTool {
                 activeToolIndicator(tool: tool)
                     .padding(8)
+                    .allowsHitTesting(false)
             } else if viewModel.isCropMode {
                 cropModeIndicator
                     .padding(8)
+                    .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottom) {
@@ -72,6 +87,14 @@ struct PreviewAnnotatedImageView: View {
             imageDisplaySize = imageSize
             imageScale = 1.0
         }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                hoverImageLocation = convertToImageCoordinates(location)
+            case .ended:
+                hoverImageLocation = nil
+            }
+        }
         .contentShape(Rectangle())
         .cursor(cursorForCurrentTool)
     }
@@ -81,21 +104,51 @@ struct PreviewAnnotatedImageView: View {
             return .crosshair
         }
 
-        guard let tool = viewModel.selectedTool else {
-            if viewModel.isDraggingAnnotation {
-                return .closedHand
-            } else if viewModel.selectedAnnotationIndex != nil {
-                return .openHand
-            }
-            return .arrow
+        if let activeHandle = viewModel.activeResizeHandle {
+            return activeHandle.cursor
         }
 
-        switch tool {
-        case .rectangle, .ellipse, .line, .freehand, .arrow, .highlight, .mosaic, .numberLabel, .privacyRedaction, .calloutBubble:
-            return .crosshair
-        case .text:
-            return .iBeam
+        if viewModel.isDraggingAnnotation {
+            return .closedHand
         }
+
+        if let hoverPt = hoverImageLocation {
+            if let handle = viewModel.hitTestSelectedAnnotationHandle(at: hoverPt) {
+                return handle.cursor
+            }
+
+            if let tool = viewModel.selectedTool {
+                if (tool == .text || tool == .calloutBubble),
+                   let hitIdx = viewModel.hitTest(at: hoverPt) {
+                    switch viewModel.annotations[hitIdx] {
+                    case .text, .calloutBubble:
+                        return .iBeam
+                    default:
+                        break
+                    }
+                }
+                if let selIdx = viewModel.selectedAnnotationIndex,
+                   viewModel.hitTest(at: hoverPt) == selIdx {
+                    return .openHand
+                }
+                return tool.cursor
+            } else {
+                if let hitIdx = viewModel.hitTest(at: hoverPt) {
+                    if case .text = viewModel.annotations[hitIdx],
+                       viewModel.selectedAnnotationIndex == hitIdx {
+                        return .openHand
+                    }
+                    return .openHand
+                }
+                return .arrow
+            }
+        }
+
+        if let tool = viewModel.selectedTool {
+            return tool.cursor
+        }
+
+        return .arrow
     }
 
     private var drawingGestureOverlay: some View {
@@ -104,16 +157,63 @@ struct PreviewAnnotatedImageView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let point = convertToImageCoordinates(value.location)
-                        if value.translation == .zero {
-                            viewModel.beginDrawing(at: point)
+                        let startPoint = convertToImageCoordinates(value.startLocation)
+                        let currentPoint = convertToImageCoordinates(value.location)
+
+                        if !didBeginGesture {
+                            didBeginGesture = true
+                            // Commit any active text input if user clicks elsewhere on canvas
+                            if viewModel.isWaitingForTextInput {
+                                viewModel.commitTextInput()
+                                isTextFieldFocused = false
+                                // If the user was just finishing text input by clicking canvas, don't immediately spawn a new box at that click unless they drag or click again
+                                if viewModel.selectedTool == .text {
+                                    return
+                                }
+                            }
+                            if let handle = viewModel.hitTestSelectedAnnotationHandle(at: startPoint) {
+                                viewModel.beginResizingAnnotation(handle: handle, at: startPoint)
+                                return
+                            }
+                            // Clicking an existing annotation selects and drags it;
+                            // double click re-edits text/callout content in place
+                            if let hitIdx = viewModel.hitTest(at: startPoint) {
+                                let now = Date()
+                                let isDoubleTap = now.timeIntervalSince(lastTapTime) < 0.35
+                                    && lastTappedAnnotationIndex == hitIdx
+                                lastTapTime = now
+                                lastTappedAnnotationIndex = hitIdx
+                                if isDoubleTap {
+                                    switch viewModel.annotations[hitIdx] {
+                                    case .text, .calloutBubble:
+                                        viewModel.beginEditingTextAnnotation(at: hitIdx)
+                                        return
+                                    default:
+                                        break
+                                    }
+                                }
+                                viewModel.selectedAnnotationIndex = hitIdx
+                                viewModel.beginDraggingAnnotation(at: startPoint)
+                                return
+                            }
+                            lastTappedAnnotationIndex = nil
+                            viewModel.beginDrawing(at: startPoint)
                         } else {
-                            viewModel.continueDrawing(to: point)
+                            if viewModel.isResizingAnnotation {
+                                viewModel.continueResizingAnnotation(to: currentPoint)
+                            } else if !viewModel.isWaitingForTextInput {
+                                viewModel.continueDrawing(to: currentPoint)
+                            }
                         }
                     }
                     .onEnded { value in
-                        let point = convertToImageCoordinates(value.location)
-                        viewModel.endDrawing(at: point)
+                        defer { didBeginGesture = false }
+                        let endPoint = convertToImageCoordinates(value.location)
+                        if viewModel.isResizingAnnotation {
+                            viewModel.endResizingAnnotation()
+                        } else if !viewModel.isWaitingForTextInput {
+                            viewModel.endDrawing(at: endPoint)
+                        }
                     }
             )
     }
@@ -124,20 +224,59 @@ struct PreviewAnnotatedImageView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let point = convertToImageCoordinates(value.location)
-                        if value.translation == .zero {
-                            if let hitIndex = viewModel.hitTest(at: point) {
+                        let startPoint = convertToImageCoordinates(value.startLocation)
+                        let currentPoint = convertToImageCoordinates(value.location)
+
+                        if !didBeginGesture {
+                            didBeginGesture = true
+
+                            if viewModel.isWaitingForTextInput {
+                                viewModel.commitTextInput()
+                                isTextFieldFocused = false
+                            }
+
+                            // 1. Check if clicking a resize/control handle on currently selected annotation
+                            if let handle = viewModel.hitTestSelectedAnnotationHandle(at: startPoint) {
+                                viewModel.beginResizingAnnotation(handle: handle, at: startPoint)
+                                return
+                            }
+
+                            // 2. Check if clicking an existing annotation
+                            if let hitIndex = viewModel.hitTest(at: startPoint) {
+                                let now = Date()
+                                if now.timeIntervalSince(lastTapTime) < 0.35 && lastTappedAnnotationIndex == hitIndex {
+                                    switch viewModel.annotations[hitIndex] {
+                                    case .text, .calloutBubble:
+                                        lastTappedAnnotationIndex = nil
+                                        viewModel.beginEditingTextAnnotation(at: hitIndex)
+                                        return
+                                    default:
+                                        break
+                                    }
+                                }
+                                lastTapTime = now
+                                lastTappedAnnotationIndex = hitIndex
                                 viewModel.selectAnnotation(at: hitIndex)
-                                viewModel.beginDraggingAnnotation(at: point)
+                                viewModel.beginDraggingAnnotation(at: startPoint)
                             } else {
+                                lastTappedAnnotationIndex = nil
                                 viewModel.deselectAnnotation()
                             }
-                        } else if viewModel.isDraggingAnnotation {
-                            viewModel.continueDraggingAnnotation(to: point)
+                        } else {
+                            if viewModel.isResizingAnnotation {
+                                viewModel.continueResizingAnnotation(to: currentPoint)
+                            } else if viewModel.isDraggingAnnotation {
+                                viewModel.continueDraggingAnnotation(to: currentPoint)
+                            }
                         }
                     }
                     .onEnded { _ in
-                        viewModel.endDraggingAnnotation()
+                        defer { didBeginGesture = false }
+                        if viewModel.isResizingAnnotation {
+                            viewModel.endResizingAnnotation()
+                        } else if viewModel.isDraggingAnnotation {
+                            viewModel.endDraggingAnnotation()
+                        }
                     }
             )
     }
@@ -151,22 +290,67 @@ struct PreviewAnnotatedImageView: View {
             x: position.x / displayScaleFactor,
             y: position.y / displayScaleFactor
         )
-        return TextField(String(localized: "preview.enter.text"), text: $viewModel.textInputContent)
-            .textFieldStyle(.plain)
-            .font(.system(size: 14))
-            .foregroundColor(AppSettings.shared.strokeColor.color)
-            .padding(4)
-            .background(Color.white.opacity(0.9))
-            .cornerRadius(4)
-            .frame(minWidth: 100, maxWidth: 300)
-            .position(x: displayPosition.x + 50, y: displayPosition.y + 10)
+
+        let (fontSizeInImageCoords, textColor): (CGFloat, Color) = {
+            if let editIdx = viewModel.editingAnnotationIndex,
+               editIdx >= 0,
+               editIdx < viewModel.annotations.count {
+                switch viewModel.annotations[editIdx] {
+                case .text(let t):
+                    return (t.style.fontSize, t.style.color.color)
+                case .calloutBubble(let cb):
+                    return (cb.style.fontSize, cb.style.color.color)
+                default:
+                    break
+                }
+            }
+            return (AppSettings.shared.textSize, AppSettings.shared.strokeColor.color)
+        }()
+
+        let displayFontSize = max(10, fontSizeInImageCoords / displayScaleFactor)
+
+        // Size the editor from the current content so multi-line input is fully visible
+        let content = viewModel.textInputContent
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        let lineCount = max(1, lines.count)
+        let measureFont = NSFont.systemFont(ofSize: displayFontSize)
+        let longestLineWidth = lines.map { ($0 as NSString).size(withAttributes: [.font: measureFont]).width }.max() ?? 0
+        let maxEditorWidth = max(80, imageSize.width - displayPosition.x)
+        let editorWidth = min(longestLineWidth + 24, maxEditorWidth)
+        let editorHeight = min(
+            CGFloat(lineCount) * max(displayFontSize * 1.45, 20) + 10,
+            max(30, imageSize.height - displayPosition.y)
+        )
+
+        return TextEditor(text: $viewModel.textInputContent)
+            .font(.system(size: displayFontSize))
+            .foregroundColor(textColor)
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(nsColor: .textBackgroundColor).opacity(0.85))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.accentColor, lineWidth: 1.5)
+                    )
+            )
+            .frame(width: editorWidth, height: editorHeight, alignment: .topLeading)
+            .offset(
+                x: max(0, min(imageSize.width - 60, displayPosition.x - 4)),
+                y: max(0, min(imageSize.height - displayFontSize - 6, displayPosition.y - 2))
+            )
             .focused($isTextFieldFocused)
             .onAppear {
-                isTextFieldFocused = true
+                DispatchQueue.main.async {
+                    isTextFieldFocused = true
+                }
             }
-            .onSubmit {
-                viewModel.commitTextInput()
-                isTextFieldFocused = false
+            .onChange(of: isTextFieldFocused) { _, focused in
+                if !focused && viewModel.isWaitingForTextInput {
+                    viewModel.commitTextInput()
+                }
             }
             .onExitCommand {
                 viewModel.cancelCurrentDrawing()

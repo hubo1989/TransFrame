@@ -1,8 +1,10 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 /// Tool for drawing rectangle annotations.
 /// User drags to define opposite corners of the rectangle.
+/// Hold ⌘ while dragging to constrain to a square.
 @MainActor
 struct RectangleTool: AnnotationTool {
     // MARK: - Properties
@@ -16,6 +18,9 @@ struct RectangleTool: AnnotationTool {
     /// Whether to create filled (solid) rectangles
     var isFilled: Bool = false
 
+    /// Background fill color for filled rectangles (nil = stroke color)
+    var fillColor: CodableColor? = nil
+
     private var drawingState = DrawingState()
 
     // MARK: - AnnotationTool Conformance
@@ -26,9 +31,9 @@ struct RectangleTool: AnnotationTool {
 
     var currentAnnotation: Annotation? {
         guard isActive else { return nil }
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         guard rect.width > 0 && rect.height > 0 else { return nil }
-        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func beginDrawing(at point: CGPoint) {
@@ -50,22 +55,24 @@ struct RectangleTool: AnnotationTool {
         guard isActive else { return nil }
 
         continueDrawing(to: point)
-        let rect = calculateRect()
+        let rect = calculatedRect(constrainSquare: NSEvent.modifierFlags.contains(.command))
         drawingState.reset()
 
         // Only create annotation if it has meaningful size
         guard rect.width >= 2 && rect.height >= 2 else { return nil }
 
-        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled))
+        return .rectangle(RectangleAnnotation(rect: rect, style: strokeStyle, isFilled: isFilled, fillColor: fillColor))
     }
 
     mutating func cancelDrawing() {
         drawingState.reset()
     }
 
-    // MARK: - Private Methods
+    // MARK: - Internal Methods
 
-    private func calculateRect() -> CGRect {
+    /// Current drag rect. `constrainSquare` mirrors the ⌘ state and is
+    /// injectable so tests can exercise the 1:1 constraint without synthesizing keys.
+    func calculatedRect(constrainSquare: Bool) -> CGRect {
         guard drawingState.points.count >= 2 else {
             return .zero
         }
@@ -75,11 +82,14 @@ struct RectangleTool: AnnotationTool {
             return .zero
         }
 
+        if constrainSquare {
+            return GeometryConstraint.squareRect(from: start, to: end)
+        }
+
         let minX = min(start.x, end.x)
         let minY = min(start.y, end.y)
         let maxX = max(start.x, end.x)
         let maxY = max(start.y, end.y)
-
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
