@@ -15,12 +15,6 @@ extension PreviewViewModel {
             commitTextInput()
         }
 
-        guard SmartPrivacyRedactionService.shared.isConfigured else {
-            errorMessage = String(localized: "smartMosaic.error.notConfigured")
-            clearError()
-            return
-        }
-
         isDetectingPrivacy = true
         smartRedactionMessage = String(localized: "smartMosaic.detecting")
 

@@ -29,7 +29,7 @@ public final class SelectionToolbarState {
     public var activeTool: SelectionInPlaceToolbar.AnnotationTool?
     public var activeColor: Color = .red
     public var activeLineWidth: CGFloat = 3.0
-    public var mosaicBlockSize: Int = 10
+    public var mosaicBlockSize: Int = 6
     public var showStyleBar: Bool = false
     public var isBeautifyEnabled: Bool = false
     public var canUndo: Bool = false
@@ -447,7 +447,9 @@ private struct ToolbarContentView: View {
                         supportsOpacity: false
                     )
                     .labelsHidden()
-                    .frame(width: 18)
+                    .controlSize(.small)
+                    .scaleEffect(x: 0.6, y: 0.6)
+                    .frame(width: 20, height: 18)
                     .contentShape(Rectangle().inset(by: -2))
                     .customTooltip(String(localized: "preview.color.custom"), placement: .bottom)
 
@@ -455,7 +457,7 @@ private struct ToolbarContentView: View {
                         Divider().frame(height: 12)
 
                         // Mosaic intensity presets (block size)
-                        ForEach([(String(localized: "mosaic.intensity.light"), 4), (String(localized: "mosaic.intensity.medium"), 10), (String(localized: "mosaic.intensity.strong"), 20)], id: \.1) { item in
+                        ForEach([(String(localized: "mosaic.intensity.light"), 6), (String(localized: "mosaic.intensity.medium"), 16), (String(localized: "mosaic.intensity.strong"), 32)], id: \.1) { item in
                             Text(item.0)
                                 .font(.system(size: 10))
                                 .padding(.horizontal, 6)

@@ -485,6 +485,277 @@ final class PRDAcceptanceTests: XCTestCase {
         )
     }
 
+    // MARK: - Results drawer regressions (review 2026-10-23)
+
+    /// Long OCR/translation results must overflow the fixed-height drawer
+    /// viewport and stay scrollable — the text view has to grow with content.
+    func testResultsTextViewGrowsBeyondViewportForLongContent() {
+        let scroll = SelectableTextBlock.makeScrollView(
+            textView: SelectableTextBlock.makeConfiguredTextView()
+        )
+        let view = scroll.documentView as! ResultsTextView
+        scroll.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
+
+        XCTAssertTrue(view.isVerticallyResizable, "content height must drive the frame")
+        XCTAssertTrue(view.textContainer?.widthTracksTextView == true, "must wrap at the drawer width")
+
+        let lines = (0..<60).map { "OCR line \($0) with enough words to wrap at the panel width" }
+        view.textStorage?.setAttributedString(ResultsTextBuilder.ocrText(lines: lines))
+        view.fitToViewport(width: 280)
+
+        XCTAssertGreaterThan(
+            view.frame.height, 200,
+            "60 wrapped lines must exceed the 200pt viewport, not get clipped"
+        )
+    }
+
+    /// Only a plain single click copies its line — shift+click extends the
+    /// selection, drags end in one, and a double-click's first release is
+    /// followed by word selection (none may clobber the pasteboard).
+    /// (Event-level testing is impossible here: NSTextView.mouseDown runs a
+    /// tracking loop that waits on the real event queue.)
+    func testLineCopyDecisionExcludesShiftClickDragsAndDoubleClicks() {
+        XCTAssertTrue(
+            ResultsTextView.shouldCopyLine(clickCount: 1, modifierFlags: [], travel: 1),
+            "plain single click copies the line"
+        )
+        XCTAssertFalse(
+            ResultsTextView.shouldCopyLine(clickCount: 1, modifierFlags: [.shift], travel: 0),
+            "shift+click extends the selection"
+        )
+        XCTAssertFalse(
+            ResultsTextView.shouldCopyLine(clickCount: 2, modifierFlags: [], travel: 0),
+            "double-click selects a word"
+        )
+        XCTAssertFalse(
+            ResultsTextView.shouldCopyLine(clickCount: 1, modifierFlags: [], travel: 5),
+            "drag ends in a selection"
+        )
+    }
+
+    /// The merged drawer must clear the selection's resize-handle hit areas
+    /// (child views win hit testing) and never enter the toolbar zone below
+    /// the selection (toolbar top sits at maxY + 8).
+    func testResultsPanelFrameClearsHandlesAndToolbarZone() {
+        let bounds = NSRect(x: 0, y: 0, width: 1400, height: 900)
+
+        // Typical short selection on the right half
+        let sel = NSRect(x: 600, y: 100, width: 200, height: 120)
+        let frame = SelectionOverlayView.resultsPanelFrame(
+            selectionRect: sel, bounds: bounds, handleSize: 8
+        )
+        XCTAssertGreaterThanOrEqual(
+            frame.minX - sel.maxX, 10,
+            "gap must clear the handle hit radius (handleSize + 2)"
+        )
+        XCTAssertLessThanOrEqual(
+            frame.maxY, sel.maxY + 8 + 0.5,
+            "drawer bottom must not enter the toolbar zone (sel.maxY + 8)"
+        )
+
+        // Right edge too tight: flip to the left without covering the selection
+        let rightHugging = NSRect(x: 1150, y: 100, width: 220, height: 120)
+        let flipped = SelectionOverlayView.resultsPanelFrame(
+            selectionRect: rightHugging, bounds: bounds, handleSize: 8
+        )
+        XCTAssertLessThanOrEqual(
+            flipped.maxX, rightHugging.minX + 0.5,
+            "left-side fallback must not overlap the selection content"
+        )
+
+        // Near-fullscreen selection: neither side fits — hug the screen edge
+        let fullscreenish = NSRect(x: 0, y: 0, width: 1390, height: 890)
+        let edge = SelectionOverlayView.resultsPanelFrame(
+            selectionRect: fullscreenish, bounds: bounds, handleSize: 8
+        )
+        XCTAssertLessThanOrEqual(
+            edge.maxX, bounds.maxX - 8 + 0.5,
+            "fallback must stay inside the screen"
+        )
+    }
+
+    /// TextSegment 的坐标原点为左上角，译文必须贴在原文下边缘。
+    func testBilingualOverlayAnchorPlacesTranslationBelowTopLeftBox() {
+        let display = CGSize(width: 300, height: 200)
+        let topBox = CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.1)
+        let top = BilingualOverlayLayout.translationAnchor(for: topBox, in: display)
+        XCTAssertEqual(top.x, 30, accuracy: 0.5)
+        XCTAssertEqual(top.y, 41, accuracy: 0.5)
+        XCTAssertEqual(top.maxWidth, 150, accuracy: 0.5)
+
+        let lowerBox = CGRect(x: 0.25, y: 0.7, width: 0.2, height: 0.1)
+        let lower = BilingualOverlayLayout.translationAnchor(for: lowerBox, in: display)
+        XCTAssertEqual(lower.x, 75, accuracy: 0.5)
+        XCTAssertEqual(lower.y, 161, accuracy: 0.5)
+        XCTAssertGreaterThan(lower.y, top.y)
+
+        let tiny = BilingualOverlayLayout.translationAnchor(
+            for: CGRect(x: 0.95, y: 0.5, width: 0.01, height: 0.01), in: display
+        )
+        XCTAssertGreaterThanOrEqual(tiny.fontSize, 10)
+        XCTAssertLessThanOrEqual(tiny.x + tiny.maxWidth, display.width)
+    }
+
+    /// VLM gateways forwarding the OpenAI Responses API put a `reasoning`
+    /// output item in front of the `message` item — parsing must skip it and
+    /// read the message's text blocks (user report 2026-10-23: deepseek relay).
+    func testVLMResponsesAPIWithLeadingReasoningItemParses() throws {
+        let provider = OpenAIVLMProvider(
+            configuration: try VLMProviderConfiguration(
+                apiKey: "test",
+                baseURLString: "https://example.invalid/v1",
+                modelName: "test"
+            )
+        )
+        let payload = """
+        {"created_at":1792742674,"error":null,"id":"resp_1e895847","incomplete_details":null,
+        "model":"deepseek-v4.1-flash-free","object":"response",
+        "output":[
+          {"id":"rs_18e119","type":"reasoning","summary":[]},
+          {"id":"msg_01","type":"message","role":"assistant",
+           "content":[{"type":"output_text","text":"TRANSLATED"}]}
+        ],
+        "status":"completed"}
+        """
+        let (content, isTruncated, finishReason) = try provider.extractContentAndStatus(from: Data(payload.utf8))
+        XCTAssertEqual(content, "TRANSLATED", "message text must be read past the reasoning item")
+        XCTAssertFalse(isTruncated)
+        XCTAssertNil(finishReason)
+
+        let incomplete = payload.replacingOccurrences(of: "\"status\":\"completed\"", with: "\"status\":\"incomplete\"")
+        let (_, truncated, reason) = try provider.extractContentAndStatus(from: Data(incomplete.utf8))
+        XCTAssertTrue(truncated)
+        XCTAssertEqual(reason, "length")
+    }
+
+    /// 验证真实选区窗口的绘制结果，不依赖右侧面板或坐标函数自报成功。
+    func testTranslationStripsRenderInsideSelectionAndKeepSourcePixels() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let bounds = CGRect(origin: .zero, size: screen.frame.size)
+        let displayID = CGMainDisplayID()
+        let image = Self.makeImage(width: Int(bounds.width), height: Int(bounds.height))
+        let descriptor = DisplayDescriptor(
+            displayID: displayID, localizedName: "Test", frame: screen.frame,
+            scaleFactor: 1, isPrimary: true
+        )
+        let snapshot = DisplaySnapshot(
+            displayID: displayID, descriptor: descriptor,
+            cocoaBounds: CocoaGlobalRect(screen.frame), quartzBounds: QuartzGlobalRect(bounds),
+            scaleFactor: 1, image: image
+        )
+        let snapshots = FrozenSnapshotSet(snapshots: [snapshot], candidateWindows: [], triggerReceivedAt: .now)
+        let window = SelectionOverlayWindow(screen: screen, snapshot: snapshot, snapshotSet: snapshots)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let overlay = try XCTUnwrap(window.overlayView)
+        let selection = CGRect(x: 100, y: 150, width: 600, height: 400)
+        func mouse(_ type: NSEvent.EventType, _ point: CGPoint) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: overlay.convert(point, to: nil), modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 0
+            ))
+        }
+        let start = selection.origin
+        let end = CGPoint(x: selection.maxX, y: selection.maxY)
+        overlay.mouseDown(with: try mouse(.leftMouseDown, start))
+        overlay.mouseDragged(with: try mouse(.leftMouseDragged, end))
+        overlay.mouseUp(with: try mouse(.leftMouseUp, end))
+        overlay.resultsModel.isVisible = true
+        overlay.resultsModel.activeTab = .translate
+        overlay.resultsModel.segments = [BilingualSegment(
+            original: TextSegment(text: "Hello world", boundingBox: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.05)),
+            translated: "你好，世界", sourceLanguage: "en", targetLanguage: "zh-Hans"
+        )]
+        window.orderFront(nil)
+        let container = try XCTUnwrap(window.contentView)
+        container.displayIfNeeded()
+        let bitmap = try XCTUnwrap(container.bitmapImageRepForCachingDisplay(in: container.bounds))
+        container.cacheDisplay(in: container.bounds, to: bitmap)
+        let rendered = try XCTUnwrap(bitmap.cgImage)
+        let scale = CGFloat(rendered.width) / bounds.width
+        func color(at point: CGPoint) throws -> (r: Double, g: Double, b: Double) {
+            try XCTUnwrap(Self.pixel(in: rendered, x: Int(point.x * scale), y: Int(point.y * scale)))
+        }
+        let strip = try color(at: CGPoint(x: 162, y: 255))
+        XCTAssertLessThan(strip.r, 0.5, "译文背景必须画在选区中的原文下方")
+        let source = try color(at: CGPoint(x: 162, y: 235))
+        XCTAssertGreaterThan(source.r, 0.95, "译文不能覆盖原文区域")
+        let unused = try color(at: CGPoint(x: 162, y: 475))
+        XCTAssertGreaterThan(unused.r, 0.95, "不能沿错误的 Y 轴绘制译文")
+        let attachment = XCTAttachment(image: NSImage(cgImage: rendered, size: bounds.size))
+        attachment.name = "selection-bilingual-overlay"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Responses API 状态矩阵：截断判定按 status + incomplete_details.reason，
+/// 顶层 output_text 与 message 共用同一套状态判定，空输出报明确错误。
+    func testVLMResponsesAPIStatusMatrixAndChatRegression() throws {
+        let provider = try Self.makeOpenAIProvider()
+        let messageItem = #"{"id":"m1","type":"message","content":[{"type":"output_text","text":"HI"}]}"#
+
+        // incomplete + max_output_tokens：判定截断，进入续写
+        let truncatedPayload = """
+        {"object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[\(messageItem)]}
+        """
+        let (t1, truncated1, reason1) = try provider.extractContentAndStatus(from: Data(truncatedPayload.utf8))
+        XCTAssertEqual(t1, "HI")
+        XCTAssertTrue(truncated1)
+        XCTAssertEqual(reason1, "length")
+
+        // incomplete + content_filter：报错，不进入续写
+        let filteredPayload = """
+        {"object":"response","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[\(messageItem)]}
+        """
+        XCTAssertThrowsError(try provider.extractContentAndStatus(from: Data(filteredPayload.utf8))) { error in
+            XCTAssertTrue("\(error)".contains("content_filter"), "应报出具体原因，实际: \(error)")
+        }
+
+        // 顶层 output_text 与 message 同样受状态判定约束
+        let outputTextTruncated = """
+        {"object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output_text":"HI"}
+        """
+        let (_, truncated2, _) = try provider.extractContentAndStatus(from: Data(outputTextTruncated.utf8))
+        XCTAssertTrue(truncated2, "output_text 分支不能绕过截断状态")
+
+        // 空输出 / 仅 reasoning：在 Responses 分支直接报错，不跌入 Chat 路径
+        for payload in [
+            #"{"object":"response","status":"completed","output":[]}"#,
+            #"{"object":"response","status":"completed","output":[{"id":"r1","type":"reasoning","summary":[]}]}"#
+        ] {
+            XCTAssertThrowsError(try provider.extractContentAndStatus(from: Data(payload.utf8))) { error in
+                XCTAssertTrue("\(error)".contains("no message text"), "空输出应给出来源明确的错误，实际: \(error)")
+            }
+        }
+
+        // Chat 分支回归：stop 正常、length 截断
+        let chat = { (finish: String) in Data(#"{"choices":[{"message":{"content":"HELLO"},"finish_reason":"\#(finish)"}]}"#.utf8) }
+        let (c1, _, r1) = try provider.extractContentAndStatus(from: chat("stop"))
+        XCTAssertEqual(c1, "HELLO")
+        XCTAssertEqual(r1, "stop", "finish_reason 原样透传，截断与否由 isTruncated 表达")
+        let (_, truncated3, r3) = try provider.extractContentAndStatus(from: chat("length"))
+        XCTAssertTrue(truncated3)
+        XCTAssertEqual(r3, "length")
+
+        // 未知格式错误不含原始响应正文
+        XCTAssertThrowsError(
+            try provider.extractContentAndStatus(from: Data("<html>oops</html>".utf8))
+        ) { error in
+            XCTAssertFalse("\(error)".contains("oops"), "错误信息不得回显响应正文")
+        }
+    }
+
+    private static func makeOpenAIProvider() throws -> OpenAIVLMProvider {
+        try OpenAIVLMProvider(
+            configuration: VLMProviderConfiguration(
+                apiKey: "test",
+                baseURLString: "https://example.invalid/v1",
+                modelName: "test"
+            )
+        )
+    }
+
     // MARK: - Utilities
 
     private static func makeImage(width: Int, height: Int) -> CGImage {

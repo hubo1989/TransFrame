@@ -298,7 +298,36 @@ ocr)
   R=$(press_button "id=text.viewfinder")
   echo "  press OCR -> $R"
   case "$R" in notfound*) bad "找到 OCR 按钮" ;; *) ok "找到并按下 OCR 按钮" ;; esac
-  sleep 4
+  # Remote VLM recognition can take 10-20s; poll until loading text clears.
+  GOT=""
+  for _ in $(seq 1 12); do
+    sleep 2.5
+    GOT=$(osascript -l JavaScript 2>/dev/null <<'JXA'
+function run() {
+  const se = Application("System Events");
+  const proc = se.applicationProcesses.byName("TransFrame");
+  const out = [];
+  for (const win of proc.windows()) {
+    const stack = [win];
+    while (stack.length) {
+      const el = stack.pop();
+      try {
+        const role = String(el.role() || "");
+        if (role === "AXStaticText" || role === "AXTextArea") {
+          const v = (String(el.value() || "") + " " + String(el.name() || "")).trim();
+          if (v && v !== "null") out.push(v);
+        }
+      } catch (e) {}
+      try { for (const k of el.uiElements()) stack.push(k); } catch (e) {}
+    }
+  }
+  return out.join(" | ");
+}
+JXA
+)
+    case "$GOT" in *正在识别*) continue ;; esac
+    break
+  done
   W2=$(count_windows)
   [ "$W2" = "$W1" ] && ok "OCR 后窗口数不变（无外部新窗口）" || bad "OCR 弹出了新窗口 ($W1 -> $W2)"
   # presence check without pressing: search drawer close (xmark below toolbar row)

@@ -1037,7 +1037,7 @@ final class SettingsViewModel {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw VLMProviderError.invalidResponse("Invalid HTTP response")
@@ -1045,6 +1045,13 @@ final class SettingsViewModel {
 
         switch httpResponse.statusCode {
         case 200:
+            // 与实际分析共用同一解析器：HTTP 200 但正文无法解析时如实报错，
+            // 避免"测试通过、实际识别失败"的错位（2026-10-23 用户反馈）。
+            let probe = OpenAIVLMProvider(
+                configuration: VLMProviderConfiguration(apiKey: apiKey, baseURL: baseURL, modelName: modelName),
+                apiMode: mode
+            )
+            _ = try probe.extractContentAndStatus(from: data)
             return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
         case 401:
             throw VLMProviderError.authenticationFailed

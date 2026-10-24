@@ -46,6 +46,8 @@
 
 /* OCR 错误 */
 "error.ocr.failed" = "文字识别失败。";
+"error.pipeline.ocrFailed" = "文字识别（VLM）失败：%@";
+"error.pipeline.translateFailed" = "翻译失败：%@";
 "error.ocr.failed.recovery" = "请使用更清晰的图像重试。";
 "error.ocr.no.text" = "图像中未识别到文字。";
 "error.ocr.no.text.recovery" = "请尝试截取包含可见文字的区域。";

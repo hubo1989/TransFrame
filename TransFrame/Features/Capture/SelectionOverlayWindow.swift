@@ -201,7 +201,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     private var activeAnnotationTool: SelectionInPlaceToolbar.AnnotationTool?
     private var annotationColor: NSColor = .systemRed
     private var annotationLineWidth: CGFloat = 3.0
-    private var mosaicBlockSize: Int = 10
+    private var mosaicBlockSize: Int = 6
     private var currentDraftAnnotation: Annotation?
     private var freehandPoints: [CGPoint] = []
 
@@ -219,7 +219,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     private var statusHideWorkItem: DispatchWorkItem?
 
     // In-place results drawer (OCR / translation)
-    private let resultsModel = InPlaceResultsModel()
+    let resultsModel = InPlaceResultsModel()
     private var resultsPanelHost: NSHostingView<InPlaceResultsPanel>?
 
     /// Selection snapshot captured when a click starts outside the current
@@ -325,6 +325,9 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             if isBeautifyEnabled {
                 drawBeautifyPreview(for: sel, context: context)
             }
+            if case .selected = state {
+                drawBilingualOverlay(for: sel)
+            }
             drawSelectionBox(sel, context: context)
             switch state {
             case .selected:
@@ -406,6 +409,33 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             )
         }
         context.restoreGState()
+    }
+
+    /// Draws each translated segment as a strip just below its original
+    /// text inside the selection — in-image bilingual view; the original
+    /// screenshot stays fully visible. Only while the translate tab is active.
+    private func drawBilingualOverlay(for selRect: CGRect) {
+        guard resultsModel.isVisible,
+              resultsModel.activeTab == .translate,
+              !resultsModel.segments.isEmpty else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: selRect).addClip()
+        for segment in resultsModel.segments {
+            guard let strip = BilingualOverlayLayout.translationStrip(for: segment, in: selRect.size) else { continue }
+            let attr = NSAttributedString(string: segment.translated, attributes: [
+                .font: NSFont.systemFont(ofSize: strip.fontSize, weight: .medium),
+                .foregroundColor: NSColor.white
+            ])
+            let frame = strip.frame.offsetBy(dx: selRect.minX, dy: selRect.minY)
+            NSColor.black.withAlphaComponent(0.78).setFill()
+            NSBezierPath(roundedRect: frame, xRadius: 3, yRadius: 3).fill()
+            attr.draw(
+                with: strip.textFrame.offsetBy(dx: selRect.minX, dy: selRect.minY),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+        }
     }
 
     private func drawSelectionBox(_ rect: CGRect, context: CGContext) {
@@ -959,10 +989,11 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             } else {
                 // Click outside the selection: only a real drag starts a new
                 // selection — a plain click must leave the selection untouched.
+                // The results drawer is hidden later, on confirmed drag/new
+                // selection, so a stray click doesn't discard OCR results.
                 selectionBeforeOutsideClick = selRect
                 selectedAnnotationIndex = nil
                 hideToolbar()
-                hideResultsPanel()
                 state = .creatingSelection(start: p, current: p)
             }
 
@@ -980,6 +1011,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         switch state {
         case .creatingSelection(let start, _):
             state = .creatingSelection(start: start, current: p)
+            // A real drag is starting: retire the previous selection's drawer.
+            if resultsModel.isVisible, hypot(p.x - start.x, p.y - start.y) > 4 {
+                hideResultsPanel()
+            }
 
         case .resizing(let handle, let anchor, let start, _):
             let dx = p.x - start.x
@@ -1031,6 +1066,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             let rect = normalizedRect(from: start, to: current)
             if rect.width >= 5 && rect.height >= 5 {
                 selectionBeforeOutsideClick = nil
+                hideResultsPanel()
                 commitSelection(rect)
                 performAutomaticSelectionAction(in: rect)
             } else if let previous = selectionBeforeOutsideClick {
@@ -1506,10 +1542,6 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     /// Detects sensitive privacy regions inside the selection and adds mosaic
     /// annotations in one undoable step. Requires a configured VLM API key.
     private func runSmartRedaction(in selectionRect: CGRect) {
-        guard SmartPrivacyRedactionService.shared.isConfigured else {
-            showStatusMessage(String(localized: "smartMosaic.error.notConfigured"), isError: true)
-            return
-        }
 
         let scale = displaySnapshot.scaleFactor
         let imageBounds = CGRect(
@@ -1651,6 +1683,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             defer {
                 self.resultsModel.isLoading = false
                 self.layoutResultsPanel(for: selectionRect)
+                self.needsDisplay = true
             }
             do {
                 switch tab {
@@ -1669,24 +1702,46 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                 case .translate:
                     let pipeline = ImageTranslationPipeline()
                     let context = PipelineContext()
-                    let analysis = try await pipeline.analyze(image: cropped, context: context)
+                    // Stage-split so failures are attributed correctly: the
+                    // drawer reads VLM errors as recognition, not translation.
+                    let analysis: ScreenAnalysisResult
+                    do {
+                        analysis = try await pipeline.analyze(image: cropped, context: context)
+                    } catch {
+                        self.resultsModel.statusMessage = String(
+                            format: String(localized: "error.pipeline.ocrFailed"),
+                            Self.pipelineErrorMessage(error)
+                        )
+                        return
+                    }
                     let filtered = analysis.filteredForTranslation()
                     guard !filtered.segments.isEmpty else {
                         self.resultsModel.statusMessage = String(localized: "error.ocr.no.text")
                         return
                     }
                     let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
-                    self.resultsModel.segments = try await pipeline.translate(
-                        analysisResult: filtered,
-                        config: config,
-                        context: context
-                    )
+                    do {
+                        self.resultsModel.segments = try await pipeline.translate(
+                            analysisResult: filtered,
+                            config: config,
+                            context: context
+                        )
+                    } catch {
+                        self.resultsModel.statusMessage = String(
+                            format: String(localized: "error.pipeline.translateFailed"),
+                            Self.pipelineErrorMessage(error)
+                        )
+                    }
                 }
             } catch {
-                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                let message = Self.pipelineErrorMessage(error)
                 self.resultsModel.statusMessage = message
             }
         }
+    }
+
+    private static func pipelineErrorMessage(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     /// Crops the selection region from the frozen snapshot (pixel space).
@@ -1722,6 +1777,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             addSubview(host)
             resultsPanelHost = host
         }
+        resultsModel.visualInvalidator = { [weak self] in self?.needsDisplay = true }
         resultsModel.activeTab = tab
         resultsModel.isVisible = true
         resultsPanelHost?.isHidden = false
@@ -1730,22 +1786,46 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
     private func layoutResultsPanel(for selectionRect: CGRect) {
         guard let host = resultsPanelHost, resultsModel.isVisible else { return }
-        let gap: CGFloat = 2
-        // Merge with the selection: flush against its edge, same top edge,
-        // height follows the selection (clamped for usability)
+        host.frame = Self.resultsPanelFrame(
+            selectionRect: selectionRect,
+            bounds: bounds,
+            handleSize: handleSize
+        )
+    }
+
+    /// Frame for the merged results drawer, in flipped (Y-down) local coords.
+    /// Sits beside the selection's right edge with a gap that clears the
+    /// resize handles (whose hit areas reach `handleSize + 2` past the edge —
+    /// child views win hit testing, so an overlapping handle would swallow
+    /// its clicks), and never enters the toolbar zone below the selection
+    /// (toolbar top sits at maxY + 8).
+    static func resultsPanelFrame(
+        selectionRect: CGRect,
+        bounds: CGRect,
+        handleSize: CGFloat
+    ) -> CGRect {
+        let gap: CGFloat = handleSize + 6
         let width: CGFloat = 300
-        let height = max(220, min(selectionRect.height, bounds.maxY - 16))
-        var x = selectionRect.maxX + gap
-        if x + width > bounds.maxX - 8 {
-            x = max(8, selectionRect.minX - width - gap)
-        }
-        let y = max(8, min(selectionRect.minY, bounds.maxY - height - 8))
-        host.frame = NSRect(x: x, y: y, width: width, height: height)
+        let desiredHeight = max(220, min(selectionRect.height, bounds.maxY - 16))
+        let x: CGFloat = {
+            let preferred = selectionRect.maxX + gap
+            if preferred + width <= bounds.maxX - 8 { return preferred }
+            // Left side preferred; when neither side fits (near-fullscreen
+            // selection) hug the screen's right edge.
+            let left = selectionRect.minX - width - gap
+            return left >= 8 ? left : bounds.maxX - width - 8
+        }()
+        let y = max(8, min(selectionRect.maxY - desiredHeight, bounds.maxY - desiredHeight - 8))
+        // Cap the height so the drawer bottom never crosses the toolbar top.
+        let toolbarZoneTop = selectionRect.maxY + 8
+        let height = min(desiredHeight, max(40, toolbarZoneTop - y), bounds.maxY - 8 - y)
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 
     private func hideResultsPanel() {
         resultsModel.isVisible = false
         resultsPanelHost?.isHidden = true
+        needsDisplay = true
     }
 
     func toolbarDidChangeMosaicIntensity(_ blockSize: Int) {
@@ -1789,6 +1869,19 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     // MARK: - Keyboard Controls
 
     override func keyDown(with event: NSEvent) {
+        // While the results drawer owns keyboard focus, its controls (and the
+        // text view) keep their keys: only Escape falls through, closing the
+        // drawer instead of cancelling the whole capture session.
+        if resultsPanelHasKeyboardFocus {
+            if event.keyCode == 53 {
+                hideResultsPanel()
+                window?.makeFirstResponder(self)
+                return
+            }
+            super.keyDown(with: event)
+            return
+        }
+
         if isEditingText {
             if event.keyCode == 53 {
                 cancelTextInput()
@@ -1948,6 +2041,19 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         return normalizedRect(from: CGPoint(x: minX, y: minY), to: CGPoint(x: maxX, y: maxY))
     }
 
+    /// True when a control inside the results drawer (e.g. its text view or
+    /// the language menu) is the window's first responder.
+    private var resultsPanelHasKeyboardFocus: Bool {
+        guard let host = resultsPanelHost, !host.isHidden,
+              let responder = window?.firstResponder as? NSView else { return false }
+        var current: NSView? = responder
+        while let view = current {
+            if view === host { return true }
+            current = view.superview
+        }
+        return false
+    }
+
     private func updateCursor(at point: CGPoint) {
         if let tf = activeTextField, !tf.isHidden, tf.frame.contains(point) {
             NSCursor.iBeam.set()
@@ -1955,6 +2061,13 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         }
 
         if let bar = toolbar, !bar.isHidden, bar.frame.contains(point) {
+            NSCursor.arrow.set()
+            return
+        }
+
+        // The results drawer hosts its own cursor management (arrow/iBeam);
+        // never show selection cursors (crosshair/grab) on top of it.
+        if let panel = resultsPanelHost, !panel.isHidden, panel.frame.contains(point) {
             NSCursor.arrow.set()
             return
         }

@@ -6,13 +6,11 @@ import AppKit
 struct PreviewResultsPanel: View {
     @Bindable var viewModel: PreviewViewModel
     @Binding var isExpanded: Bool
-    @State private var selectedTab: Tab = .ocr
     @State private var copiedFlash: String?
+    @State private var flashGeneration = 0
 
-    enum Tab: Hashable {
-        case ocr
-        case translate
-    }
+    /// Fixed widths so skeleton rows don't jitter on every re-render.
+    private static let skeletonWidths: [CGFloat] = [240, 180, 210, 150, 220]
 
     /// Common target languages for the quick switcher
     private static let targetLanguages: [TranslationLanguage] = [
@@ -27,7 +25,7 @@ struct PreviewResultsPanel: View {
             Divider()
 
             Group {
-                switch selectedTab {
+                switch viewModel.resultsPanelTab {
                 case .ocr:
                     ocrContent
                 case .translate:
@@ -51,14 +49,8 @@ struct PreviewResultsPanel: View {
                     .lineLimit(1)
                     .transition(.opacity)
             }
-            Picker(String(localized: "preview.results.panel"), selection: $selectedTab) {
-                Text(String(localized: "preview.panel.ocrTab")).tag(Tab.ocr)
-                Text(String(localized: "preview.panel.translateTab")).tag(Tab.translate)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .frame(maxWidth: .infinity)
+            Spacer(minLength: 0)
+            // 无 tab 切换：内容随工具栏最后一次触发的动作而定。
 
             rerunButton
             copyAllButton
@@ -71,7 +63,7 @@ struct PreviewResultsPanel: View {
     /// Re-runs the action for the active tab
     private var rerunButton: some View {
         Button {
-            switch selectedTab {
+            switch viewModel.resultsPanelTab {
             case .ocr:
                 viewModel.performOCR()
             case .translate:
@@ -116,13 +108,13 @@ struct PreviewResultsPanel: View {
     // MARK: - OCR Tab
 
     private var ocrContent: some View {
-        ScrollView {
+        Group {
             if viewModel.isPerformingOCR {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(0..<5, id: \.self) { _ in
+                    ForEach(Self.skeletonWidths, id: \.self) { width in
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.primary.opacity(0.08))
-                            .frame(width: .random(in: 120...260), height: 12)
+                            .frame(width: width, height: 12)
                     }
                     Text(String(localized: "preview.panel.recognizing"))
                         .font(.caption)
@@ -135,14 +127,7 @@ struct PreviewResultsPanel: View {
                     attributedText: ResultsTextBuilder.ocrText(
                         lines: sortedObservations(result).map(\.text)
                     ),
-                    onLineCopied: { line in
-                        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                            if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
-                                copiedFlash = nil
-                            }
-                        }
-                    }
+                    onLineCopied: flashCopy
                 )
                 .padding(12)
             } else {
@@ -158,13 +143,13 @@ struct PreviewResultsPanel: View {
     // MARK: - Translation Tab
 
     private var translateContent: some View {
-        ScrollView {
+        Group {
             if viewModel.isTranslating {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(0..<4, id: \.self) { _ in
+                    ForEach(Self.skeletonWidths.dropLast(), id: \.self) { width in
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.primary.opacity(0.08))
-                            .frame(width: .random(in: 120...240), height: 12)
+                            .frame(width: width, height: 12)
                     }
                     Text(String(localized: "preview.panel.translating"))
                         .font(.caption)
@@ -177,14 +162,7 @@ struct PreviewResultsPanel: View {
                     targetLanguagePicker
                     SelectableTextBlock(
                         attributedText: ResultsTextBuilder.translationText(segments: viewModel.bilingualSegments),
-                        onLineCopied: { line in
-                            copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                                if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
-                                    copiedFlash = nil
-                                }
-                            }
-                        }
+                        onLineCopied: flashCopy
                     )
                 }
                 .padding(12)
@@ -239,7 +217,7 @@ struct PreviewResultsPanel: View {
     // MARK: - Helpers
 
     private var currentTabText: String {
-        switch selectedTab {
+        switch viewModel.resultsPanelTab {
         case .ocr:
             return viewModel.combinedOCRText
         case .translate:
@@ -259,5 +237,18 @@ struct PreviewResultsPanel: View {
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Shows the copy feedback; a newer flash invalidates older timers, so
+    /// rapid line clicks don't clear each other's message early.
+    private func flashCopy(line: String) {
+        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+        flashGeneration += 1
+        let generation = flashGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if flashGeneration == generation {
+                copiedFlash = nil
+            }
+        }
     }
 }

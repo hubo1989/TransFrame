@@ -81,6 +81,12 @@ final class PreviewViewModel {
 
     var ocrResult: OCRResult?
     var isPerformingOCR: Bool = false
+    /// 面板显示哪个结果，由工具栏最后一次触发的动作决定（面板内无切换）。
+    enum ResultsPanelTab {
+        case ocr
+        case translate
+    }
+    var resultsPanelTab: ResultsPanelTab = .ocr
     var ocrTranslationError: String?
 
     var isDetectingPrivacy: Bool = false

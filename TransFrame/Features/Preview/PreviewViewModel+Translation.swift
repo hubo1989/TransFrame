@@ -16,25 +16,38 @@ extension PreviewViewModel {
             commitTextInput()
         }
 
+        resultsPanelTab = .translate
         isTranslating = true
         ocrTranslationError = nil
 
         Task { @MainActor in
             defer { isTranslating = false }
 
+            let pipeline = ImageTranslationPipeline()
+            let context = PipelineContext()
+
+            // Stage-split so failures are attributed correctly: analysis
+            // (VLM) errors read as recognition, not translation failures.
+            let analysis: ScreenAnalysisResult
             do {
-                let pipeline = ImageTranslationPipeline()
-                let context = PipelineContext()
+                analysis = try await pipeline.analyze(image: image, context: context)
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                errorMessage = String(format: String(localized: "error.pipeline.ocrFailed"), message)
+                ocrTranslationError = errorMessage
+                clearError()
+                return
+            }
 
-                let analysis = try await pipeline.analyze(image: image, context: context)
-                let filtered = analysis.filteredForTranslation()
-                guard !filtered.segments.isEmpty else {
-                    errorMessage = String(localized: "error.ocr.no.text")
-                    clearError()
-                    return
-                }
+            let filtered = analysis.filteredForTranslation()
+            guard !filtered.segments.isEmpty else {
+                errorMessage = String(localized: "error.ocr.no.text")
+                clearError()
+                return
+            }
 
-                let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
+            let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
+            do {
                 bilingualSegments = try await pipeline.translate(
                     analysisResult: filtered,
                     config: config,
@@ -42,8 +55,8 @@ extension PreviewViewModel {
                 )
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                ocrTranslationError = message
-                errorMessage = message
+                errorMessage = String(format: String(localized: "error.pipeline.translateFailed"), message)
+                ocrTranslationError = errorMessage
                 clearError()
             }
         }

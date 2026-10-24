@@ -46,6 +46,8 @@
 
 /* OCR Errors */
 "error.ocr.failed" = "Text recognition failed.";
+"error.pipeline.ocrFailed" = "Text recognition (VLM) failed: %@";
+"error.pipeline.translateFailed" = "Translation failed: %@";
 "error.ocr.failed.recovery" = "Please try again with a clearer image.";
 "error.ocr.no.text" = "No text was recognized in the image.";
 "error.ocr.no.text.recovery" = "Try capturing an area with visible text.";

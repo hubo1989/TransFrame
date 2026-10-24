@@ -17,6 +17,10 @@ final class InPlaceResultsModel {
     var segments: [BilingualSegment] = []
     var statusMessage: String?
 
+    /// Notifies the hosting overlay when tab/content changes affect the
+    /// in-selection bilingual overlay rendering.
+    var visualInvalidator: (() -> Void)?
+
     /// Re-run analysis for the active tab
     var onRerun: (() -> Void)?
     /// Close the drawer
@@ -28,6 +32,10 @@ final class InPlaceResultsModel {
 struct InPlaceResultsPanel: View {
     @Bindable var model: InPlaceResultsModel
     @State private var copiedFlash: String?
+    @State private var flashGeneration = 0
+
+    /// Fixed widths so skeleton rows don't jitter on every re-render.
+    private static let skeletonWidths: [CGFloat] = [220, 170, 200, 140, 210]
 
     private static let targetLanguages: [TranslationLanguage] = [
         .chineseSimplified, .english, .japanese, .korean,
@@ -53,6 +61,8 @@ struct InPlaceResultsPanel: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         )
+        .onChange(of: model.activeTab) { model.visualInvalidator?() }
+        .onChange(of: model.segments) { model.visualInvalidator?() }
     }
 
     // MARK: - Header
@@ -66,13 +76,8 @@ struct InPlaceResultsPanel: View {
                     .lineLimit(1)
                     .transition(.opacity)
             }
-            Picker("", selection: $model.activeTab) {
-                Text(String(localized: "preview.panel.ocrTab")).tag(InPlaceResultsModel.Tab.ocr)
-                Text(String(localized: "preview.panel.translateTab")).tag(InPlaceResultsModel.Tab.translate)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
+            Spacer(minLength: 0)
+            // 无 tab 切换：内容随工具栏触发动作而定，要另一个结果从工具栏重新点。
 
             Button {
                 model.onRerun?()
@@ -112,20 +117,13 @@ struct InPlaceResultsPanel: View {
     // MARK: - OCR
 
     private var ocrContent: some View {
-        ScrollView {
+        Group {
             if model.isLoading && model.activeTab == .ocr {
                 loadingRows
             } else if !model.ocrLines.isEmpty {
                 SelectableTextBlock(
                     attributedText: ResultsTextBuilder.ocrText(lines: model.ocrLines),
-                    onLineCopied: { line in
-                        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                            if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
-                                copiedFlash = nil
-                            }
-                        }
-                    }
+                    onLineCopied: flashCopy
                 )
                 .padding(10)
             } else {
@@ -137,7 +135,7 @@ struct InPlaceResultsPanel: View {
     // MARK: - Translation
 
     private var translateContent: some View {
-        ScrollView {
+        Group {
             if model.isLoading && model.activeTab == .translate {
                 loadingRows
             } else if !model.segments.isEmpty {
@@ -145,14 +143,7 @@ struct InPlaceResultsPanel: View {
                     targetLanguagePicker
                     SelectableTextBlock(
                         attributedText: ResultsTextBuilder.translationText(segments: model.segments),
-                        onLineCopied: { line in
-                            copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                                if copiedFlash?.hasPrefix(String(localized: "preview.panel.copyLine")) == true {
-                                    copiedFlash = nil
-                                }
-                            }
-                        }
+                        onLineCopied: flashCopy
                     )
                 }
                 .padding(10)
@@ -214,10 +205,10 @@ struct InPlaceResultsPanel: View {
 
     private var loadingRows: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(0..<5, id: \.self) { _ in
+            ForEach(Self.skeletonWidths, id: \.self) { width in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.primary.opacity(0.08))
-                    .frame(width: .random(in: 100...220), height: 12)
+                    .frame(width: width, height: 12)
             }
             Text(model.activeTab == .ocr
                  ? String(localized: "preview.panel.recognizing")
@@ -241,5 +232,18 @@ struct InPlaceResultsPanel: View {
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Shows the copy feedback; a newer flash invalidates older timers, so
+    /// rapid line clicks don't clear each other's message early.
+    private func flashCopy(line: String) {
+        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+        flashGeneration += 1
+        let generation = flashGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if flashGeneration == generation {
+                copiedFlash = nil
+            }
+        }
     }
 }
