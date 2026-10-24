@@ -92,16 +92,13 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
-        guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
-            throw VLMProviderError.imageEncodingFailed
-        }
-
-        let base64Image = imageData.base64EncodedString()
+        let encoded = try AnalysisImageEncoder.jpeg(image)
         let imageSize = CGSize(width: image.width, height: image.height)
 
         // Use multi-turn conversation with continuation support
         let vlmResponse = try await analyzeWithContinuation(
-            base64Image: base64Image,
+            base64Image: encoded.base64String,
+            mediaType: encoded.mimeType,
             imageSize: imageSize,
             maxAttempts: maxContinuationAttempts,
             prompts: prompt
@@ -113,6 +110,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     /// Performs analysis with automatic continuation on truncation
     private func analyzeWithContinuation(
         base64Image: String,
+        mediaType: String = "image/jpeg",
         imageSize: CGSize,
         maxAttempts: Int,
         prompts: VLMPromptPair = .ocr
@@ -125,7 +123,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
                     .image(ClaudeImageContent(
                         source: ClaudeImageSource(
                             type: "base64",
-                            mediaType: "image/jpeg",
+                            mediaType: mediaType,
                             data: base64Image
                         )
                     )),
@@ -252,6 +250,11 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         return (content, isTruncated, claudeResponse.stopReason)
     }
 
+    /// Placeholder replacing the base64 image in continuation rounds, so the
+    /// same capture is not uploaded again for every truncation retry.
+    private static let continuationImagePlaceholder =
+        "(image omitted: the same image as in the first message)"
+
     /// Builds request with custom messages and continuation settings
     private func buildRequest(messages: [ClaudeMessage], isContinuation: Bool, systemPrompt: String = VLMPromptTemplate.systemPrompt) throws -> URLRequest {
         let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("v1/messages")
@@ -266,6 +269,24 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.timeoutInterval = timeout
 
+        // Continuation rounds keep the conversation shape but drop the base64
+        // image payload: the assistant's partial JSON already anchors the
+        // context, and re-uploading would multiply bandwidth and prompt tokens.
+        let effectiveMessages: [ClaudeMessage]
+        if isContinuation {
+            effectiveMessages = messages.map { message in
+                let blocks = message.content.map { block -> ClaudeContentBlock in
+                    if case .image = block {
+                        return .text(Self.continuationImagePlaceholder)
+                    }
+                    return block
+                }
+                return ClaudeMessage(role: message.role, content: blocks)
+            }
+        } else {
+            effectiveMessages = messages
+        }
+
         // Use higher max_tokens for continuation requests to minimize truncation
         let maxTokens = isContinuation ? 16384 : 8192
 
@@ -273,7 +294,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
             model: configuration.modelName,
             maxTokens: maxTokens,
             system: systemPrompt,
-            messages: messages
+            messages: effectiveMessages
         )
 
         let encoder = JSONEncoder()

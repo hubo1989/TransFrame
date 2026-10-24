@@ -70,13 +70,9 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
-        guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
-            throw VLMProviderError.imageEncodingFailed
-        }
-
-        let base64Image = imageData.base64EncodedString()
+        let encoded = try AnalysisImageEncoder.jpeg(image)
         let imageSize = CGSize(width: image.width, height: image.height)
-        let request = try buildRequest(base64Image: base64Image, prompts: prompt)
+        let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt)
         let responseData = try await executeRequest(request)
         let vlmResponse = try parseOllamaResponse(responseData)
 
@@ -164,7 +160,8 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
                         ]
                     ]
                 ],
-                "temperature": 0.1
+                "temperature": 0.1,
+                "response_format": ["type": "json_object"]
             ]
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {
@@ -178,6 +175,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
                 model: configuration.modelName,
                 prompt: prompt,
                 images: [base64Image],
+                format: "json",
                 stream: false,
                 options: OllamaOptions(
                     temperature: 0.1,
@@ -319,6 +317,9 @@ private struct OllamaGenerateRequest: Encodable, Sendable {
     let model: String
     let prompt: String
     let images: [String]
+    /// "json" restricts generation to valid JSON, preventing prose responses
+    /// that would fall through to the plain-text bbox fallback.
+    let format: String?
     let stream: Bool
     let options: OllamaOptions?
 }

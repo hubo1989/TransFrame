@@ -44,9 +44,6 @@ enum TransFrameError: LocalizedError, Sendable {
 
     // MARK: - OCR Errors
 
-    /// OCR operation is currently in progress
-    case ocrOperationInProgress
-
     /// The image provided for OCR is invalid
     case ocrInvalidImage
 
@@ -80,8 +77,6 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.hotkey.registration.failed", comment: "")
         case .hotkeyConflict:
             return NSLocalizedString("error.hotkey.conflict", comment: "")
-        case .ocrOperationInProgress:
-            return NSLocalizedString("error.ocr.in.progress", comment: "")
         case .ocrInvalidImage:
             return NSLocalizedString("error.ocr.invalid.image", comment: "")
         case .ocrRecognitionFailed:
@@ -113,8 +108,6 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.hotkey.registration.failed.recovery", comment: "")
         case .hotkeyConflict:
             return NSLocalizedString("error.hotkey.conflict.recovery", comment: "")
-        case .ocrOperationInProgress:
-            return NSLocalizedString("error.ocr.in.progress.recovery", comment: "")
         case .ocrInvalidImage:
             return NSLocalizedString("error.ocr.invalid.image.recovery", comment: "")
         case .ocrRecognitionFailed:

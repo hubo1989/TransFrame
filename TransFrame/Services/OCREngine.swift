@@ -21,12 +21,6 @@ actor OCREngine {
     /// Shared instance for app-wide OCR operations
     static let shared = OCREngine()
 
-    /// Supported recognition languages
-    private var supportedLanguages: Set<RecognitionLanguage> = []
-
-    /// Whether an OCR operation is currently in progress
-    private var isProcessing = false
-
     // MARK: - Recognition Language
 
     /// Text recognition languages supported by Vision framework
@@ -50,6 +44,31 @@ actor OCREngine {
         /// The VNRecognizeTextRequest revision for this language
         var visionLanguage: String {
             rawValue
+        }
+
+        /// Maps a UI source-language preference to a Vision recognition
+        /// language. Returns nil for `.auto` and languages Vision does not
+        /// support, letting the caller fall back to automatic detection.
+        init?(translationLanguage language: TranslationLanguage) {
+            switch language {
+            case .auto: return nil
+            case .english: self = .english
+            case .chineseSimplified: self = .chineseSimplified
+            case .chineseTraditional: self = .chineseTraditional
+            case .japanese: self = .japanese
+            case .korean: self = .korean
+            case .french: self = .french
+            case .german: self = .german
+            case .spanish: self = .spanish
+            case .italian: self = .italian
+            case .portuguese: self = .portuguese
+            case .russian: self = .russian
+            case .arabic: self = .arabic
+            case .hindi: self = .hindi
+            case .thai: self = .thai
+            case .vietnamese: self = .vietnamese
+            default: return nil
+            }
         }
 
         /// Localized display name
@@ -131,13 +150,6 @@ actor OCREngine {
         _ image: CGImage,
         config: Configuration = .default
     ) async throws -> OCRResult {
-        // Prevent concurrent OCR operations
-        guard !isProcessing else {
-            throw OCREngineError.operationInProgress
-        }
-        isProcessing = true
-        defer { isProcessing = false }
-
         // Validate image
         guard image.width > 0 && image.height > 0 else {
             throw OCREngineError.invalidImage
@@ -152,13 +164,32 @@ actor OCREngine {
         os_signpost(.begin, log: Self.performanceLog, name: "OCRRecognition", signpostID: Self.signpostID)
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-
+        // VNImageRequestHandler.perform is synchronous and CPU-bound. Run it
+        // on a global queue so it doesn't block this actor's executor, and so
+        // concurrent recognize() callers don't serialize behind each other.
+        // Each call builds its own handler and request; nothing is shared
+        // across threads, so the unsafe wrapper only silences Sendable noise.
+        let boxedImage = UnsafeSendable(value: image)
+        let boxedRequest = UnsafeSendable(value: request)
+        let texts: [OCRText]
         do {
-            try handler.perform([request])
+            texts = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let handler = VNImageRequestHandler(cgImage: boxedImage.value, options: [:])
+                    do {
+                        try handler.perform([boxedRequest.value])
+                        let observations = boxedRequest.value.results ?? []
+                        continuation.resume(returning: observations.compactMap {
+                            OCRText.from($0, imageSize: imageSize)
+                        })
+                    } catch {
+                        continuation.resume(throwing: OCREngineError.recognitionFailed(underlying: error))
+                    }
+                }
+            }
         } catch {
             os_signpost(.end, log: Self.performanceLog, name: "OCRRecognition", signpostID: Self.signpostID)
-            throw OCREngineError.recognitionFailed(underlying: error)
+            throw error
         }
 
         let duration = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
@@ -167,16 +198,6 @@ actor OCREngine {
         #if DEBUG
         os_log("OCR recognition completed in %.1fms", log: OSLog.default, type: .info, duration)
         #endif
-
-        // Extract results
-        guard let observations = request.results else {
-            return OCRResult.empty(imageSize: imageSize)
-        }
-
-        // Convert to OCRText
-        let texts = observations.compactMap { obs in
-            OCRText.from(obs, imageSize: imageSize)
-        }
 
         // Filter by confidence
         let filteredTexts = texts.filter { $0.confidence >= config.minimumConfidence }
@@ -211,54 +232,6 @@ actor OCREngine {
         return try await recognize(image, config: config)
     }
 
-    // MARK: - Language Detection
-
-    /// Detects the primary language in an image.
-    /// - Parameter image: The image to analyze
-    /// - Returns: Detected language, or nil if detection failed
-    func detectLanguage(in image: CGImage) async -> RecognitionLanguage? {
-        // Try each language and return the one with the best results
-        let languagesToTest: [RecognitionLanguage] = [
-            .english,
-            .chineseSimplified,
-            .chineseTraditional,
-            .japanese,
-            .korean
-        ]
-
-        var bestLanguage: RecognitionLanguage?
-        var bestConfidence: Float = 0.0
-
-        for language in languagesToTest {
-            do {
-                var config = Configuration.default
-                config.languages = [language]
-                config.useAutoLanguageDetection = false
-                config.recognitionLevel = .fast
-                config.prefersFastRecognition = true
-                config.minimumConfidence = 0.3
-
-                let result = try await recognize(image, config: config)
-
-                if result.hasResults {
-                    let avgConfidence = result.observations
-                        .map(\.confidence)
-                        .reduce(0, +) / Float(result.observations.count)
-
-                    if avgConfidence > bestConfidence {
-                        bestConfidence = avgConfidence
-                        bestLanguage = language
-                    }
-                }
-            } catch {
-                // Try next language
-                continue
-            }
-        }
-
-        return bestLanguage
-    }
-
     // MARK: - Private Methods
 
     /// Creates a configured VNRecognizeTextRequest
@@ -268,15 +241,11 @@ actor OCREngine {
         // Set recognition level
         request.recognitionLevel = config.recognitionLevel.visionLevel
 
-        // Enable automatic language detection if requested
-        if config.useAutoLanguageDetection {
-            request.usesLanguageCorrection = true
-        } else {
-            // Set specific languages
+        // With auto detection, leave recognitionLanguages at Vision's default
+        if !config.useAutoLanguageDetection {
             request.recognitionLanguages = Array(config.languages).map(\.visionLanguage)
         }
 
-        // Enable text recognition for non-horizontal text
         request.usesLanguageCorrection = true
 
         return request
@@ -287,9 +256,6 @@ actor OCREngine {
 
 /// Errors that can occur during OCR operations
 enum OCREngineError: LocalizedError, Sendable {
-    /// OCR operation is already in progress
-    case operationInProgress
-
     /// The provided image is invalid or empty
     case invalidImage
 
@@ -304,8 +270,6 @@ enum OCREngineError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .operationInProgress:
-            return NSLocalizedString("error.ocr.in.progress", comment: "")
         case .invalidImage:
             return NSLocalizedString("error.ocr.invalid.image", comment: "")
         case .recognitionFailed:
@@ -319,8 +283,6 @@ enum OCREngineError: LocalizedError, Sendable {
 
     var recoverySuggestion: String? {
         switch self {
-        case .operationInProgress:
-            return NSLocalizedString("error.ocr.in.progress.recovery", comment: "")
         case .invalidImage:
             return NSLocalizedString("error.ocr.invalid.image.recovery", comment: "")
         case .recognitionFailed:
@@ -331,4 +293,11 @@ enum OCREngineError: LocalizedError, Sendable {
             return NSLocalizedString("error.ocr.engine.not.available.recovery", comment: "")
         }
     }
+}
+
+/// Wraps a value so it can cross an isolation boundary. Safe here because the
+/// wrapped value is created and used exclusively inside a single dispatch
+/// closure (`OCREngine.recognize`), never shared between threads.
+private struct UnsafeSendable<T>: @unchecked Sendable {
+    let value: T
 }

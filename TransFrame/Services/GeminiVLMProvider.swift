@@ -28,14 +28,10 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
-        guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
-            throw VLMProviderError.imageEncodingFailed
-        }
-
-        let base64Image = imageData.base64EncodedString()
+        let encoded = try AnalysisImageEncoder.jpeg(image)
         let imageSize = CGSize(width: image.width, height: image.height)
 
-        let request = try buildRequest(base64Image: base64Image, prompts: prompt)
+        let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt)
         let responseData = try await executeRequest(request)
         let content = try extractContent(from: responseData)
 
@@ -94,7 +90,8 @@ final class GeminiVLMProvider: VLMProvider, Sendable {
                             ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                         ]
                     ]
-                ]
+                ],
+                "response_format": ["type": "json_object"]
             ]
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {

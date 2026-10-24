@@ -91,13 +91,6 @@ final class TransFrameErrorTests: XCTestCase {
 
     // MARK: - OCR Errors
 
-    func testOCROperationInProgressErrorDescription() {
-        let error = TransFrameError.ocrOperationInProgress
-
-        XCTAssertNotNil(error.errorDescription)
-        XCTAssertNotNil(error.recoverySuggestion)
-    }
-
     func testOCRInvalidImageErrorDescription() {
         let error = TransFrameError.ocrInvalidImage
 

@@ -824,11 +824,6 @@
 "about.acknowledgements.upstream" = "基于";
 "about.acknowledgements.author.format" = "作者：%@";
 "about.close" = "关闭";
-"settings.glmocr.mode" = "模式";
-"settings.glmocr.mode.cloud" = "云端";
-"settings.glmocr.mode.local" = "本地";
-"settings.glmocr.local.apiKey.optional" = "本地 MLX-VLM 服务无需 API 密钥";
-"vlm.provider.glmocr.local.description" = "本地 MLX-VLM GLM-OCR 服务";
 
 "engine.config.fetchModels" = "获取";
 "engine.config.fetchModels.failed" = "获取模型失败";
@@ -883,8 +878,6 @@
 /* OCR engine errors */
 "error.ocr.engine.not.available" = "OCR 引擎不可用。";
 "error.ocr.engine.not.available.recovery" = "请在设置中选择可用的 OCR 引擎。";
-"error.ocr.in.progress" = "文字识别正在进行中。";
-"error.ocr.in.progress.recovery" = "请等待当前识别完成。";
 "error.ocr.invalid.image" = "图像无效，无法识别。";
 "error.ocr.invalid.image.recovery" = "请使用有效的图像重试。";
 "error.ocr.no.languages" = "未选择识别语言。";

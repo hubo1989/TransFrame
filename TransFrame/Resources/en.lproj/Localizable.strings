@@ -824,11 +824,6 @@
 "about.acknowledgements.upstream" = "Based on";
 "about.acknowledgements.author.format" = "by %@";
 "about.close" = "Close";
-"settings.glmocr.mode" = "Mode";
-"settings.glmocr.mode.cloud" = "Cloud";
-"settings.glmocr.mode.local" = "Local";
-"settings.glmocr.local.apiKey.optional" = "API Key is optional for local MLX-VLM servers";
-"vlm.provider.glmocr.local.description" = "Local MLX-VLM server for GLM-OCR";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
@@ -883,8 +878,6 @@
 /* OCR engine errors */
 "error.ocr.engine.not.available" = "OCR engine is not available.";
 "error.ocr.engine.not.available.recovery" = "Select an available OCR engine in Settings.";
-"error.ocr.in.progress" = "Text recognition is already in progress.";
-"error.ocr.in.progress.recovery" = "Wait for the current recognition to finish.";
 "error.ocr.invalid.image" = "The image is invalid and cannot be recognized.";
 "error.ocr.invalid.image.recovery" = "Use a valid image and retry.";
 "error.ocr.no.languages" = "No recognition language selected.";
