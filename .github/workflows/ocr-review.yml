@@ -11,8 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # pull_request_target 使 fork PR 也能读取 secrets；OCR 只读 diff，不执行 PR 代码
-  pull_request_target:
+  # pull_request 使 PR 分支上的 workflow 立即生效；same-repo PR 同样可读 secrets。
+  # 将来若需 fork PR 触发，改回 pull_request_target 并先把本文件合入 main。
+  pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
