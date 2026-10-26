@@ -29,7 +29,7 @@ jobs:
         with:
           llm_url: https://api.z.ai/api/coding/paas/v4/chat/completions
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          llm_model: glm-4.6
+          llm_model: glm-5.3-flash
           llm_use_anthropic: 'false'
           # GLM 关闭思考输出（上游 action 默认格式）
           llm_extra_body: '{"thinking": {"type": "disabled"}}'
