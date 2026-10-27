@@ -21,13 +21,20 @@ struct ImageExporter: Sendable {
         annotations: [Annotation],
         to url: URL,
         format: ExportFormat,
-        quality: Double = 0.9
+        quality: Double = 0.9,
+        beautifyConfig: BeautifyConfig? = nil
     ) throws {
-        let finalImage: CGImage
+        var finalImage: CGImage
         if annotations.isEmpty {
             finalImage = image
         } else {
             finalImage = try compositeAnnotations(annotations, onto: image)
+        }
+
+        if let bConfig = beautifyConfig, bConfig.isEnabled {
+            if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
+                finalImage = beautified
+            }
         }
 
         try writeImage(finalImage, to: url, format: format, quality: quality)

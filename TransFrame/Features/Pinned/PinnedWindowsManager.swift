@@ -86,6 +86,30 @@ final class PinnedWindowsManager {
         return pinnedWindow
     }
 
+    /// Pins an NSImage directly.
+    /// The backing scale is derived from the NSImage's point size vs its
+    /// pixel width, so callers that build the image at display scale (e.g.
+    /// the bilingual result pin button) pin at the correct size on both 1x
+    /// and 2x screens instead of a hardcoded 2.0.
+    @discardableResult
+    func pin(image: NSImage) -> PinnedWindow? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let pointWidth = max(image.size.width, 1)
+        let scale = CGFloat(cgImage.width) / pointWidth
+        let displayScale = max(1, scale.rounded())
+        // 屏幕矩形用点尺寸（像素 / backing scale），否则 2x 屏上钉图会显示成两倍大
+        let pointSize = CGSize(
+            width: CGFloat(cgImage.width) / displayScale,
+            height: CGFloat(cgImage.height) / displayScale
+        )
+        let doc = CaptureDocument(
+            baseImage: cgImage,
+            sourceScreenRect: QuartzGlobalRect(CGRect(origin: .zero, size: pointSize)),
+            sourceDisplay: DisplayInfo(id: 0, name: "Main", frame: CGRect(origin: .zero, size: pointSize), scaleFactor: displayScale, isPrimary: true)
+        )
+        return pin(document: doc)
+    }
+
     /// Unpins a window by its ID.
     func unpinWindow(_ id: UUID) {
         guard let window = pinnedWindows[id] else { return }

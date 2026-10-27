@@ -104,6 +104,27 @@ final class MenuBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Color Picker
+        menu.addItem(createMenuItem(
+            titleKey: "menu.pick.color",
+            comment: "Pick Color from Screen",
+            action: #selector(AppDelegate.pickScreenColor),
+            target: appDelegate,
+            imageName: "eyedropper"
+        ))
+
+        // Open Local Image
+        menu.addItem(createMenuItem(
+            titleKey: "menu.open.image",
+            comment: "Open Image for Editing...",
+            action: #selector(AppDelegate.openImageForEditing),
+            keyEquivalent: "o",
+            target: appDelegate,
+            imageName: "photo.badge.plus"
+        ))
+
+        menu.addItem(NSMenuItem.separator())
+
         // Translation History
         menu.addItem(createMenuItem(
             titleKey: "menu.translation.history",

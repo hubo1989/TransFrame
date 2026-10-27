@@ -32,6 +32,8 @@
 /* Export Errors */
 "error.export.encoding.failed" = "Failed to encode the image.";
 "error.export.encoding.failed.recovery" = "Try a different format in Settings.";
+"error.image.upload.failed" = "Image upload failed: %@";
+"error.image.upload.failed.recovery" = "Check the image host configuration and network, then retry.";
 "error.export.encoding.failed.detail" = "Failed to encode the image as %@.";
 
 /* Clipboard Errors */
@@ -46,8 +48,11 @@
 
 /* OCR Errors */
 "error.ocr.failed" = "Text recognition failed.";
+"error.pipeline.ocrFailed" = "Text recognition (VLM) failed: %@";
+"error.pipeline.translateFailed" = "Translation failed: %@";
 "error.ocr.failed.recovery" = "Please try again with a clearer image.";
 "error.ocr.no.text" = "No text was recognized in the image.";
+"error.image.load.failed" = "Could not open image \"%@\"";
 "error.ocr.no.text.recovery" = "Try capturing an area with visible text.";
 "error.ocr.cancelled" = "Text recognition was cancelled.";
 "error.ocr.server.unreachable" = "Cannot connect to OCR server.";
@@ -83,6 +88,8 @@
 "menu.capture.fullscreen" = "Capture Full Screen";
 "menu.capture.selection" = "Capture Selection";
 "menu.translation.mode" = "Translation Mode";
+"menu.pick.color" = "Pick Screen Color";
+"menu.open.image" = "Open Image for Editing...";
 "menu.translation.history" = "Translation History";
 "menu.settings" = "Settings...";
 "menu.about" = "About TransFrame";
@@ -136,6 +143,8 @@
 "preview.tooltip.confirm" = "Copy to Clipboard and Close (Enter)";
 "preview.tooltip.dismiss" = "Dismiss (Escape)";
 "preview.tooltip.delete" = "Delete selected annotation";
+"preview.tooltip.editText" = "Edit Text";
+"preview.tooltip.beautify" = "Beautify (Background & Shadow)";
 
 /* Accessibility Labels */
 "preview.accessibility.save" = "Save screenshot";
@@ -164,6 +173,8 @@
 "tool.highlight" = "Highlight";
 "tool.mosaic" = "Mosaic";
 "tool.numberLabel" = "Number Label";
+"tool.privacyRedaction" = "Privacy Redaction";
+"tool.calloutBubble" = "Callout Bubble";
 
 
 /* ========================================
@@ -488,6 +499,8 @@
    ======================================== */
 
 "history.title" = "Translation History";
+"history.filter.all" = "All";
+"history.filter.starred" = "Starred";
 "history.search.placeholder" = "Search history...";
 "history.clear.all" = "Clear all history";
 "history.empty.title" = "No Translation History";
@@ -706,6 +719,7 @@
    ======================================== */
 
 "bilingualResult.window.title" = "Bilingual Translation";
+"bilingualResult.pin" = "Pin";
 "bilingualResult.loading" = "Translating...";
 "bilingualResult.loading.analyzing" = "Analyzing image...";
 "bilingualResult.loading.translating" = "Translating text...";
@@ -816,11 +830,6 @@
 "about.acknowledgements.upstream" = "Based on";
 "about.acknowledgements.author.format" = "by %@";
 "about.close" = "Close";
-"settings.glmocr.mode" = "Mode";
-"settings.glmocr.mode.cloud" = "Cloud";
-"settings.glmocr.mode.local" = "Local";
-"settings.glmocr.local.apiKey.optional" = "API Key is optional for local MLX-VLM servers";
-"vlm.provider.glmocr.local.description" = "Local MLX-VLM server for GLM-OCR";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
@@ -830,3 +839,89 @@
 "menu.pinned.show_all" = "Bring All Pins to Front";
 "tool.privacyRedaction" = "Privacy Redaction";
 "tool.calloutBubble" = "Callout Bubble";
+
+/* Annotation color palette */
+"preview.color.custom" = "Custom Color";
+"preview.color.eyedropper" = "Pick Screen Color";
+"preview.fill.color" = "Fill Color";
+
+/* Smart privacy mosaic */
+"smartMosaic.error.notConfigured" = "Please configure the VLM API key in Settings first (Smart Mosaic shares the VLM configuration)";
+"smartMosaic.detecting" = "Detecting privacy regions...";
+"smartMosaic.noneFound" = "No sensitive information detected";
+"smartMosaic.redacted" = "Masked %d privacy regions";
+"smartMosaic.error.failed" = "Privacy detection failed. Check your network and retry.";
+"preview.tooltip.smartMosaic" = "Smart Mosaic";
+
+/* Embedded results side panel */
+"preview.panel.ocrTab" = "Text Recognition";
+"preview.panel.translateTab" = "Translation";
+"preview.panel.rerun" = "Recognize Again";
+"preview.panel.copyAll" = "Copy All";
+"preview.panel.close" = "Close";
+"preview.panel.expandDrawer" = "Expand results panel";
+"preview.panel.recognizing" = "Recognizing...";
+"preview.panel.copyLine" = "Copy";
+"preview.panel.original" = "Original";
+"preview.panel.translation" = "Translation";
+"preview.panel.targetLanguage" = "Target Language";
+"preview.panel.noResults" = "No results yet. Click Text Recognition to start";
+"preview.panel.translating" = "Translating...";
+"preview.panel.translate" = "Translate";
+"mosaic.intensity.light" = "Light";
+"mosaic.intensity.medium" = "Medium";
+"mosaic.intensity.strong" = "Strong";
+
+/* MTranServer engine errors */
+"error.mtran.http.error" = "MTranServer request failed.";
+"error.mtran.http.error.recovery" = "Check your network and server status, then retry.";
+"error.mtran.invalid.request" = "Invalid MTranServer request.";
+"error.mtran.invalid.request.recovery" = "Check the translation configuration and retry.";
+"error.mtran.invalid.url" = "Invalid MTranServer URL.";
+"error.mtran.invalid.url.recovery" = "Fix the server URL in Settings.";
+"error.mtran.not.available" = "MTranServer is unavailable.";
+"error.mtran.not.available.recovery" = "Start MTranServer and retry.";
+
+/* OCR engine errors */
+"error.ocr.engine.not.available" = "OCR engine is not available.";
+"error.ocr.engine.not.available.recovery" = "Select an available OCR engine in Settings.";
+"error.ocr.invalid.image" = "The image is invalid and cannot be recognized.";
+"error.ocr.invalid.image.recovery" = "Use a valid image and retry.";
+"error.ocr.no.languages" = "No recognition language selected.";
+"error.ocr.no.languages.recovery" = "Select recognition languages in Settings.";
+"error.ocr.no.text.found" = "No text found in the image.";
+"error.ocr.no.text.found.recovery" = "Capture an area that contains text and retry.";
+"error.ocr.recognition.failed" = "Text recognition failed.";
+"error.ocr.recognition.failed.recovery" = "Retry with a clearer image.";
+
+/* OCR language names */
+"lang.arabic" = "Arabic";
+"lang.chinese" = "Chinese";
+"lang.chinese.simplified" = "Chinese (Simplified)";
+"lang.chinese.traditional" = "Chinese (Traditional)";
+"lang.english" = "English";
+"lang.french" = "French";
+"lang.german" = "German";
+"lang.hindi" = "Hindi";
+"lang.italian" = "Italian";
+"lang.japanese" = "Japanese";
+"lang.korean" = "Korean";
+"lang.portuguese" = "Portuguese";
+"lang.russian" = "Russian";
+"lang.spanish" = "Spanish";
+"lang.thai" = "Thai";
+"lang.vietnamese" = "Vietnamese";
+
+/* Preview accessibility */
+"preview.pin" = "Pin";
+
+/* Translation provider recovery hints */
+"translation.provider.recovery.connectionFailed" = "Check your internet connection and retry.";
+"translation.provider.recovery.emptyInput" = "The text to translate is empty.";
+"translation.provider.recovery.invalidConfiguration" = "Check the translation engine configuration.";
+"translation.provider.recovery.notAvailable" = "This translation engine is unavailable. Switch engines or retry later.";
+"translation.provider.recovery.rateLimited" = "Too many requests. Retry later.";
+"translation.provider.recovery.timeout" = "The translation request timed out. Retry.";
+"translation.provider.recovery.translationFailed" = "Translation failed. Retry.";
+"translation.provider.recovery.unsupportedLanguage" = "Unsupported language pair. Choose another target language.";
+"translation.unknown" = "Unknown";

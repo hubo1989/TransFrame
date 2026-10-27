@@ -33,14 +33,32 @@ final class HistoryStore: ObservableObject {
     /// The current search query
     @Published private(set) var searchQuery: String = ""
 
-    /// Filtered entries based on search query
+    /// Active category filter (nil = all categories)
+    @Published var selectedCategory: HistoryCategory? = nil {
+        didSet { updateFilteredEntries() }
+    }
+
+    /// Whether to only show starred favorites
+    @Published var onlyFavorites: Bool = false {
+        didSet { updateFilteredEntries() }
+    }
+
+    /// Filtered entries based on search query and category
     @Published private(set) var filteredEntries: [TranslationHistory] = []
 
     /// Whether more entries can be loaded
     @Published private(set) var hasMoreEntries: Bool = false
 
     /// Number of entries currently displayed
-    @Published private(set) var displayedCount: Int = 50
+    @Published private(set) var displayedCount: Int = 100
+
+    /// Block-based notification observer tokens; removed on deinit because
+    /// HistoryStore is recreated per window open and NotificationCenter
+    /// otherwise keeps the closures (and duplicate handlers) alive forever.
+    /// `nonisolated(unsafe)`: written only from the MainActor init path, and
+    /// read in deinit when no concurrent writer can exist;
+    /// `removeObserver` itself is thread-safe.
+    nonisolated(unsafe) private var notificationTokens: [NSObjectProtocol] = []
 
     // MARK: - Initialization
 
@@ -48,6 +66,80 @@ final class HistoryStore: ObservableObject {
         self.userDefaults = userDefaults
         self.historyKey = historyKey
         loadHistory()
+        updateFilteredEntries()
+        setupNotificationObservers()
+    }
+
+    deinit {
+        notificationTokens.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    private func setupNotificationObservers() {
+        notificationTokens.append(NotificationCenter.default.addObserver(
+            forName: .colorDidPick,
+            object: nil,
+            queue: .main
+        ) { [weak self] notif in
+            guard let hex = notif.object as? String else { return }
+            Task { @MainActor in
+                let entry = TranslationHistory(
+                    sourceText: "Color Picked",
+                    translatedText: hex,
+                    sourceLanguage: "RGB Hex",
+                    targetLanguage: hex,
+                    category: .color
+                )
+                self?.addEntry(entry)
+            }
+        })
+
+        notificationTokens.append(NotificationCenter.default.addObserver(
+            forName: .imageDidUpload,
+            object: nil,
+            queue: .main
+        ) { [weak self] notif in
+            guard let result = notif.object as? UploadResult else { return }
+            Task { @MainActor in
+                let entry = TranslationHistory(
+                    sourceText: result.markdown,
+                    translatedText: result.url,
+                    sourceLanguage: result.provider.displayName,
+                    targetLanguage: "Public URL",
+                    category: .upload
+                )
+                self?.addEntry(entry)
+            }
+        })
+    }
+
+    /// Toggles favorite status for an entry
+    func toggleFavorite(for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].isFavorite.toggle()
+        saveHistory()
+        updateFilteredEntries()
+    }
+
+    /// Adds a general history entry
+    func addEntry(_ entry: TranslationHistory) {
+        // Deduplicate only on fully identical content, and carry over the
+        // previous favorite flag — silently dropping a starred entry (the old
+        // translatedText+category match) lost user state without notice.
+        if let index = entries.firstIndex(where: {
+            $0.sourceText == entry.sourceText &&
+            $0.translatedText == entry.translatedText &&
+            $0.category == entry.category
+        }) {
+            var merged = entry
+            merged.isFavorite = entries[index].isFavorite
+            entries[index] = merged
+        } else {
+            entries.insert(entry, at: 0)
+        }
+        if entries.count > Self.maxHistoryEntries {
+            entries = Array(entries.prefix(Self.maxHistoryEntries))
+        }
+        saveHistory()
         updateFilteredEntries()
     }
 
@@ -178,18 +270,28 @@ final class HistoryStore: ObservableObject {
 
     // MARK: - Filter Management
 
-    /// Updates filtered entries based on search query
+    /// Updates filtered entries based on search query, category, and favorite state
     private func updateFilteredEntries() {
-        if searchQuery.isEmpty {
-            let count = min(displayedCount, entries.count)
-            filteredEntries = Array(entries.prefix(count))
-        } else {
-            let matched = entries.filter { $0.matches(searchQuery) }
-            let count = min(displayedCount, matched.count)
-            filteredEntries = Array(matched.prefix(count))
+        var result = entries
+
+        // Category filter
+        if let cat = selectedCategory {
+            result = result.filter { $0.category == cat }
         }
 
-        hasMoreEntries = filteredEntries.count < entries.count && searchQuery.isEmpty
+        // Favorites filter
+        if onlyFavorites {
+            result = result.filter { $0.isFavorite }
+        }
+
+        // Search query filter
+        if !searchQuery.isEmpty {
+            result = result.filter { $0.matches(searchQuery) }
+        }
+
+        let count = min(displayedCount, result.count)
+        filteredEntries = Array(result.prefix(count))
+        hasMoreEntries = filteredEntries.count < result.count && searchQuery.isEmpty
     }
 
     // MARK: - Thumbnail Generation

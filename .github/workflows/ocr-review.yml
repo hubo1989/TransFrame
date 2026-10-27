@@ -1,0 +1,39 @@
+# 阿里开源 OpenCodeReview — PR 自动行级审查
+# https://github.com/alibaba/open-code-review
+#
+# 前置条件（一次性）：仓库 Settings → Secrets and variables → Actions
+#   添加 OCR_LLM_AUTH_TOKEN = Z.ai API Key
+# 换其它 provider 时改下面三行明文（url / model / llm_use_anthropic）即可。
+name: OpenCodeReview PR Review
+
+concurrency:
+  group: ocr-pr-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  # pull_request 使 PR 分支上的 workflow 立即生效；same-repo PR 同样可读 secrets。
+  # 将来若需 fork PR 触发，改回 pull_request_target 并先把本文件合入 main。
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run OpenCodeReview
+        # pinned to the v1.13.3 tag commit (annotated tag dereferenced) to
+        # keep the token-bearing step immune to tag hijacking
+        uses: alibaba/open-code-review@375f64cd6f67a48a135da83cfcf59c52669a09cb # v1.13.3
+        with:
+          llm_url: https://api.z.ai/api/coding/paas/v4/chat/completions
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: glm-5.3-flash
+          llm_use_anthropic: 'false'
+          # GLM 关闭思考输出（上游 action 默认格式）
+          llm_extra_body: '{"thinking": {"type": "disabled"}}'
+          language: Chinese

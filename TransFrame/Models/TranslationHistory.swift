@@ -1,7 +1,33 @@
 import Foundation
 
-/// A single translation history entry.
-/// Contains the source text, translated text, screenshot thumbnail, and metadata.
+/// Supported history entry category types
+public enum HistoryCategory: String, Codable, Sendable, CaseIterable {
+    case translation = "translation"
+    case screenshot = "screenshot"
+    case color = "color"
+    case upload = "upload"
+
+    public var displayName: String {
+        switch self {
+        case .translation: return "Translation"
+        case .screenshot: return "Screenshot"
+        case .color: return "Color"
+        case .upload: return "Upload"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .translation: return "character.book.closed"
+        case .screenshot: return "camera.viewfinder"
+        case .color: return "eyedropper"
+        case .upload: return "icloud.and.arrow.up"
+        }
+    }
+}
+
+/// A single unified history entry.
+/// Contains the source text, translated text, screenshot thumbnail, category, favorite state, and metadata.
 struct TranslationHistory: Identifiable, Codable, Sendable {
     // MARK: - Types
 
@@ -14,6 +40,8 @@ struct TranslationHistory: Identifiable, Codable, Sendable {
         case targetLanguage
         case timestamp
         case thumbnailData
+        case category
+        case isFavorite
     }
 
     // MARK: - Properties
@@ -21,23 +49,29 @@ struct TranslationHistory: Identifiable, Codable, Sendable {
     /// Unique identifier
     let id: UUID
 
-    /// Original source text
+    /// Original source text or primary description
     let sourceText: String
 
-    /// Translated text
+    /// Translated text, hex code, or public URL
     let translatedText: String
 
-    /// Source language name
+    /// Source language name or provider name
     let sourceLanguage: String
 
     /// Target language name
     let targetLanguage: String
 
-    /// When the translation was performed
+    /// When the entry was performed
     let timestamp: Date
 
     /// JPEG thumbnail data (max 10KB, 128px on longest edge)
     let thumbnailData: Data?
+
+    /// Category of history entry
+    var category: HistoryCategory
+
+    /// Starred favorite state
+    var isFavorite: Bool
 
     // MARK: - Initialization
 
@@ -48,7 +82,9 @@ struct TranslationHistory: Identifiable, Codable, Sendable {
         sourceLanguage: String,
         targetLanguage: String,
         timestamp: Date = Date(),
-        thumbnailData: Data? = nil
+        thumbnailData: Data? = nil,
+        category: HistoryCategory = .translation,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.sourceText = sourceText
@@ -57,6 +93,21 @@ struct TranslationHistory: Identifiable, Codable, Sendable {
         self.targetLanguage = targetLanguage
         self.timestamp = timestamp
         self.thumbnailData = thumbnailData
+        self.category = category
+        self.isFavorite = isFavorite
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.sourceText = try container.decode(String.self, forKey: .sourceText)
+        self.translatedText = try container.decode(String.self, forKey: .translatedText)
+        self.sourceLanguage = try container.decode(String.self, forKey: .sourceLanguage)
+        self.targetLanguage = try container.decode(String.self, forKey: .targetLanguage)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        self.thumbnailData = try container.decodeIfPresent(Data.self, forKey: .thumbnailData)
+        self.category = try container.decodeIfPresent(HistoryCategory.self, forKey: .category) ?? .translation
+        self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
     }
 
     // MARK: - Computed Properties

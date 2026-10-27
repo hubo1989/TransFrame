@@ -48,6 +48,7 @@
 "error.ocr.failed" = "Распознавание текста не удалось.";
 "error.ocr.failed.recovery" = "Попробуйте снова с более чётким изображением.";
 "error.ocr.no.text" = "Текст на изображении не распознан.";
+"error.image.load.failed" = "Не удалось открыть изображение «%@»";
 "error.ocr.no.text.recovery" = "Попробуйте захватить область с видимым текстом.";
 "error.ocr.cancelled" = "Распознавание текста отменено.";
 "error.ocr.server.unreachable" = "Не удаётся подключиться к серверу OCR.";
@@ -84,6 +85,8 @@
 "menu.capture.selection" = "Захватить область";
 "menu.translation.mode" = "Режим перевода";
 "menu.translation.history" = "История переводов";
+"menu.pick.color" = "Пипетка с экрана";
+"menu.open.image" = "Открыть изображение для редактирования...";
 "menu.settings" = "Настройки...";
 "menu.about" = "О TransFrame";
 "menu.quit" = "Выйти из TransFrame";

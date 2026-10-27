@@ -54,6 +54,56 @@ protocol VLMProvider: Sendable {
     /// - Returns: Analysis result containing text segments with positions
     /// - Throws: VLMProviderError if analysis fails
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult
+
+    /// Analyze an image with a custom prompt while reusing the standard
+    /// segments JSON response format. Providers that support prompt
+    /// customization override this; the default falls back to the OCR prompt.
+    /// - Parameters:
+    ///   - image: The image to analyze
+    ///   - prompt: The system/user prompt pair to send
+    /// - Returns: Analysis result containing segments with positions
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult
+}
+
+extension VLMProvider {
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image)
+    }
+}
+
+// MARK: - Custom Prompt Pair
+
+/// A system/user prompt pair for custom VLM analysis tasks.
+struct VLMPromptPair: Sendable, Equatable {
+    let system: String
+    let user: String
+
+    /// The standard OCR text-extraction prompt
+    static let ocr = VLMPromptPair(
+        system: VLMPromptTemplate.systemPrompt,
+        user: VLMPromptTemplate.userPrompt
+    )
+
+    /// Privacy-region detection prompt: returns sensitive regions
+    /// (phone numbers, passwords, amounts, faces, keys, emails, IDs)
+    /// in the same segments JSON format.
+    static let privacy = VLMPromptPair(
+        system: """
+        You are a privacy detection assistant. Locate regions containing sensitive personal information in the image: phone numbers, passwords, amounts/prices, faces, API keys/tokens, emails, and ID/card numbers.
+        Return JSON: {"segments":[{"text":"<category>","boundingBox":{"x":0.0,"y":0.0,"width":0.0,"height":0.0},"confidence":0.9}]}
+        """,
+        user: """
+        Detect all sensitive privacy regions in this image (phone numbers, passwords, amounts, faces, API keys/tokens, emails, ID numbers).
+        Return each region in JSON format:
+        {"segments":[{"text":"<category>","boundingBox":{"x":0.0,"y":0.0,"width":0.0,"height":0.0},"confidence":0.9}]}
+
+        - text: the category of the sensitive content (e.g. "phone", "face", "email")
+        - x,y: top-left corner (0.0-1.0 normalized to image size)
+        - width,height: box dimensions (0.0-1.0), make boxes tightly cover the content
+        - confidence: 0.0-1.0
+        If nothing sensitive is found, return {"segments":[]}.
+        """
+    )
 }
 
 // MARK: - VLM Provider Errors

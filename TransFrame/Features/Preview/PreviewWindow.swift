@@ -47,7 +47,7 @@ final class PreviewWindow: NSPanel {
 
         super.init(
             contentRect: contentRect,
-            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -64,14 +64,12 @@ final class PreviewWindow: NSPanel {
         // Window behavior
         title = NSLocalizedString("preview.window.title", comment: "Screenshot Preview")
         level = .floating
-        isMovableByWindowBackground = false
+        isMovableByWindowBackground = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-
-        // Appearance
-        backgroundColor = .windowBackgroundColor
-        titlebarAppearsTransparent = false
-        titleVisibility = .visible
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
 
         // Size constraints - minimum width accommodates toolbar UI
         minSize = NSSize(width: 300, height: 200)
@@ -198,7 +196,23 @@ final class PreviewWindow: NSPanel {
     }
 
     private func handleSpecialKeys(_ event: NSEvent) -> Bool {
-        if handleEscape(event) { return true }
+        let isEditingText = viewModel.isWaitingForTextInput || (firstResponder is NSTextView)
+
+        if handleEscape(event, isEditingText: isEditingText) { return true }
+        if isEditingText {
+            // 多行 TextEditor 中 Enter 保留换行语义；⌘Enter 显式提交，
+            // 点击画布空白处同样提交、Esc 取消。
+            if event.modifierFlags.contains(.command),
+               event.keyCode == 36 || event.keyCode == 76 {
+                Task { @MainActor in
+                    viewModel.commitTextInput()
+                }
+                return true
+            }
+            // Let standard text editing keys (typing letters, backspace, Cmd+A/C/V/X/Z) go to the text field
+            return false
+        }
+
         if handleDelete(event) { return true }
         if handleReturn(event) { return true }
         if handleCommandShortcuts(event) { return true }
@@ -206,10 +220,12 @@ final class PreviewWindow: NSPanel {
         return false
     }
 
-    private func handleEscape(_ event: NSEvent) -> Bool {
+    private func handleEscape(_ event: NSEvent, isEditingText: Bool) -> Bool {
         guard event.keyCode == 53 else { return false }
         Task { @MainActor in
-            if viewModel.selectedAnnotationIndex != nil {
+            if isEditingText || viewModel.isWaitingForTextInput {
+                viewModel.cancelCurrentDrawing()
+            } else if viewModel.selectedAnnotationIndex != nil {
                 viewModel.deselectAnnotation()
             } else if viewModel.selectedTool != nil {
                 viewModel.selectTool(nil)
@@ -269,7 +285,9 @@ final class PreviewWindow: NSPanel {
     }
 
     private func handleToolShortcuts(_ event: NSEvent) -> Bool {
-        guard let char = event.charactersIgnoringModifiers?.lowercased().first else { return false }
+        // ⌘ 组合保留给系统语义（⌘X 剪切、⌘C 复制等），不触发工具切换
+        guard !event.modifierFlags.contains(.command),
+              let char = event.charactersIgnoringModifiers?.lowercased().first else { return false }
 
         if char == "c" && !event.modifierFlags.contains(.command) {
             Task { @MainActor in viewModel.toggleCropMode() }
@@ -303,6 +321,12 @@ final class PreviewWindow: NSPanel {
             return true
         case "n":
             Task { @MainActor in toggleTool(.numberLabel) }
+            return true
+        case "x":
+            Task { @MainActor in toggleTool(.privacyRedaction) }
+            return true
+        case "b":
+            Task { @MainActor in toggleTool(.calloutBubble) }
             return true
         case "p":
             Task { @MainActor in viewModel.pinScreenshot() }
@@ -396,26 +420,48 @@ final class PreviewWindowController: NSWindowController {
     ///   - onSave: Callback when the screenshot is saved
     func showPreview(
         for screenshot: Screenshot,
+        autoTriggerOCR: Bool = false,
+        autoTriggerTranslate: Bool = false,
         onSave: @escaping (URL) -> Void = { _ in }
     ) {
         // Close any existing preview
         closePreview()
 
         // Create new preview window
-        previewWindow = PreviewWindow(
+        let win = PreviewWindow(
             screenshot: screenshot,
             onDismiss: { [weak self] in
                 self?.closePreview()
             },
             onSave: onSave
         )
-
-        previewWindow?.showPreview()
+        if autoTriggerOCR {
+            win.triggerOCR()
+        }
+        if autoTriggerTranslate {
+            win.triggerTranslation()
+        }
+        previewWindow = win
+        win.showPreview()
     }
 
     /// Closes the current preview window
     func closePreview() {
         previewWindow?.closePreview()
         previewWindow = nil
+    }
+
+    func triggerOCR() {
+        previewWindow?.triggerOCR()
+    }
+}
+
+extension PreviewWindow {
+    func triggerOCR() {
+        viewModel.performOCR()
+    }
+
+    func triggerTranslation() {
+        viewModel.performTranslation()
     }
 }

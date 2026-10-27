@@ -223,7 +223,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# Sign embedded frameworks with ad-hoc signature to match main app\nFRAMEWORKS_DIR=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks\"\nif [ -d \"$FRAMEWORKS_DIR\" ]; then\n    for FRAMEWORK in \"$FRAMEWORKS_DIR\"/*.framework; do\n        if [ -d \"$FRAMEWORK\" ]; then\n            echo \"Re-signing framework with ad-hoc: $(basename \"$FRAMEWORK\")\"\n            codesign --force --sign - --deep \"$FRAMEWORK\"\n        fi\n    done\nfi\nmkdir -p \"${DERIVED_FILE_DIR}\"\ntouch \"${DERIVED_FILE_DIR}/TransFrameFrameworkResign.stamp\"\n";
+			shellScript = "set -euo pipefail\n# Thin and sign embedded frameworks\nFRAMEWORKS_DIR=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks\"\nif [ -d \"$FRAMEWORKS_DIR\" ]; then\n    TARGET_ARCH=\"${ARCHS:-arm64}\"\n    if [ \"$TARGET_ARCH\" = \"arm64\" ] || [ \"$TARGET_ARCH\" = \"x86_64\" ]; then\n        if [ -d \"$FRAMEWORKS_DIR/Sparkle.framework\" ]; then\n            SPARKLE=\"$FRAMEWORKS_DIR/Sparkle.framework\"\n            for b in \"Versions/B/Sparkle\" \"Versions/B/Autoupdate\" \"Versions/B/Updater.app/Contents/MacOS/Updater\" \"Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader\" \"Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer\"; do\n                if [ -f \"$SPARKLE/$b\" ]; then\n                    lipo -thin \"$TARGET_ARCH\" \"$SPARKLE/$b\" -output \"$SPARKLE/$b.thin\" 2>/dev/null && mv \"$SPARKLE/$b.thin\" \"$SPARKLE/$b\" || true\n                    strip -x \"$SPARKLE/$b\" 2>/dev/null || true\n                fi\n            done\n        fi\n    fi\n    SIGN_ID=\"${EXPANDED_CODE_SIGN_IDENTITY:-}\"\n    if [ -z \"$SIGN_ID\" ] || [ \"$SIGN_ID\" = \"-\" ]; then\n        SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 \"Developer ID Application\" | awk -F '\"' '{print $2}' || true)\n    fi\n    if [ -z \"$SIGN_ID\" ]; then\n        SIGN_ID=\"-\"\n    fi\n    for FRAMEWORK in \"$FRAMEWORKS_DIR\"/*.framework; do\n        if [ -d \"$FRAMEWORK\" ]; then\n            echo \"Re-signing framework with $SIGN_ID: $(basename \"$FRAMEWORK\")\"\n            codesign --force --sign \"$SIGN_ID\" --timestamp=none --deep \"$FRAMEWORK\"\n        fi\n    done\nfi\nmkdir -p \"${DERIVED_FILE_DIR}\"\ntouch \"${DERIVED_FILE_DIR}/TransFrameFrameworkResign.stamp\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -382,11 +382,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "TransFrame/Supporting Files/TransFrame.entitlements";
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 13;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 27LU47J28S;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
@@ -416,15 +416,17 @@
 		SC000015 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD)";
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "TransFrame/Supporting Files/TransFrame.entitlements";
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 13;
-				DEVELOPMENT_TEAM = "";
+				DEAD_CODE_STRIPPING = YES;
+				DEPLOYMENT_POSTPROCESSING = YES;
+				DEVELOPMENT_TEAM = 27LU47J28S;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
@@ -445,6 +447,8 @@
 				PRODUCT_MODULE_NAME = TransFrame;
 				PRODUCT_NAME = TransFrame;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;

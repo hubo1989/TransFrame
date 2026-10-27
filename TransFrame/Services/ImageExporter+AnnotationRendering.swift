@@ -72,17 +72,92 @@ extension ImageExporter {
         in context: CGContext,
         imageHeight: CGFloat
     ) {
-        let rect = CGRect(
+        let cgBubbleRect = CGRect(
             x: annotation.rect.origin.x,
             y: imageHeight - annotation.rect.origin.y - annotation.rect.height,
             width: annotation.rect.width,
             height: annotation.rect.height
         )
+        let cgTarget = CGPoint(
+            x: annotation.targetPoint.x,
+            y: imageHeight - annotation.targetPoint.y
+        )
+
+        // Measure the text first; grow the bubble downward (SwiftUI-down =
+        // CG minY decreasing) when the stored rect is too short for the
+        // content, so exports never silently truncate what the preview showed.
+        var bubbleRect = cgBubbleRect
+        var measuredText: (attributedString: NSAttributedString, framesetter: CTFramesetter, padding: CGFloat)?
+        if !annotation.text.isEmpty {
+            let fontSize = max(10, annotation.style.fontSize)
+            let font = NSFont.systemFont(ofSize: fontSize, weight: .medium)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: annotation.style.color.nsColor
+            ]
+            let attributedString = NSAttributedString(string: annotation.text, attributes: attributes)
+            let textPadding: CGFloat = 6.0
+            let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+            measuredText = (attributedString, framesetter, textPadding)
+
+            let insetWidth = max(1, cgBubbleRect.width - textPadding * 2)
+            let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
+                framesetter,
+                CFRangeMake(0, attributedString.length),
+                nil,
+                CGSize(width: insetWidth, height: .greatestFiniteMagnitude),
+                nil
+            )
+            let requiredHeight = ceil(suggested.height) + textPadding * 2
+            if requiredHeight > bubbleRect.height {
+                bubbleRect = CGRect(
+                    x: bubbleRect.minX,
+                    y: bubbleRect.maxY - requiredHeight,
+                    width: bubbleRect.width,
+                    height: requiredHeight
+                )
+            }
+        }
+
         context.saveGState()
+
+        // 1. Draw pointer tail from bubble to target point
+        let attachX = max(bubbleRect.minX + 10, min(bubbleRect.maxX - 10, cgTarget.x))
+        let attachY = cgTarget.y < bubbleRect.minY ? bubbleRect.minY : (cgTarget.y > bubbleRect.maxY ? bubbleRect.maxY : bubbleRect.midY)
+        let halfBase = min(8.0, max(4.0, bubbleRect.width * 0.1))
+        let tailPath = CGMutablePath()
+        tailPath.move(to: cgTarget)
+        tailPath.addLine(to: CGPoint(x: attachX - halfBase, y: attachY))
+        tailPath.addLine(to: CGPoint(x: attachX + halfBase, y: attachY))
+        tailPath.closeSubpath()
         context.setFillColor(annotation.bubbleColor.cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        context.addPath(tailPath)
+        context.fillPath()
+        context.setStrokeColor(annotation.bubbleColor.cgColor)
+        context.setLineWidth(2.0)
+        context.move(to: cgTarget)
+        context.addLine(to: CGPoint(x: attachX, y: attachY))
+        context.strokePath()
+
+        // 2. Draw bubble body
+        context.setFillColor(annotation.bubbleColor.cgColor)
+        let path = CGPath(roundedRect: bubbleRect, cornerWidth: 8, cornerHeight: 8, transform: nil)
         context.addPath(path)
         context.fillPath()
+
+        // 3. Draw text inside bubble
+        if let measured = measuredText {
+            let textRect = bubbleRect.insetBy(dx: measured.padding, dy: measured.padding)
+            let textPath = CGPath(rect: textRect, transform: nil)
+            let frame = CTFramesetterCreateFrame(
+                measured.framesetter,
+                CFRangeMake(0, measured.attributedString.length),
+                textPath,
+                nil
+            )
+            CTFrameDraw(frame, context)
+        }
+
         context.restoreGState()
     }
 
@@ -101,8 +176,8 @@ extension ImageExporter {
         )
 
         if annotation.isFilled {
-            // Filled rectangle - solid color to hide underlying content
-            context.setFillColor(annotation.style.color.cgColor)
+            // Filled rectangle - background fill color (falls back to stroke color for legacy docs)
+            context.setFillColor(annotation.effectiveFillColor.cgColor)
             context.fill(rect)
         } else {
             // Hollow rectangle - outline only
@@ -144,6 +219,7 @@ extension ImageExporter {
         // Transform from SwiftUI coordinates (origin top-left) to CG coordinates (origin bottom-left)
         let start = CGPoint(x: annotation.startPoint.x, y: imageHeight - annotation.startPoint.y)
         let end = CGPoint(x: annotation.endPoint.x, y: imageHeight - annotation.endPoint.y)
+        let control = annotation.controlPoint.map { CGPoint(x: $0.x, y: imageHeight - $0.y) }
         let lineWidth = annotation.style.lineWidth
 
         context.setStrokeColor(annotation.style.color.cgColor)
@@ -152,18 +228,23 @@ extension ImageExporter {
         context.setLineCap(.round)
         context.setLineJoin(.round)
 
-        // Draw the main line
+        // Draw the main line (curved if control point exists)
         context.beginPath()
         context.move(to: start)
-        context.addLine(to: end)
+        if let cp = control {
+            context.addQuadCurve(to: end, control: cp)
+        } else {
+            context.addLine(to: end)
+        }
         context.strokePath()
 
         // Draw the arrowhead
         let arrowHeadLength = max(lineWidth * 4, 12)
         let arrowHeadAngle: CGFloat = .pi / 6
 
-        let dx = end.x - start.x
-        let dy = end.y - start.y
+        let prevPoint = control ?? start
+        let dx = end.x - prevPoint.x
+        let dy = end.y - prevPoint.y
         let angle = atan2(dy, dx)
 
         let arrowPoint1 = CGPoint(
@@ -191,32 +272,38 @@ extension ImageExporter {
     ) {
         guard !annotation.content.isEmpty else { return }
 
-        // Create attributed string
+        // Create attributed string with word-wrapping so multi-line content is fully rendered
         let font = NSFont(name: annotation.style.fontName, size: annotation.style.fontSize)
             ?? NSFont.systemFont(ofSize: annotation.style.fontSize)
-
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .paragraphStyle: paragraph,
             .foregroundColor: annotation.style.color.nsColor
         ]
-
         let attributedString = NSAttributedString(string: annotation.content, attributes: attributes)
 
-        // Draw text at position (transform Y coordinate)
-        let position = CGPoint(
-            x: annotation.position.x,
-            y: imageHeight - annotation.position.y - annotation.style.fontSize
+        // Frame in the measured bounds so wrapped lines and hard line breaks both fit
+        let bounds = annotation.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let frameRect = CGRect(
+            x: bounds.minX,
+            y: imageHeight - bounds.maxY,
+            width: bounds.width,
+            height: bounds.height
         )
 
-        // Save context state
         context.saveGState()
-
-        // Create line and draw
-        let line = CTLineCreateWithAttributedString(attributedString)
-        context.textPosition = position
-        CTLineDraw(line, context)
-
-        // Restore context state
+        let path = CGPath(rect: frameRect, transform: nil)
+        let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+        let frame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: attributedString.length),
+            path,
+            nil
+        )
+        CTFrameDraw(frame, context)
         context.restoreGState()
     }
 
@@ -234,7 +321,7 @@ extension ImageExporter {
         )
 
         if annotation.isFilled {
-            context.setFillColor(annotation.style.color.cgColor)
+            context.setFillColor(annotation.effectiveFillColor.cgColor)
             context.fillEllipse(in: rect)
         } else {
             context.setStrokeColor(annotation.style.color.cgColor)
@@ -395,6 +482,19 @@ extension ImageExporter {
             y: imageHeight - annotation.position.y
         )
         let radius = annotation.size / 2
+
+        if let lp = annotation.leadPoint {
+            let leadCG = CGPoint(x: lp.x, y: imageHeight - lp.y)
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(2.0)
+            context.beginPath()
+            context.move(to: center)
+            context.addLine(to: leadCG)
+            context.strokePath()
+
+            context.setFillColor(annotation.color.cgColor)
+            context.fillEllipse(in: CGRect(x: leadCG.x - 3, y: leadCG.y - 3, width: 6, height: 6))
+        }
 
         // Draw filled circle
         context.setFillColor(annotation.color.cgColor)

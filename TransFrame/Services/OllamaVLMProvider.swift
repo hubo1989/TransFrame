@@ -66,14 +66,24 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
-        guard let imageData = image.jpegData(quality: 0.85), !imageData.isEmpty else {
-            throw VLMProviderError.imageEncodingFailed
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
+        let encoded = try AnalysisImageEncoder.jpeg(image)
+        let imageSize = CGSize(width: image.width, height: image.height)
+
+        var responseData: Data
+        do {
+            let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt, includeResponseFormat: true)
+            responseData = try await executeRequest(request)
+        } catch VLMProviderError.invalidConfiguration {
+            // Some OpenAI-compatible endpoints reject response_format with a
+            // 400; retry once without it (mirrors OpenAIVLMProvider).
+            let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt, includeResponseFormat: false)
+            responseData = try await executeRequest(request)
         }
 
-        let base64Image = imageData.base64EncodedString()
-        let imageSize = CGSize(width: image.width, height: image.height)
-        let request = try buildRequest(base64Image: base64Image)
-        let responseData = try await executeRequest(request)
         let vlmResponse = try parseOllamaResponse(responseData)
 
         return vlmResponse.toScreenAnalysisResult(imageSize: imageSize)
@@ -125,7 +135,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     /// Builds the URLRequest for local server (Ollama /api/generate or OpenAI /chat/completions)
-    private func buildRequest(base64Image: String) throws -> URLRequest {
+    private func buildRequest(base64Image: String, prompts: VLMPromptPair = .ocr, includeResponseFormat: Bool = true) throws -> URLRequest {
         let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
         let endpoint: URL
         if isChatCompletions {
@@ -149,31 +159,37 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         request.timeoutInterval = timeout
 
         if isChatCompletions {
-            let body: [String: Any] = [
+            var body: [String: Any] = [
                 "model": configuration.modelName,
                 "messages": [
                     [
                         "role": "user",
                         "content": [
-                            ["type": "text", "text": "\(VLMPromptTemplate.systemPrompt)\n\n\(VLMPromptTemplate.userPrompt)"],
+                            ["type": "text", "text": "\(prompts.system)\n\n\(prompts.user)"],
                             ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                         ]
                     ]
                 ],
                 "temperature": 0.1
             ]
+            if includeResponseFormat {
+                // Ollama's OpenAI-compatible layer and most vLLM builds accept
+                // this; incompatible servers hit the 400 fallback in analyze.
+                body["response_format"] = ["type": "json_object"]
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {
             let prompt = """
-                \(VLMPromptTemplate.systemPrompt)
+                \(prompts.system)
 
-                \(VLMPromptTemplate.userPrompt)
+                \(prompts.user)
                 """
 
             let requestBody = OllamaGenerateRequest(
                 model: configuration.modelName,
                 prompt: prompt,
                 images: [base64Image],
+                format: "json",
                 stream: false,
                 options: OllamaOptions(
                     temperature: 0.1,
@@ -315,6 +331,9 @@ private struct OllamaGenerateRequest: Encodable, Sendable {
     let model: String
     let prompt: String
     let images: [String]
+    /// "json" restricts generation to valid JSON, preventing prose responses
+    /// that would fall through to the plain-text bbox fallback.
+    let format: String?
     let stream: Bool
     let options: OllamaOptions?
 }

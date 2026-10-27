@@ -29,6 +29,9 @@ enum TransFrameError: LocalizedError, Sendable {
     /// Failed to encode the image to the specified format
     case exportEncodingFailed(format: ExportFormat)
 
+    /// Image upload to the configured host failed (network/HTTP/provider error)
+    case imageUploadFailed(reason: String)
+
     // MARK: - Clipboard Errors
 
     /// Failed to write the screenshot to the system clipboard
@@ -43,9 +46,6 @@ enum TransFrameError: LocalizedError, Sendable {
     case hotkeyConflict(existingApp: String?)
 
     // MARK: - OCR Errors
-
-    /// OCR operation is currently in progress
-    case ocrOperationInProgress
 
     /// The image provided for OCR is invalid
     case ocrInvalidImage
@@ -74,14 +74,14 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.disk.full", comment: "")
         case .exportEncodingFailed:
             return NSLocalizedString("error.export.encoding.failed", comment: "")
+        case .imageUploadFailed(let reason):
+            return String(format: NSLocalizedString("error.image.upload.failed", comment: ""), reason)
         case .clipboardWriteFailed:
             return NSLocalizedString("error.clipboard.write.failed", comment: "")
         case .hotkeyRegistrationFailed:
             return NSLocalizedString("error.hotkey.registration.failed", comment: "")
         case .hotkeyConflict:
             return NSLocalizedString("error.hotkey.conflict", comment: "")
-        case .ocrOperationInProgress:
-            return NSLocalizedString("error.ocr.in.progress", comment: "")
         case .ocrInvalidImage:
             return NSLocalizedString("error.ocr.invalid.image", comment: "")
         case .ocrRecognitionFailed:
@@ -107,14 +107,14 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.disk.full.recovery", comment: "")
         case .exportEncodingFailed:
             return NSLocalizedString("error.export.encoding.failed.recovery", comment: "")
+        case .imageUploadFailed:
+            return NSLocalizedString("error.image.upload.failed.recovery", comment: "")
         case .clipboardWriteFailed:
             return NSLocalizedString("error.clipboard.write.failed.recovery", comment: "")
         case .hotkeyRegistrationFailed:
             return NSLocalizedString("error.hotkey.registration.failed.recovery", comment: "")
         case .hotkeyConflict:
             return NSLocalizedString("error.hotkey.conflict.recovery", comment: "")
-        case .ocrOperationInProgress:
-            return NSLocalizedString("error.ocr.in.progress.recovery", comment: "")
         case .ocrInvalidImage:
             return NSLocalizedString("error.ocr.invalid.image.recovery", comment: "")
         case .ocrRecognitionFailed:

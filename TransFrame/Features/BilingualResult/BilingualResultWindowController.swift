@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+final class BilingualResultPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 @MainActor
 final class BilingualResultWindowController: NSObject {
     static let shared = BilingualResultWindowController()
@@ -61,15 +66,23 @@ final class BilingualResultWindowController: NSObject {
             maxHeight: screenHeight * 0.85
         )
 
-        let newWindow = NSWindow(
+        let newWindow = BilingualResultPanel(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            // .titled + .fullSizeContentView keeps the borderless look while
+            // retaining system edge-resize (a pure .borderless mask ignores
+            // .resizable for user resizing) and a VoiceOver window title.
+            styleMask: [.titled, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
+        newWindow.titleVisibility = .hidden
+        newWindow.titlebarAppearsTransparent = true
+        newWindow.isOpaque = false
+        newWindow.backgroundColor = .clear
+        newWindow.hasShadow = true
+        newWindow.isMovableByWindowBackground = true
         newWindow.contentView = hostingView
-        newWindow.title = String(localized: "bilingualResult.window.title")
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
         newWindow.delegate = self
@@ -135,15 +148,23 @@ final class BilingualResultWindowController: NSObject {
             maxHeight: 800
         )
 
-        let newWindow = NSWindow(
+        let newWindow = BilingualResultPanel(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            // .titled + .fullSizeContentView keeps the borderless look while
+            // retaining system edge-resize (a pure .borderless mask ignores
+            // .resizable for user resizing) and a VoiceOver window title.
+            styleMask: [.titled, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
+        newWindow.titleVisibility = .hidden
+        newWindow.titlebarAppearsTransparent = true
+        newWindow.isOpaque = false
+        newWindow.backgroundColor = .clear
+        newWindow.hasShadow = true
+        newWindow.isMovableByWindowBackground = true
         newWindow.contentView = hostingView
-        newWindow.title = String(localized: "bilingualResult.window.title")
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
         newWindow.delegate = self

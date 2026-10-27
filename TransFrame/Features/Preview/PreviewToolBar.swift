@@ -40,6 +40,7 @@ struct PreviewToolBar: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle().inset(by: -2))
         .customTooltip("\(tool.displayName) (\(String(tool.keyboardShortcut).uppercased()))")
         .accessibilityLabel(Text(tool.displayName))
         .accessibilityHint(Text("Press \(String(tool.keyboardShortcut).uppercased()) to toggle"))
@@ -62,6 +63,16 @@ struct PreviewStyleCustomizationBar: View {
         [.red, .yellow, .green, .blue, .black]
     }
 
+    private var isShapeTool: Bool {
+        effectiveToolType == .rectangle || effectiveToolType == .ellipse
+    }
+
+    private var isShapeFilled: Bool {
+        isEditingAnnotation
+            ? (viewModel.selectedAnnotationIsFilled ?? false)
+            : (effectiveToolType == .ellipse ? AppSettings.shared.ellipseFilled : AppSettings.shared.rectangleFilled)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             if isEditingAnnotation {
@@ -71,14 +82,19 @@ struct PreviewStyleCustomizationBar: View {
             }
 
             if effectiveToolType != .mosaic {
-                colorPicker
-
+                colorRow(for: .stroke)
                 Divider()
                     .frame(height: 16)
             }
 
-            if effectiveToolType == .rectangle || effectiveToolType == .ellipse {
+            if isShapeTool {
                 shapeFillToggle
+                Divider()
+                    .frame(height: 16)
+            }
+
+            if isShapeTool && isShapeFilled {
+                colorRow(for: .fill)
                 Divider()
                     .frame(height: 16)
             }
@@ -87,7 +103,7 @@ struct PreviewStyleCustomizationBar: View {
                 strokeWidthControl
             }
 
-            if effectiveToolType == .text {
+            if effectiveToolType == .text || effectiveToolType == .calloutBubble {
                 textSizeControl
             }
 
@@ -96,6 +112,12 @@ struct PreviewStyleCustomizationBar: View {
             }
 
             if isEditingAnnotation {
+                if effectiveToolType == .text || effectiveToolType == .calloutBubble {
+                    Divider()
+                        .frame(height: 16)
+                    editTextButton
+                }
+
                 Divider()
                     .frame(height: 16)
 
@@ -108,70 +130,92 @@ struct PreviewStyleCustomizationBar: View {
         if effectiveToolType == .freehand || effectiveToolType == .arrow || effectiveToolType == .line {
             return true
         }
-        
-        if effectiveToolType == .rectangle {
-            let isFilled = isEditingAnnotation
-                ? (viewModel.selectedAnnotationIsFilled ?? false)
-                : AppSettings.shared.rectangleFilled
-            return !isFilled
+
+        if isShapeTool {
+            return !isShapeFilled
         }
-        
-        if effectiveToolType == .ellipse {
-            let isFilled = isEditingAnnotation
-                ? (viewModel.selectedAnnotationIsFilled ?? false)
-                : AppSettings.shared.ellipseFilled
-            return !isFilled
-        }
-        
+
         return false
     }
 
-    private var colorPicker: some View {
+    // MARK: - Color Rows
+
+    /// Which annotation color a swatch/picker applies to
+    private enum ColorTarget {
+        case stroke
+        case fill
+    }
+
+    private func colorRow(for target: ColorTarget) -> some View {
         HStack(spacing: 2) {
+            if target == .fill {
+                Image(systemName: "paintpalette")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+
             ForEach(presetColors, id: \.self) { color in
-                colorButton(for: color)
+                colorButton(for: color, target: target)
             }
 
             ColorPicker(
                 "",
                 selection: Binding(
-                    get: {
-                        if isEditingAnnotation {
-                            return viewModel.selectedAnnotationColor?.color ?? .red
-                        }
-                        return AppSettings.shared.strokeColor.color
-                    },
+                    get: { currentColor(for: target)?.color ?? .red },
                     set: { newColor in
-                        if isEditingAnnotation {
-                            viewModel.updateSelectedAnnotationColor(CodableColor(newColor))
-                        } else {
-                            AppSettings.shared.strokeColor = CodableColor(newColor)
-                        }
+                        applyColor(CodableColor(newColor), to: target)
                     }
                 ),
-                supportsOpacity: false
+                supportsOpacity: target == .fill
             )
             .labelsHidden()
             .frame(width: 24)
+            .customTooltip(String(localized: "preview.color.custom"))
+
+            eyedropperButton(target: target)
         }
     }
 
-    private func colorButton(for color: Color) -> some View {
-        Button {
-            if isEditingAnnotation {
-                viewModel.updateSelectedAnnotationColor(CodableColor(color))
-            } else {
-                AppSettings.shared.strokeColor = CodableColor(color)
+    private func currentColor(for target: ColorTarget) -> CodableColor? {
+        if isEditingAnnotation {
+            switch target {
+            case .stroke:
+                return viewModel.selectedAnnotationColor
+            case .fill:
+                return viewModel.selectedAnnotationFillColor
             }
+        }
+        return target == .stroke ? AppSettings.shared.strokeColor : AppSettings.shared.shapeFillColor
+    }
+
+    private func applyColor(_ color: CodableColor, to target: ColorTarget) {
+        if isEditingAnnotation {
+            switch target {
+            case .stroke:
+                viewModel.updateSelectedAnnotationColor(color)
+            case .fill:
+                viewModel.updateSelectedAnnotationFillColor(color)
+            }
+        } else {
+            switch target {
+            case .stroke:
+                AppSettings.shared.strokeColor = color
+            case .fill:
+                AppSettings.shared.shapeFillColor = color
+            }
+        }
+    }
+
+    private func colorButton(for color: Color, target: ColorTarget) -> some View {
+        Button {
+            applyColor(CodableColor(color), to: target)
         } label: {
             Circle()
                 .fill(color)
                 .frame(width: 16, height: 16)
                 .overlay {
-                    let currentColor = isEditingAnnotation
-                        ? (viewModel.selectedAnnotationColor?.color ?? .clear)
-                        : AppSettings.shared.strokeColor.color
-                    if colorsAreEqual(currentColor, color) {
+                    let active = currentColor(for: target)?.color ?? .clear
+                    if colorsAreEqual(active, color) {
                         Circle()
                             .stroke(Color.primary, lineWidth: 2)
                     }
@@ -184,7 +228,24 @@ struct PreviewStyleCustomizationBar: View {
                 }
         }
         .buttonStyle(.plain)
-        .help(colorName(for: color))
+        .customTooltip(target == .fill ? "\(colorName(for: color)) (\(String(localized: "preview.fill.color")))" : colorName(for: color))
+    }
+
+    /// Screen eyedropper: samples a pixel anywhere on screen into the target color
+    private func eyedropperButton(target: ColorTarget) -> some View {
+        Button {
+            NSColorSampler().show { selectedColor in
+                guard let nsColor = selectedColor else { return }
+                applyColor(CodableColor(Color(nsColor: nsColor)), to: target)
+            }
+        } label: {
+            Image(systemName: "eyedropper")
+                .font(.system(size: 11))
+                .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle().inset(by: -2))
+        .customTooltip(String(localized: "preview.color.eyedropper"))
     }
 
     private var shapeFillToggle: some View {
@@ -213,7 +274,7 @@ struct PreviewStyleCustomizationBar: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .help(isFilled ? String(localized: "preview.shape.filled") : String(localized: "preview.shape.hollow"))
+        .customTooltip(isFilled ? String(localized: "preview.shape.filled") : String(localized: "preview.shape.hollow"))
     }
     
     private func getFillIconName() -> String {
@@ -250,7 +311,7 @@ struct PreviewStyleCustomizationBar: View {
                 step: 0.5
             )
             .frame(width: 80)
-            .help(String(localized: "settings.stroke.width"))
+            .customTooltip(String(localized: "settings.stroke.width"))
 
             let width = isEditingAnnotation
                 ? Int(viewModel.selectedAnnotationStrokeWidth ?? 3)
@@ -288,7 +349,7 @@ struct PreviewStyleCustomizationBar: View {
                 step: 1
             )
             .frame(width: 80)
-            .help(String(localized: "settings.text.size"))
+            .customTooltip(String(localized: "settings.text.size"))
 
             let size = isEditingAnnotation
                 ? Int(viewModel.selectedAnnotationFontSize ?? 16)
@@ -326,7 +387,7 @@ struct PreviewStyleCustomizationBar: View {
                 step: 1
             )
             .frame(width: 80)
-            .help(String(localized: "settings.mosaic.blockSize"))
+            .customTooltip(String(localized: "settings.mosaic.blockSize"))
 
             let size = isEditingAnnotation
                 ? Int(viewModel.selectedAnnotationBlockSize ?? 10)
@@ -338,6 +399,17 @@ struct PreviewStyleCustomizationBar: View {
         }
     }
 
+    private var editTextButton: some View {
+        Button {
+            viewModel.editSelectedText()
+        } label: {
+            Image(systemName: "character.cursor.ibeam")
+                .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .customTooltip(String(localized: "preview.tooltip.editText"))
+    }
+
     private var deleteButton: some View {
         Button {
             viewModel.deleteSelectedAnnotation()
@@ -346,7 +418,7 @@ struct PreviewStyleCustomizationBar: View {
                 .foregroundStyle(.red)
         }
         .buttonStyle(.plain)
-        .help(String(localized: "preview.tooltip.delete"))
+        .customTooltip(String(localized: "preview.tooltip.delete"))
     }
 
     private func colorsAreEqual(_ colorA: Color, _ colorB: Color) -> Bool {
@@ -377,25 +449,30 @@ struct PreviewStyleCustomizationBar: View {
 
 // MARK: - Custom Tooltip for Floating Windows
 
+enum TooltipPlacement {
+    case top
+    case bottom
+}
+
 extension View {
-    /// Custom tooltip that works in floating windows where .help() may not display
-    func customTooltip(_ text: String) -> some View {
-        self.modifier(CustomTooltipModifier(text: text))
+    /// Custom tooltip that works reliably in high-level borderless floating panels where native .help() may not display
+    func customTooltip(_ text: String, placement: TooltipPlacement = .top) -> some View {
+        self.modifier(CustomTooltipModifier(text: text, placement: placement))
     }
 }
 
 struct CustomTooltipModifier: ViewModifier {
     let text: String
+    var placement: TooltipPlacement = .top
     @State private var isHovered = false
     @State private var showTooltip = false
-    
+
     func body(content: Content) -> some View {
         content
             .onHover { hovering in
                 isHovered = hovering
                 if hovering {
-                    // Short delay before showing tooltip
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         if isHovered {
                             showTooltip = true
                         }
@@ -404,21 +481,29 @@ struct CustomTooltipModifier: ViewModifier {
                     showTooltip = false
                 }
             }
-            .overlay(alignment: .top) {
+            .overlay(alignment: placement == .top ? .top : .bottom) {
                 if showTooltip {
                     Text(text)
-                        .font(.caption)
+                        .font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(Color(nsColor: .windowBackgroundColor))
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(nsColor: .windowBackgroundColor))
+                                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
+                        )
                         .foregroundColor(.primary)
-                        .cornerRadius(4)
-                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                        .offset(y: -28)
+                        .offset(y: placement == .top ? -28 : 28)
                         .transition(.opacity)
                         .fixedSize()
-                        .compositingGroup()
+                        .allowsHitTesting(false)
+                        .zIndex(999)
                 }
             }
+            .zIndex(showTooltip ? 100 : 0)
     }
 }

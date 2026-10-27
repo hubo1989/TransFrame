@@ -9,50 +9,123 @@ struct PreviewContentView: View {
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Whether the right-side results drawer should occupy layout space
+    private var showsResultsPanel: Bool {
+        viewModel.hasOCRResults || viewModel.isPerformingOCR
+            || viewModel.hasTranslationResults || viewModel.isTranslating
+            || isResultsPanelExpanded
+    }
+
+    /// Canvas area + results drawer + floating toolbar (see body note).
+    private var mainContent: some View {
+        ZStack(alignment: .bottom) {
+            // Main Canvas Area + Embedded Right Results Drawer
+            HStack(spacing: 0) {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    PreviewAnnotatedImageView(
+                        viewModel: viewModel,
+                        imageDisplaySize: $imageDisplaySize,
+                        imageScale: $imageScale,
+                        isTextFieldFocused: $isTextFieldFocused
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(16)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if showsResultsPanel && isResultsPanelExpanded {
+                    PreviewResultsPanel(viewModel: viewModel, isExpanded: $isResultsPanelExpanded)
+                        .frame(width: 300)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if showsResultsPanel {
+                    // Once collapsed, the drawer has no other way back:
+                    // keep a slim handle so results stay reachable.
+                    Button {
+                        isResultsPanelExpanded = true
+                    } label: {
+                        Image(systemName: "sidebar.trailing")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26)
+                            .frame(maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .customTooltip(String(localized: "preview.panel.expandDrawer"), placement: .top)
+                    .padding(.vertical, 8)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isResultsPanelExpanded)
+
+            // Attached Floating Pill Toolbar
+            HStack(spacing: 12) {
+                PreviewToolBar(viewModel: viewModel)
+                Divider().frame(height: 16)
+                PreviewActionButtons(viewModel: viewModel)
+            }
+            .cursor(.arrow)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+            .padding(.bottom, 12)
+        }
+    }
+
+    /// Top-right dismiss button (see body note).
+    private var dismissButton: some View {
+        Button {
+            viewModel.dismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(.secondary, Color.black.opacity(0.1))
+                .padding(10)
+        }
+        .buttonStyle(.plain)
+        .customTooltip(String(localized: "preview.tooltip.dismiss"), placement: .bottom)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                PreviewAnnotatedImageView(
-                    viewModel: viewModel,
-                    imageDisplaySize: $imageDisplaySize,
-                    imageScale: $imageScale,
-                    isTextFieldFocused: $isTextFieldFocused
-                )
+        // Body is split into sub-properties: the full inline chain exceeded
+        // the type checker's expression budget (rdar-style "unable to
+        // type-check in reasonable time").
+        mainContent
+            .overlay(alignment: .topTrailing) {
+                dismissButton
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
-
-            Divider()
-
-            infoBar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.bar)
-
-            if viewModel.hasOCRResults {
-                Divider()
-                PreviewResultsPanel(viewModel: viewModel, isExpanded: $isResultsPanelExpanded)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.bar)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+            )
+            .onChange(of: viewModel.hasOCRResults) { _, hasResults in
+                if hasResults {
+                    isResultsPanelExpanded = true
+                }
             }
-        }
-        .onChange(of: viewModel.hasOCRResults) { _, hasResults in
-            if hasResults {
-                isResultsPanelExpanded = true
+            .onChange(of: viewModel.isTranslating) { _, translating in
+                if translating {
+                    isResultsPanelExpanded = true
+                }
             }
-        }
-        .alert(
-            String(localized: "error.title"),
-            isPresented: .constant(viewModel.errorMessage != nil),
-            presenting: viewModel.errorMessage
-        ) { _ in
-            Button(String(localized: "button.ok")) {
-                viewModel.errorMessage = nil
+            .overlay(alignment: .top) {
+                if let message = viewModel.smartRedactionMessage {
+                    SmartRedactionToast(message: message, isDetecting: viewModel.isDetectingPrivacy)
+                }
             }
-        } message: { message in
-            Text(message)
-        }
+            .animation(.easeInOut(duration: 0.3), value: viewModel.smartRedactionMessage != nil)
+            .alert(
+                String(localized: "error.title"),
+                isPresented: .constant(viewModel.errorMessage != nil),
+                presenting: viewModel.errorMessage
+            ) { _ in
+                Button(String(localized: "button.ok")) {
+                    viewModel.errorMessage = nil
+                }
+            } message: { message in
+                Text(message)
+            }
         .alert(
             String(localized: "save.success.title"),
             isPresented: .constant(viewModel.saveSuccessMessage != nil),
@@ -85,42 +158,30 @@ struct PreviewContentView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.copySuccessMessage != nil)
     }
+}
 
-    private var infoBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text(viewModel.dimensionsText)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "preview.image.dimensions"))
+/// Smart-redaction status toast. Split out of the main body because the
+/// inline ternary + modifier chain exceeded the type checker's budget.
+private struct SmartRedactionToast: View {
+    let message: String
+    let isDetecting: Bool
 
-                Text("•")
-                    .foregroundStyle(.tertiary)
-
-                Text(viewModel.fileSizeText)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "preview.estimated.size"))
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isDetecting ? "camera.metering.unknown" : "checkmark.circle.fill")
+                .foregroundColor(isDetecting ? Color.secondary : Color.green)
+            if isDetecting {
+                ProgressView().controlSize(.mini)
             }
-            .fixedSize()
-
-            Divider()
-                .frame(height: 16)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    PreviewToolBar(viewModel: viewModel)
-                }
-                .padding(.horizontal, 4)
-            }
-            .frame(minWidth: 100)
-
-            Divider()
-                .frame(height: 16)
-
-            PreviewActionButtons(viewModel: viewModel)
-                .fixedSize()
+            Text(message)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .cornerRadius(8)
+        .shadow(radius: 4)
+        .padding(.top, 20)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
