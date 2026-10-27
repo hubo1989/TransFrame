@@ -513,7 +513,13 @@ actor TranslationService {
                 return nil
             }
             let cleaned = self.sanitizeTranslation(translated: res.translatedText, source: res.sourceText)
-            if cleaned == res.sourceText, res.translatedText != res.sourceText {
+            // Only treat as failure when the provider returned something clearly
+            // broken (empty, JSON garbage, etc.) that sanitize converted back to
+            // source. A valid translation that happens to equal the source (proper
+            // nouns, code identifiers, "OK") must NOT be treated as failure.
+            if cleaned == res.sourceText,
+               res.translatedText != res.sourceText,
+               self.isLikelyBrokenTranslation(res.translatedText, source: res.sourceText) {
                 hasFailedSlot = true
             }
             return TranslationResult(
@@ -587,6 +593,29 @@ actor TranslationService {
         }
         
         return translated
+    }
+
+    /// Returns true when the raw provider output is clearly broken (empty,
+    /// JSON garbage, braces-only), as opposed to a valid translation that
+    /// happens to be identical to the source text.
+    private func isLikelyBrokenTranslation(_ translated: String, source: String) -> Bool {
+        let trimmed = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        // JSON-like garbage that sanitize extracted nothing useful from
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") {
+            return true
+        }
+        if trimmed.hasPrefix("["), trimmed.hasSuffix("]") {
+            return true
+        }
+        // Only braces/quotes/colons/whitespace
+        let allStructural = trimmed.allSatisfy { char in
+            char == "{" || char == "}" || char == "\"" || char == "'" || char == "`" ||
+            char == "[" || char == "]" || char == ":" || char == "," ||
+            char == "“" || char == "”" || char == "‘" || char == "’" ||
+            char.isWhitespace || char.isNumber
+        }
+        return allStructural
     }
 
     private func resolvedPromptTemplate(

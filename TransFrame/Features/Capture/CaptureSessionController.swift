@@ -90,6 +90,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
                     CaptureDocumentStore.shared.register(doc)
                     self.dispatchAction(.copy, for: doc)
                     self.onCaptureComplete?(doc)
+                    self.isStartingCapture = false
                     return
                 }
 

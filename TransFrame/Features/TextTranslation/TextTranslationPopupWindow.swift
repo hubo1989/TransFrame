@@ -29,7 +29,6 @@ final class TextTranslationPopupController: NSObject {
 
     private var window: NSWindow?
     private weak var popupDelegate: TextTranslationPopupDelegate?
-    private var presentationID = UUID()
     var onDismiss: (() -> Void)?
 
     private let debounceInterval: TimeInterval = 0.3
@@ -85,7 +84,6 @@ final class TextTranslationPopupController: NSObject {
         newWindow.minSize = NSSize(width: 380, height: 200)
         newWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        presentationID = UUID()
         self.window = newWindow
         lastPresentationTime = Date()
 

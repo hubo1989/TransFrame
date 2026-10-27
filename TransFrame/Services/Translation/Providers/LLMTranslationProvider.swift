@@ -530,10 +530,11 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
     /// remainder is appended. Handles trailing slashes and `URL.appendingPathComponent`
     /// percent-encoding quirks.
     private nonisolated static func appendingAPISuffix(_ base: URL, suffix: String) -> URL {
-        var url = base
-        while url.absoluteString.hasSuffix("/") {
-            url.deleteLastPathComponent()
+        var urlString = base.absoluteString
+        while urlString.hasSuffix("/") {
+            urlString = String(urlString.dropLast())
         }
+        guard var url = URL(string: urlString) else { return base }
         let baseParts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
         let suffixParts = suffix.split(separator: "/").map(String.init)
         // Find the longest overlapping prefix of suffix already present at end of base

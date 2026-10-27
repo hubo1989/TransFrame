@@ -71,6 +71,8 @@ extension PreviewViewModel {
         ocrTask?.cancel()
         translationTask?.cancel()
         analysisGeneration &+= 1
+        isPerformingOCR = false
+        isTranslating = false
         ocrResult = nil
         bilingualSegments = []
 

@@ -313,6 +313,9 @@ jobs:
           rm -rf dmg_temp
           rm -f "$ZIP_PATH" "$DMG_ZIP"
 
+          # Update DMG size for appcast (may have changed after notarization)
+          NEW_DMG_SIZE=$(stat -f%z "$DMG_FILE")
+          echo "dmg_size=$NEW_DMG_SIZE" >> $GITHUB_OUTPUT
           echo "notarized=true" >> $GITHUB_OUTPUT
 
       - name: Sign DMG for Sparkle
@@ -378,7 +381,7 @@ jobs:
           BUILD_NUM="${{ steps.build_number.outputs.build_num }}"
           DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag_name }}/${{ env.PROJECT_NAME }}-${VERSION}.dmg"
           PUBDATE="${{ steps.pubdate.outputs.date }}"
-          DMG_SIZE="${{ steps.create_dmg.outputs.dmg_size }}"
+          DMG_SIZE="${{ steps.notarize.outputs.dmg_size || steps.create_dmg.outputs.dmg_size }}"
           SIGNATURE="${{ steps.sign_dmg.outputs.signature }}"
           
           # Build enclosure tag with or without signature

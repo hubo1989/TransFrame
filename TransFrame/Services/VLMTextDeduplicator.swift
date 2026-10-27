@@ -46,28 +46,9 @@ enum VLMTextDeduplicator {
     ) -> [VLMTextSegment] {
         guard !segments.isEmpty else { return segments }
 
-        // Count text frequency to detect hallucinations
-        var textCounts: [String: Int] = [:]
-        for segment in segments {
-            let normalizedText = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            textCounts[normalizedText, default: 0] += 1
-        }
-
-        let total = segments.count
-        let validatedMultiplier = max(0.01, min(1.0, config.percentageMultiplier))
-        let percentageThreshold = max(config.minCountThreshold, Int(Double(total) * validatedMultiplier))
-
-        var overrepresentedTexts = Set<String>()
-        for (text, count) in textCounts {
-            if count > percentageThreshold {
-                overrepresentedTexts.insert(text)
-                logger?(text.count, count, percentageThreshold)
-            }
-        }
-
-        // Deduplicate using text+position signature ONLY.
-        // Do NOT collapse same-text segments at different positions —
-        // those are legitimate repeated UI elements (buttons, table cells).
+        // Deduplicate using text+position signature only.
+        // Same-text segments at different positions are legitimate repeated
+        // UI elements (buttons, table cells) and must be preserved.
         var seenSignatures = Set<String>()
         var result: [VLMTextSegment] = []
 
