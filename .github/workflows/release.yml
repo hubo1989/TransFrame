@@ -238,6 +238,83 @@ jobs:
 
           rm -rf dmg_temp
 
+      - name: Notarize & Staple App
+        id: notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="build/Build/Products/Release/${{ env.PROJECT_NAME }}.app"
+          VERSION=${{ steps.vars.outputs.version }}
+
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Warning: Notarization secrets not configured, skipping notarization"
+            echo "notarized=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if codesign -dv "$APP_PATH" 2>&1 | grep -q "Signature=adhoc"; then
+            echo "Warning: App is ad-hoc signed, skipping notarization"
+            echo "notarized=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Creating ZIP for notarization submission..."
+          ZIP_PATH="$RUNNER_TEMP/${{ env.PROJECT_NAME }}-${VERSION}-notarize.zip"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+
+          echo "Submitting to Apple notarization service..."
+          xcrun notarytool submit "$ZIP_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 30m
+
+          echo "Stapling notarization ticket to app..."
+          xcrun stapler staple "$APP_PATH"
+
+          echo "Verifying notarization..."
+          xcrun stapler validate "$APP_PATH"
+          spctl --assess --type execute --verbose "$APP_PATH"
+
+          echo "Notarization complete."
+
+          echo "Recreating DMG with stapled app..."
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
+          ARM64_DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+
+          mkdir -p dmg_temp
+          cp -R "$APP_PATH" dmg_temp/
+          ln -sf /Applications dmg_temp/Applications
+
+          hdiutil create -volname "${{ env.PROJECT_NAME }}" \
+            -srcfolder dmg_temp \
+            -ov -format UDZO \
+            "$DMG_FILE"
+
+          cp "$DMG_FILE" "$ARM64_DMG_FILE"
+
+          echo "Notarizing DMG..."
+          DMG_ZIP="$RUNNER_TEMP/${{ env.PROJECT_NAME }}-${VERSION}-dmg.zip"
+          ditto -c -k --keepParent "$DMG_FILE" "$DMG_ZIP"
+
+          xcrun notarytool submit "$DMG_ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --timeout 30m
+
+          xcrun stapler staple "$DMG_FILE"
+          cp "$DMG_FILE" "$ARM64_DMG_FILE"
+
+          rm -rf dmg_temp
+          rm -f "$ZIP_PATH" "$DMG_ZIP"
+
+          echo "notarized=true" >> $GITHUB_OUTPUT
+
       - name: Sign DMG for Sparkle
         id: sign_dmg
         run: |
