@@ -223,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hex = String(format: "#%02X%02X%02X", r, g, b)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(hex, forType: .string)
-            NotificationCenter.default.post(name: Notification.Name("colorDidPick"), object: hex)
+            NotificationCenter.default.post(name: .colorDidPick, object: hex)
         }
     }
 
@@ -241,11 +241,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Loads an image file URL and shows the preview editor window
     func openImageURL(_ url: URL) {
-        guard let nsImage = NSImage(contentsOf: url) else { return }
+        guard let nsImage = NSImage(contentsOf: url) else {
+            showImageLoadFailure(url)
+            return
+        }
         var proposedRect = NSRect(origin: .zero, size: nsImage.size)
-        guard let cgImage = nsImage.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else { return }
+        guard let cgImage = nsImage.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+            showImageLoadFailure(url)
+            return
+        }
 
-        let screen = NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            showImageLoadFailure(url)
+            return
+        }
         let displayInfo = DisplayInfo(
             id: CGMainDisplayID(),
             name: screen.localizedName,
@@ -268,6 +277,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Error Handling
+
+    /// Shows an alert when an image file cannot be loaded for editing
+    private func showImageLoadFailure(_ url: URL) {
+        Logger.general.error("Failed to load image for editing: \(url.path, privacy: .public)")
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            format: NSLocalizedString("error.image.load.failed", comment: ""),
+            url.lastPathComponent
+        )
+        alert.runModal()
+    }
 
     /// Shows an error alert for capture failures
     func showCaptureError(_ error: TransFrameError) {

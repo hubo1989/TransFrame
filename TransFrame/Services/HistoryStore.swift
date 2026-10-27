@@ -52,6 +52,14 @@ final class HistoryStore: ObservableObject {
     /// Number of entries currently displayed
     @Published private(set) var displayedCount: Int = 100
 
+    /// Block-based notification observer tokens; removed on deinit because
+    /// HistoryStore is recreated per window open and NotificationCenter
+    /// otherwise keeps the closures (and duplicate handlers) alive forever.
+    /// `nonisolated(unsafe)`: written only from the MainActor init path, and
+    /// read in deinit when no concurrent writer can exist;
+    /// `removeObserver` itself is thread-safe.
+    nonisolated(unsafe) private var notificationTokens: [NSObjectProtocol] = []
+
     // MARK: - Initialization
 
     init(userDefaults: UserDefaults = .standard, historyKey: String = defaultHistoryKey) {
@@ -62,8 +70,12 @@ final class HistoryStore: ObservableObject {
         setupNotificationObservers()
     }
 
+    deinit {
+        notificationTokens.forEach(NotificationCenter.default.removeObserver)
+    }
+
     private func setupNotificationObservers() {
-        NotificationCenter.default.addObserver(
+        notificationTokens.append(NotificationCenter.default.addObserver(
             forName: .colorDidPick,
             object: nil,
             queue: .main
@@ -79,9 +91,9 @@ final class HistoryStore: ObservableObject {
                 )
                 self?.addEntry(entry)
             }
-        }
+        })
 
-        NotificationCenter.default.addObserver(
+        notificationTokens.append(NotificationCenter.default.addObserver(
             forName: .imageDidUpload,
             object: nil,
             queue: .main
@@ -97,7 +109,7 @@ final class HistoryStore: ObservableObject {
                 )
                 self?.addEntry(entry)
             }
-        }
+        })
     }
 
     /// Toggles favorite status for an entry
@@ -110,8 +122,20 @@ final class HistoryStore: ObservableObject {
 
     /// Adds a general history entry
     func addEntry(_ entry: TranslationHistory) {
-        entries.removeAll { $0.translatedText == entry.translatedText && $0.category == entry.category }
-        entries.insert(entry, at: 0)
+        // Deduplicate only on fully identical content, and carry over the
+        // previous favorite flag — silently dropping a starred entry (the old
+        // translatedText+category match) lost user state without notice.
+        if let index = entries.firstIndex(where: {
+            $0.sourceText == entry.sourceText &&
+            $0.translatedText == entry.translatedText &&
+            $0.category == entry.category
+        }) {
+            var merged = entry
+            merged.isFavorite = entries[index].isFavorite
+            entries[index] = merged
+        } else {
+            entries.insert(entry, at: 0)
+        }
         if entries.count > Self.maxHistoryEntries {
             entries = Array(entries.prefix(Self.maxHistoryEntries))
         }

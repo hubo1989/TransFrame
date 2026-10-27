@@ -123,7 +123,7 @@ private struct CategoryFilterBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            filterButton(title: "All", category: nil)
+            filterButton(title: String(localized: "history.filter.all"), category: nil)
 
             ForEach(HistoryCategory.allCases, id: \.self) { cat in
                 filterButton(title: cat.displayName, category: cat, icon: cat.systemImage)
@@ -137,7 +137,7 @@ private struct CategoryFilterBar: View {
                 HStack(spacing: 3) {
                     Image(systemName: store.onlyFavorites ? "star.fill" : "star")
                         .foregroundColor(store.onlyFavorites ? .yellow : .secondary)
-                    Text("Starred")
+                    Text(String(localized: "history.filter.starred"))
                         .font(.system(size: 11, weight: store.onlyFavorites ? .semibold : .regular))
                 }
                 .padding(.horizontal, 8)

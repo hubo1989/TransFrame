@@ -617,13 +617,13 @@ final class PRDAcceptanceTests: XCTestCase {
         ],
         "status":"completed"}
         """
-        let (content, isTruncated, finishReason) = try provider.extractContentAndStatus(from: Data(payload.utf8))
+        let (content, isTruncated, finishReason) = try OpenAIVLMProvider.extractContentAndStatus(from: Data(payload.utf8))
         XCTAssertEqual(content, "TRANSLATED", "message text must be read past the reasoning item")
         XCTAssertFalse(isTruncated)
         XCTAssertNil(finishReason)
 
         let incomplete = payload.replacingOccurrences(of: "\"status\":\"completed\"", with: "\"status\":\"incomplete\"")
-        let (_, truncated, reason) = try provider.extractContentAndStatus(from: Data(incomplete.utf8))
+        let (_, truncated, reason) = try OpenAIVLMProvider.extractContentAndStatus(from: Data(incomplete.utf8))
         XCTAssertTrue(truncated)
         XCTAssertEqual(reason, "length")
     }
@@ -699,7 +699,7 @@ final class PRDAcceptanceTests: XCTestCase {
         let truncatedPayload = """
         {"object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[\(messageItem)]}
         """
-        let (t1, truncated1, reason1) = try provider.extractContentAndStatus(from: Data(truncatedPayload.utf8))
+        let (t1, truncated1, reason1) = try OpenAIVLMProvider.extractContentAndStatus(from: Data(truncatedPayload.utf8))
         XCTAssertEqual(t1, "HI")
         XCTAssertTrue(truncated1)
         XCTAssertEqual(reason1, "length")
@@ -708,7 +708,7 @@ final class PRDAcceptanceTests: XCTestCase {
         let filteredPayload = """
         {"object":"response","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[\(messageItem)]}
         """
-        XCTAssertThrowsError(try provider.extractContentAndStatus(from: Data(filteredPayload.utf8))) { error in
+        XCTAssertThrowsError(try OpenAIVLMProvider.extractContentAndStatus(from: Data(filteredPayload.utf8))) { error in
             XCTAssertTrue("\(error)".contains("content_filter"), "应报出具体原因，实际: \(error)")
         }
 
@@ -716,7 +716,7 @@ final class PRDAcceptanceTests: XCTestCase {
         let outputTextTruncated = """
         {"object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output_text":"HI"}
         """
-        let (_, truncated2, _) = try provider.extractContentAndStatus(from: Data(outputTextTruncated.utf8))
+        let (_, truncated2, _) = try OpenAIVLMProvider.extractContentAndStatus(from: Data(outputTextTruncated.utf8))
         XCTAssertTrue(truncated2, "output_text 分支不能绕过截断状态")
 
         // 空输出 / 仅 reasoning：在 Responses 分支直接报错，不跌入 Chat 路径
@@ -724,23 +724,23 @@ final class PRDAcceptanceTests: XCTestCase {
             #"{"object":"response","status":"completed","output":[]}"#,
             #"{"object":"response","status":"completed","output":[{"id":"r1","type":"reasoning","summary":[]}]}"#
         ] {
-            XCTAssertThrowsError(try provider.extractContentAndStatus(from: Data(payload.utf8))) { error in
+            XCTAssertThrowsError(try OpenAIVLMProvider.extractContentAndStatus(from: Data(payload.utf8))) { error in
                 XCTAssertTrue("\(error)".contains("no message text"), "空输出应给出来源明确的错误，实际: \(error)")
             }
         }
 
         // Chat 分支回归：stop 正常、length 截断
         let chat = { (finish: String) in Data(#"{"choices":[{"message":{"content":"HELLO"},"finish_reason":"\#(finish)"}]}"#.utf8) }
-        let (c1, _, r1) = try provider.extractContentAndStatus(from: chat("stop"))
+        let (c1, _, r1) = try OpenAIVLMProvider.extractContentAndStatus(from: chat("stop"))
         XCTAssertEqual(c1, "HELLO")
         XCTAssertEqual(r1, "stop", "finish_reason 原样透传，截断与否由 isTruncated 表达")
-        let (_, truncated3, r3) = try provider.extractContentAndStatus(from: chat("length"))
+        let (_, truncated3, r3) = try OpenAIVLMProvider.extractContentAndStatus(from: chat("length"))
         XCTAssertTrue(truncated3)
         XCTAssertEqual(r3, "length")
 
         // 未知格式错误不含原始响应正文
         XCTAssertThrowsError(
-            try provider.extractContentAndStatus(from: Data("<html>oops</html>".utf8))
+            try OpenAIVLMProvider.extractContentAndStatus(from: Data("<html>oops</html>".utf8))
         ) { error in
             XCTAssertFalse("\(error)".contains("oops"), "错误信息不得回显响应正文")
         }

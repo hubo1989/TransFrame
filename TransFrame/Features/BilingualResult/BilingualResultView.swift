@@ -145,11 +145,17 @@ struct BilingualResultView: View {
                     .buttonStyle(.bordered)
 
                     Button(action: {
-                        let nsImage = NSImage(cgImage: viewModel.image, size: NSSize(width: viewModel.image.width, height: viewModel.image.height))
+                        // Point size (pixels / displayScaleFactor) so the pin
+                        // renders at on-screen scale instead of raw pixel size.
+                        let pointSize = NSSize(
+                            width: viewModel.imagePointWidth,
+                            height: viewModel.imagePointHeight
+                        )
+                        let nsImage = NSImage(cgImage: viewModel.image, size: pointSize)
                         PinnedWindowsManager.shared.pin(image: nsImage)
                         BilingualResultWindowController.shared.close()
                     }) {
-                        Label("钉图", systemImage: "pin")
+                        Label(String(localized: "bilingualResult.pin"), systemImage: "pin")
                     }
                     .buttonStyle(.bordered)
                 }

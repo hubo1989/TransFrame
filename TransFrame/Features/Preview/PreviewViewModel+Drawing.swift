@@ -236,19 +236,23 @@ extension PreviewViewModel {
             switch annotations[editIdx] {
             case .text(var textAnno):
                 if trimmedText.isEmpty {
+                    // Removing the annotation shifts later indices down;
+                    // re-selecting editIdx would grab an unrelated neighbor.
                     removeAnnotation(at: editIdx)
                     if selectedAnnotationIndex == editIdx {
                         selectedAnnotationIndex = nil
                     }
-                } else if textAnno.content != trimmedText {
-                    pushUndoState()
-                    textAnno.content = trimmedText
-                    screenshot = screenshot.replacingAnnotation(at: editIdx, with: .text(textAnno))
-                    redoStack.removeAll()
-                }
-                // Keep the text box selected so its handles show for drag/resize
-                if editIdx < annotations.count {
-                    selectedAnnotationIndex = editIdx
+                } else {
+                    if textAnno.content != trimmedText {
+                        pushUndoState()
+                        textAnno.content = trimmedText
+                        screenshot = screenshot.replacingAnnotation(at: editIdx, with: .text(textAnno))
+                        redoStack.removeAll()
+                    }
+                    // Keep the text box selected so its handles show for drag/resize
+                    if editIdx < annotations.count {
+                        selectedAnnotationIndex = editIdx
+                    }
                 }
             case .calloutBubble(var bubbleAnno):
                 let finalText = trimmedText.isEmpty ? bubbleAnno.text : trimmedText
@@ -675,15 +679,5 @@ extension PreviewViewModel {
         default:
             break
         }
-    }
-
-    /// Sets or updates the quadratic bezier control point for a curved arrow
-    func updateSelectedArrowCurve(controlPoint: CGPoint?) {
-        guard let index = selectedAnnotationIndex, index < annotations.count else { return }
-        guard case .arrow(var arrow) = annotations[index] else { return }
-        pushUndoState()
-        arrow.controlPoint = controlPoint
-        screenshot = screenshot.replacingAnnotation(at: index, with: .arrow(arrow))
-        redoStack.removeAll()
     }
 }

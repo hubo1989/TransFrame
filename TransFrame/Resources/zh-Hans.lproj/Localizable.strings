@@ -32,6 +32,8 @@
 /* 导出错误 */
 "error.export.encoding.failed" = "图像编码失败。";
 "error.export.encoding.failed.recovery" = "请在设置中尝试其他格式。";
+"error.image.upload.failed" = "图片上传失败：%@";
+"error.image.upload.failed.recovery" = "请检查图床配置与网络后重试。";
 "error.export.encoding.failed.detail" = "无法将图像编码为 %@ 格式。";
 
 /* 剪贴板错误 */
@@ -50,6 +52,7 @@
 "error.pipeline.translateFailed" = "翻译失败：%@";
 "error.ocr.failed.recovery" = "请使用更清晰的图像重试。";
 "error.ocr.no.text" = "图像中未识别到文字。";
+"error.image.load.failed" = "无法打开图片 “%@”";
 "error.ocr.no.text.recovery" = "请尝试截取包含可见文字的区域。";
 "error.ocr.cancelled" = "文字识别已取消。";
 "error.ocr.server.unreachable" = "无法连接到 OCR 服务器。";
@@ -496,6 +499,8 @@
    ======================================== */
 
 "history.title" = "翻译历史";
+"history.filter.all" = "全部";
+"history.filter.starred" = "星标";
 "history.search.placeholder" = "搜索历史记录...";
 "history.clear.all" = "清除所有历史";
 "history.empty.title" = "没有翻译历史";
@@ -714,6 +719,7 @@
    ======================================== */
 
 "bilingualResult.window.title" = "双语对照";
+"bilingualResult.pin" = "钉图";
 "bilingualResult.loading" = "翻译中...";
 "bilingualResult.loading.analyzing" = "正在分析图像...";
 "bilingualResult.loading.translating" = "正在翻译文本...";
@@ -853,6 +859,7 @@
 "preview.panel.rerun" = "重新识别";
 "preview.panel.copyAll" = "复制全部";
 "preview.panel.close" = "关闭";
+"preview.panel.expandDrawer" = "展开结果面板";
 "preview.panel.recognizing" = "正在识别...";
 "preview.panel.copyLine" = "复制";
 "preview.panel.original" = "原文";

@@ -7,6 +7,10 @@ import Combine
 final class PinnedWindow: NSPanel {
     // MARK: - Properties
 
+    /// Height reserved for the bottom floating toolbar (content spacing + bar).
+    /// Window frames and default sizes all reserve this so content is never clipped.
+    private static let toolbarReservedHeight: CGFloat = 46
+
     let documentID: UUID
     private(set) var currentDocument: CaptureDocument?
     private var cancellables = Set<AnyCancellable>()
@@ -19,6 +23,9 @@ final class PinnedWindow: NSPanel {
 
     /// Current zoom scale factor
     private(set) var zoomScale: CGFloat = 1.0
+
+    /// Accumulated precise scroll delta waiting to trigger a zoom step
+    private var pendingZoomDelta: CGFloat = 0
 
     /// Base initial frame before zooming
     private var baseFrame: NSRect = .zero
@@ -37,13 +44,13 @@ final class PinnedWindow: NSPanel {
         let initialFrame: NSRect
         if cocoaRect.width > 10 && cocoaRect.height > 10 {
             var f = cocoaRect
-            f.size.height += 46
-            f.origin.y -= 46
+            f.size.height += Self.toolbarReservedHeight
+            f.origin.y -= Self.toolbarReservedHeight
             initialFrame = f
         } else {
             let defaultSize = NSSize(
                 width: max(document.visiblePixelSize.width / 2.0, 220),
-                height: max(document.visiblePixelSize.height / 2.0 + 46, 160)
+                height: max(document.visiblePixelSize.height / 2.0 + Self.toolbarReservedHeight, 160)
             )
             initialFrame = Self.calculateCenteredRect(size: defaultSize)
         }
@@ -72,7 +79,7 @@ final class PinnedWindow: NSPanel {
             height: CGFloat(screenshot.image.height) / scaleFactor
         )
         var windowSize = Self.calculateWindowSize(for: imageSize)
-        windowSize.height += 46
+        windowSize.height += Self.toolbarReservedHeight
         let contentRect = Self.calculateCenteredRect(size: windowSize)
         self.baseFrame = contentRect
 
@@ -127,11 +134,7 @@ final class PinnedWindow: NSPanel {
                 self?.toggleClickThrough()
             },
             onCopy: { [weak self] in
-                guard let self, let doc = self.currentDocument,
-                      let cgImg = DocumentRenderer.shared.render(document: doc) else { return }
-                let nsImg = NSImage(cgImage: cgImg, size: .zero)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([nsImg])
+                self?.copyRenderedImageToPasteboard()
             },
             onOpacityChange: { [weak self] alpha in
                 self?.alphaValue = alpha
@@ -243,12 +246,22 @@ final class PinnedWindow: NSPanel {
             close()
             return
         }
-        if event.charactersIgnoringModifiers?.lowercased() == "e" {
+        // 无修饰键的 E 才触发编辑；⌘E/⌥E 等组合留给系统语义
+        let bareModifiers = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock])
+        if bareModifiers.isEmpty, event.charactersIgnoringModifiers?.lowercased() == "e" {
             if let doc = currentDocument {
                 close()
                 PreviewWindowController.shared.showPreview(for: doc.toLegacyScreenshot())
                 return
             }
+        }
+        // ⌘C 复制渲染图（与工具栏复制按钮一致）
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "c" {
+            copyRenderedImageToPasteboard()
+            return
         }
         super.keyDown(with: event)
     }
@@ -259,11 +272,29 @@ final class PinnedWindow: NSPanel {
             let delta = event.scrollingDeltaY * 0.01
             let newAlpha = max(0.2, min(1.0, alphaValue + delta))
             alphaValue = newAlpha
+        } else if event.hasPreciseScrollingDeltas {
+            // 触控板精确滚动：累积达到阈值才缩放一步，避免惯性滚动过度灵敏
+            pendingZoomDelta += event.scrollingDeltaY
+            if abs(pendingZoomDelta) >= 10 {
+                applyZoom(zoomScale * (pendingZoomDelta > 0 ? 1.05 : 0.95))
+                pendingZoomDelta = 0
+            }
         } else {
-            // Normal Scroll Wheel: Zoom in / Zoom out smoothly
+            // 普通滚轮（离散步进）
             let zoomDelta: CGFloat = event.scrollingDeltaY > 0 ? 1.05 : 0.95
             applyZoom(zoomScale * zoomDelta)
         }
+    }
+
+    /// Copies the rendered document (with annotations) to the pasteboard,
+    /// shared by the toolbar button and the ⌘C key equivalent.
+    @MainActor
+    private func copyRenderedImageToPasteboard() {
+        guard let doc = currentDocument,
+              let cgImg = DocumentRenderer.shared.render(document: doc) else { return }
+        let nsImg = NSImage(cgImage: cgImg, size: .zero)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([nsImg])
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -308,6 +339,10 @@ private struct PinnedDocumentContent: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            // 校准置顶状态为窗口真实 level（视图重建/外部变更后保持一致）
+            EmptyView()
+                .onAppear { alwaysOnTopState = isPinnedAlwaysOnTop }
+
             // Pinned Image
             Group {
                 if let rendered = renderedImage {

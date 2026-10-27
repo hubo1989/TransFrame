@@ -221,6 +221,9 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     // In-place results drawer (OCR / translation)
     let resultsModel = InPlaceResultsModel()
     private var resultsPanelHost: NSHostingView<InPlaceResultsPanel>?
+    /// In-flight drawer analysis; cancelled on rerun and when the drawer closes
+    /// so a dismissed overlay keeps no running network work writing into it.
+    private var inPlaceAnalysisTask: Task<Void, Never>?
 
     /// Selection snapshot captured when a click starts outside the current
     /// selection; tiny clicks (no drag) must restore it instead of re-picking.
@@ -1678,8 +1681,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         resultsModel.segments = []
         resultsModel.statusMessage = nil
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        // Cancel any in-flight run so a slow old result can't overwrite a new one
+        inPlaceAnalysisTask?.cancel()
+        inPlaceAnalysisTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
             defer {
                 self.resultsModel.isLoading = false
                 self.layoutResultsPanel(for: selectionRect)
@@ -1690,8 +1695,13 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                 case .ocr:
                     let result = try await OCRService.shared.recognize(
                         cropped,
-                        languages: [.english, .chineseSimplified]
+                        // 识别语言跟随设置的源语言；auto / 不支持语言回退自动检测
+                        languages: Set(
+                            [AppSettings.shared.translationSourceLanguage]
+                                .compactMap { OCREngine.RecognitionLanguage(translationLanguage: $0) }
+                        )
                     )
+                    if Task.isCancelled { return }
                     let lines = result.observations
                         .sorted { $0.boundingBox.minY < $1.boundingBox.minY }
                         .map(\.text)
@@ -1721,11 +1731,13 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                     }
                     let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
                     do {
-                        self.resultsModel.segments = try await pipeline.translate(
+                        let segments = try await pipeline.translate(
                             analysisResult: filtered,
                             config: config,
                             context: context
                         )
+                        if Task.isCancelled { return }
+                        self.resultsModel.segments = segments
                     } catch {
                         self.resultsModel.statusMessage = String(
                             format: String(localized: "error.pipeline.translateFailed"),
@@ -1823,6 +1835,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     }
 
     private func hideResultsPanel() {
+        inPlaceAnalysisTask?.cancel()
         resultsModel.isVisible = false
         resultsPanelHost?.isHidden = true
         needsDisplay = true

@@ -8,6 +8,10 @@ struct PreviewResultsPanel: View {
     @Binding var isExpanded: Bool
     @State private var copiedFlash: String?
     @State private var flashGeneration = 0
+    /// Mirror of the target-language setting: AppSettings is not observable,
+    /// so without this the picker label/checkmark would not refresh when the
+    /// menu is used while no results trigger a re-render.
+    @State private var selectedTargetLanguage: TranslationLanguage?
 
     /// Fixed widths so skeleton rows don't jitter on every re-render.
     private static let skeletonWidths: [CGFloat] = [240, 180, 210, 150, 220]
@@ -192,13 +196,14 @@ struct PreviewResultsPanel: View {
             Menu {
                 ForEach(Self.targetLanguages, id: \.self) { language in
                     Button {
-                        guard AppSettings.shared.translationTargetLanguage != language else { return }
+                        guard selectedTargetLanguage != language else { return }
+                        selectedTargetLanguage = language
                         AppSettings.shared.translationTargetLanguage = language
                         if viewModel.hasTranslationResults || viewModel.ocrResult != nil {
                             viewModel.performTranslation()
                         }
                     } label: {
-                        if AppSettings.shared.translationTargetLanguage == language {
+                        if selectedTargetLanguage == language {
                             Label(language.localizedName, systemImage: "checkmark")
                         } else {
                             Text(language.localizedName)
@@ -206,11 +211,16 @@ struct PreviewResultsPanel: View {
                     }
                 }
             } label: {
-                Text(AppSettings.shared.translationTargetLanguage?.localizedName ?? "—")
+                Text(selectedTargetLanguage?.localizedName ?? "—")
                     .font(.caption)
             }
             .controlSize(.small)
             .fixedSize()
+            .onAppear {
+                if selectedTargetLanguage == nil {
+                    selectedTargetLanguage = AppSettings.shared.translationTargetLanguage
+                }
+            }
         }
     }
 

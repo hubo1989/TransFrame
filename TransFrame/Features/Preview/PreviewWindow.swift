@@ -200,7 +200,10 @@ final class PreviewWindow: NSPanel {
 
         if handleEscape(event, isEditingText: isEditingText) { return true }
         if isEditingText {
-            if event.keyCode == 36 || event.keyCode == 76 {
+            // 多行 TextEditor 中 Enter 保留换行语义；⌘Enter 显式提交，
+            // 点击画布空白处同样提交、Esc 取消。
+            if event.modifierFlags.contains(.command),
+               event.keyCode == 36 || event.keyCode == 76 {
                 Task { @MainActor in
                     viewModel.commitTextInput()
                 }
@@ -282,7 +285,9 @@ final class PreviewWindow: NSPanel {
     }
 
     private func handleToolShortcuts(_ event: NSEvent) -> Bool {
-        guard let char = event.charactersIgnoringModifiers?.lowercased().first else { return false }
+        // ⌘ 组合保留给系统语义（⌘X 剪切、⌘C 复制等），不触发工具切换
+        guard !event.modifierFlags.contains(.command),
+              let char = event.charactersIgnoringModifiers?.lowercased().first else { return false }
 
         if char == "c" && !event.modifierFlags.contains(.command) {
             Task { @MainActor in viewModel.toggleCropMode() }

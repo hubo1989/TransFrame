@@ -24,25 +24,47 @@ actor PaddleOCREngine {
     private var isProcessing = false
     /// FIFO queue of callers waiting for the in-flight recognition; local
     /// PaddleOCR runs a heavyweight Python process, so calls serialize.
-    private var executionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var executionWaiters: [ExecutionWaiter] = []
+
+    /// Identifiable waiter so a cancelled task can dequeue itself.
+    private struct ExecutionWaiter: Sendable {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
 
     /// Waits for any in-flight recognition to finish instead of failing
-    /// with `operationInProgress`.
-    private func acquireExecutionSlot() async {
+    /// with `operationInProgress`. Throws `CancellationError` when the caller
+    /// is cancelled while still queued, instead of running every queued
+    /// Python process first.
+    private func acquireExecutionSlot() async throws {
         guard isProcessing else {
             isProcessing = true
             return
         }
-        await withCheckedContinuation { continuation in
-            executionWaiters.append(continuation)
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                executionWaiters.append(ExecutionWaiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.dequeueAndCancel(id: id) }
         }
+    }
+
+    /// Removes a queued waiter (if still queued) and resumes it with a
+    /// cancellation error. Running actor isolation makes this race-free with
+    /// `releaseExecutionSlot`: whichever runs first removes the waiter.
+    private func dequeueAndCancel(id: UUID) {
+        guard let index = executionWaiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = executionWaiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     /// Hands the slot to the next waiter, or frees it when nobody is queued.
     private func releaseExecutionSlot() {
         if let next = executionWaiters.first {
             executionWaiters.removeFirst()
-            next.resume()
+            next.continuation.resume()
         } else {
             isProcessing = false
         }
@@ -158,9 +180,8 @@ actor PaddleOCREngine {
         config: Configuration = .default
     ) async throws -> OCRResult {
         // Serialize behind any in-flight recognition (queued, not rejected)
-        await acquireExecutionSlot()
+        try await acquireExecutionSlot()
         defer { releaseExecutionSlot() }
-        try Task.checkCancellation()
 
         // Validate image
         guard image.width > 0 && image.height > 0 else {

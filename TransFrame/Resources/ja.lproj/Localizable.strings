@@ -48,6 +48,7 @@
 "error.ocr.failed" = "文字認識に失敗しました。";
 "error.ocr.failed.recovery" = "より鮮明な画像でもう一度お試しください。";
 "error.ocr.no.text" = "画像内でテキストが認識されませんでした。";
+"error.image.load.failed" = "画像「%@」を開けませんでした";
 "error.ocr.no.text.recovery" = "テキストが表示されている範囲をキャプチャしてお試しください。";
 "error.ocr.cancelled" = "文字認識がキャンセルされました。";
 "error.ocr.server.unreachable" = "OCR サーバーに接続できません。";
@@ -84,6 +85,8 @@
 "menu.capture.selection" = "範囲キャプチャ";
 "menu.translation.mode" = "翻訳モード";
 "menu.translation.history" = "翻訳履歴";
+"menu.pick.color" = "画面の色を拾う";
+"menu.open.image" = "画像を編集用に開く...";
 "menu.settings" = "設定...";
 "menu.about" = "TransFrame について";
 "menu.quit" = "TransFrame を終了";

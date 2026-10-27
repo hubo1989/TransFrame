@@ -27,21 +27,25 @@ private struct CursorViewModifier: ViewModifier {
         content
             .onHover { hovering in
                 isHovering = hovering
+                // Paired push/pop keeps nested .cursor views correct: leaving
+                // the inner view pops back to the outer cursor instead of
+                // forcing the arrow.
                 if hovering {
-                    cursor.set()
+                    cursor.push()
                 } else {
-                    NSCursor.arrow.set()
+                    NSCursor.pop()
                 }
             }
             .onChange(of: cursor) { _, newCursor in
                 if isHovering {
-                    newCursor.set()
+                    NSCursor.pop()
+                    newCursor.push()
                 }
             }
             .onDisappear {
                 if isHovering {
                     isHovering = false
-                    NSCursor.arrow.set()
+                    NSCursor.pop()
                 }
             }
     }

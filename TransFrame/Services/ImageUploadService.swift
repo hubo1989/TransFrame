@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import AppKit
 import CryptoKit
+import Security
 
 /// Supported image hosting providers.
 enum ImageHostType: String, CaseIterable, Codable, Sendable {
@@ -64,12 +65,54 @@ struct UploadResult: Sendable {
     let provider: ImageHostType
 }
 
+/// Keychain storage for image-host credentials. UserDefaults keeps only the
+/// non-sensitive parts of ImageHostSettings — plaintext secrets there are
+/// readable by any process on the machine and travel with system backups.
+private enum ImageHostSecretStore {
+    private static let service = "TransFrame.ImageHostSettings"
+
+    static func save(_ value: String, account: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            SecItemAdd(add as CFDictionary, nil)
+        }
+    }
+
+    static func read(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 /// Service that handles uploading screenshot image data directly to cloud providers or PicGo.
 @MainActor
 final class ImageUploadService {
     static let shared = ImageUploadService()
 
     private let userDefaultsKey = "TransFrame_ImageHostSettings"
+
+    /// Keychain accounts for the three provider secrets.
+    private static let secretAccounts = ("ossAccessKeySecret", "cosSecretKey", "kodoSecretKey")
+
     var settings: ImageHostSettings {
         didSet {
             saveSettings()
@@ -77,16 +120,51 @@ final class ImageUploadService {
     }
 
     private init() {
+        var loaded: ImageHostSettings
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-           let loaded = try? JSONDecoder().decode(ImageHostSettings.self, from: data) {
-            self.settings = loaded
+           let decoded = try? JSONDecoder().decode(ImageHostSettings.self, from: data) {
+            loaded = decoded
         } else {
-            self.settings = .default
+            loaded = .default
         }
+
+        // Secrets live in Keychain; migrate legacy plaintext (from older
+        // builds that stored the whole struct in UserDefaults) exactly once.
+        let (ossAccount, cosAccount, kodoAccount) = Self.secretAccounts
+
+        if let stored = ImageHostSecretStore.read(account: ossAccount), !stored.isEmpty {
+            loaded.ossAccessKeySecret = stored
+        } else if !loaded.ossAccessKeySecret.isEmpty {
+            ImageHostSecretStore.save(loaded.ossAccessKeySecret, account: ossAccount)
+        }
+        if let stored = ImageHostSecretStore.read(account: cosAccount), !stored.isEmpty {
+            loaded.cosSecretKey = stored
+        } else if !loaded.cosSecretKey.isEmpty {
+            ImageHostSecretStore.save(loaded.cosSecretKey, account: cosAccount)
+        }
+        if let stored = ImageHostSecretStore.read(account: kodoAccount), !stored.isEmpty {
+            loaded.kodoSecretKey = stored
+        } else if !loaded.kodoSecretKey.isEmpty {
+            ImageHostSecretStore.save(loaded.kodoSecretKey, account: kodoAccount)
+        }
+
+        self.settings = loaded
+        // Persist a sanitized JSON (secrets blanked) — also clears any legacy
+        // plaintext that older builds left in UserDefaults. Idempotent.
+        saveSettings()
     }
 
     private func saveSettings() {
-        if let encoded = try? JSONEncoder().encode(settings) {
+        let (ossAccount, cosAccount, kodoAccount) = Self.secretAccounts
+        ImageHostSecretStore.save(settings.ossAccessKeySecret, account: ossAccount)
+        ImageHostSecretStore.save(settings.cosSecretKey, account: cosAccount)
+        ImageHostSecretStore.save(settings.kodoSecretKey, account: kodoAccount)
+
+        var sanitized = settings
+        sanitized.ossAccessKeySecret = ""
+        sanitized.cosSecretKey = ""
+        sanitized.kodoSecretKey = ""
+        if let encoded = try? JSONEncoder().encode(sanitized) {
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
         }
     }
@@ -98,7 +176,7 @@ final class ImageUploadService {
     /// Uploads a CGImage using the currently active image host.
     func upload(image: CGImage) async throws -> UploadResult {
         guard settings.activeHost != .none else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "no image host configured")
         }
 
         // Convert CGImage to PNG Data
@@ -112,7 +190,7 @@ final class ImageUploadService {
 
         switch settings.activeHost {
         case .none:
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "no image host configured")
 
         case .picgo:
             publicURLString = try await uploadToPicGo(data: data, filename: filename)
@@ -144,7 +222,7 @@ final class ImageUploadService {
 
     private func uploadToPicGo(data: Data, filename: String) async throws -> String {
         guard let endpoint = URL(string: settings.picgoEndpoint) else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "invalid PicGo endpoint")
         }
 
         let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -159,15 +237,15 @@ final class ImageUploadService {
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (respData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+        if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+            if let json = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
+               let resultList = json["result"] as? [String], let firstURL = resultList.first {
+                return firstURL
+            }
+            throw TransFrameError.imageUploadFailed(reason: "unexpected PicGo response payload")
         }
-
-        if let json = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
-           let resultList = json["result"] as? [String], let firstURL = resultList.first {
-            return firstURL
-        }
-        throw TransFrameError.exportEncodingFailed(format: .png)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        throw TransFrameError.imageUploadFailed(reason: "PicGo HTTP \(code)")
     }
 
     // MARK: - Aliyun OSS Upload (Direct REST PUT)
@@ -181,7 +259,7 @@ final class ImageUploadService {
 
         let host = "\(bucket).\(endpoint)"
         guard let url = URL(string: "https://\(host)/\(keyPath)") else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "invalid OSS URL")
         }
 
         let rfc822Formatter = DateFormatter()
@@ -210,7 +288,8 @@ final class ImageUploadService {
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw TransFrameError.imageUploadFailed(reason: "OSS HTTP \(code)")
         }
 
         return "https://\(host)/\(keyPath)"
@@ -227,7 +306,7 @@ final class ImageUploadService {
 
         let host = "\(bucket).cos.\(region).myqcloud.com"
         guard let url = URL(string: "https://\(host)/\(keyPath)") else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "invalid COS URL")
         }
 
         let now = Int(Date().timeIntervalSince1970)
@@ -257,7 +336,8 @@ final class ImageUploadService {
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw TransFrameError.imageUploadFailed(reason: "COS HTTP \(code)")
         }
 
         return "https://\(host)/\(keyPath)"
@@ -289,7 +369,7 @@ final class ImageUploadService {
 
         // POST multipart form to https://upload.qiniup.com
         guard let uploadURL = URL(string: "https://upload.qiniup.com") else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            throw TransFrameError.imageUploadFailed(reason: "invalid Kodo upload URL")
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -321,7 +401,8 @@ final class ImageUploadService {
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw TransFrameError.exportEncodingFailed(format: .png)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw TransFrameError.imageUploadFailed(reason: "Kodo HTTP \(code)")
         }
 
         let baseURL = domain.hasPrefix("http") ? domain : "https://\(domain)"

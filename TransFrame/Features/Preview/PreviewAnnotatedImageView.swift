@@ -9,6 +9,9 @@ struct PreviewAnnotatedImageView: View {
 
     @State private var hoverImageLocation: CGPoint?
     @State private var didBeginGesture: Bool = false
+    /// Set when the click that committed text input must not also draw:
+    /// the rest of that gesture is swallowed (OCR review).
+    @State private var didInvalidateGesture: Bool = false
     @State private var lastTapTime: Date = .distantPast
     @State private var lastTappedAnnotationIndex: Int?
 
@@ -157,6 +160,7 @@ struct PreviewAnnotatedImageView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if didInvalidateGesture { return }
                         let startPoint = convertToImageCoordinates(value.startLocation)
                         let currentPoint = convertToImageCoordinates(value.location)
 
@@ -168,6 +172,10 @@ struct PreviewAnnotatedImageView: View {
                                 isTextFieldFocused = false
                                 // If the user was just finishing text input by clicking canvas, don't immediately spawn a new box at that click unless they drag or click again
                                 if viewModel.selectedTool == .text {
+                                    // Swallow the rest of this gesture so the
+                                    // commit click cannot start a stray drawing
+                                    // mid-gesture (didBeginGesture is already true).
+                                    didInvalidateGesture = true
                                     return
                                 }
                             }
@@ -207,7 +215,11 @@ struct PreviewAnnotatedImageView: View {
                         }
                     }
                     .onEnded { value in
-                        defer { didBeginGesture = false }
+                        defer {
+                            didBeginGesture = false
+                            didInvalidateGesture = false
+                        }
+                        if didInvalidateGesture { return }
                         let endPoint = convertToImageCoordinates(value.location)
                         if viewModel.isResizingAnnotation {
                             viewModel.endResizingAnnotation()
@@ -308,18 +320,21 @@ struct PreviewAnnotatedImageView: View {
         }()
 
         let displayFontSize = max(10, fontSizeInImageCoords / displayScaleFactor)
+        let clampedX = max(0, min(imageSize.width - 60, displayPosition.x - 4))
+        let clampedY = max(0, min(imageSize.height - displayFontSize - 6, displayPosition.y - 2))
 
-        // Size the editor from the current content so multi-line input is fully visible
+        // Size the editor from the current content so multi-line input is fully visible;
+        // cap by the space remaining after the clamped origin so the editor never
+        // overflows the canvas when typing near the right/bottom edge.
         let content = viewModel.textInputContent
         let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
         let lineCount = max(1, lines.count)
         let measureFont = NSFont.systemFont(ofSize: displayFontSize)
         let longestLineWidth = lines.map { ($0 as NSString).size(withAttributes: [.font: measureFont]).width }.max() ?? 0
-        let maxEditorWidth = max(80, imageSize.width - displayPosition.x)
-        let editorWidth = min(longestLineWidth + 24, maxEditorWidth)
+        let editorWidth = min(max(longestLineWidth + 24, 60), max(60, imageSize.width - clampedX))
         let editorHeight = min(
             CGFloat(lineCount) * max(displayFontSize * 1.45, 20) + 10,
-            max(30, imageSize.height - displayPosition.y)
+            max(30, imageSize.height - clampedY)
         )
 
         return TextEditor(text: $viewModel.textInputContent)
@@ -337,10 +352,7 @@ struct PreviewAnnotatedImageView: View {
                     )
             )
             .frame(width: editorWidth, height: editorHeight, alignment: .topLeading)
-            .offset(
-                x: max(0, min(imageSize.width - 60, displayPosition.x - 4)),
-                y: max(0, min(imageSize.height - displayFontSize - 6, displayPosition.y - 2))
-            )
+            .offset(x: clampedX, y: clampedY)
             .focused($isTextFieldFocused)
             .onAppear {
                 DispatchQueue.main.async {

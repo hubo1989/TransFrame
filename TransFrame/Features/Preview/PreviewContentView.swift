@@ -16,7 +16,8 @@ struct PreviewContentView: View {
             || isResultsPanelExpanded
     }
 
-    var body: some View {
+    /// Canvas area + results drawer + floating toolbar (see body note).
+    private var mainContent: some View {
         ZStack(alignment: .bottom) {
             // Main Canvas Area + Embedded Right Results Drawer
             HStack(spacing: 0) {
@@ -36,6 +37,22 @@ struct PreviewContentView: View {
                     PreviewResultsPanel(viewModel: viewModel, isExpanded: $isResultsPanelExpanded)
                         .frame(width: 300)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if showsResultsPanel {
+                    // Once collapsed, the drawer has no other way back:
+                    // keep a slim handle so results stay reachable.
+                    Button {
+                        isResultsPanelExpanded = true
+                    } label: {
+                        Image(systemName: "sidebar.trailing")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26)
+                            .frame(maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .customTooltip(String(localized: "preview.panel.expandDrawer"), placement: .top)
+                    .padding(.vertical, 8)
                 }
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isResultsPanelExpanded)
@@ -53,64 +70,62 @@ struct PreviewContentView: View {
             .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
             .padding(.bottom, 12)
         }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                viewModel.dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.secondary, Color.black.opacity(0.1))
-                    .padding(10)
-            }
-            .buttonStyle(.plain)
-            .customTooltip(String(localized: "preview.tooltip.dismiss"), placement: .bottom)
+    }
+
+    /// Top-right dismiss button (see body note).
+    private var dismissButton: some View {
+        Button {
+            viewModel.dismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(.secondary, Color.black.opacity(0.1))
+                .padding(10)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-        )
-        .onChange(of: viewModel.hasOCRResults) { _, hasResults in
-            if hasResults {
-                isResultsPanelExpanded = true
+        .buttonStyle(.plain)
+        .customTooltip(String(localized: "preview.tooltip.dismiss"), placement: .bottom)
+    }
+
+    var body: some View {
+        // Body is split into sub-properties: the full inline chain exceeded
+        // the type checker's expression budget (rdar-style "unable to
+        // type-check in reasonable time").
+        mainContent
+            .overlay(alignment: .topTrailing) {
+                dismissButton
             }
-        }
-        .onChange(of: viewModel.isTranslating) { _, translating in
-            if translating {
-                isResultsPanelExpanded = true
-            }
-        }
-        .overlay(alignment: .top) {
-            if let message = viewModel.smartRedactionMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: viewModel.isDetectingPrivacy ? "camera.metering.unknown" : "checkmark.circle.fill")
-                        .foregroundColor(viewModel.isDetectingPrivacy ? .secondary : .green)
-                    if viewModel.isDetectingPrivacy {
-                        ProgressView().controlSize(.mini)
-                    }
-                    Text(message)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+            )
+            .onChange(of: viewModel.hasOCRResults) { _, hasResults in
+                if hasResults {
+                    isResultsPanelExpanded = true
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .cornerRadius(8)
-                .shadow(radius: 4)
-                .padding(.top, 20)
-                .transition(.move(edge: .top).combined(with: .opacity))
             }
-        }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.smartRedactionMessage != nil)
-        .alert(
-            String(localized: "error.title"),
-            isPresented: .constant(viewModel.errorMessage != nil),
-            presenting: viewModel.errorMessage
-        ) { _ in
-            Button(String(localized: "button.ok")) {
-                viewModel.errorMessage = nil
+            .onChange(of: viewModel.isTranslating) { _, translating in
+                if translating {
+                    isResultsPanelExpanded = true
+                }
             }
-        } message: { message in
-            Text(message)
-        }
+            .overlay(alignment: .top) {
+                if let message = viewModel.smartRedactionMessage {
+                    SmartRedactionToast(message: message, isDetecting: viewModel.isDetectingPrivacy)
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: viewModel.smartRedactionMessage != nil)
+            .alert(
+                String(localized: "error.title"),
+                isPresented: .constant(viewModel.errorMessage != nil),
+                presenting: viewModel.errorMessage
+            ) { _ in
+                Button(String(localized: "button.ok")) {
+                    viewModel.errorMessage = nil
+                }
+            } message: { message in
+                Text(message)
+            }
         .alert(
             String(localized: "save.success.title"),
             isPresented: .constant(viewModel.saveSuccessMessage != nil),
@@ -142,6 +157,31 @@ struct PreviewContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.copySuccessMessage != nil)
+    }
+}
+
+/// Smart-redaction status toast. Split out of the main body because the
+/// inline ternary + modifier chain exceeded the type checker's budget.
+private struct SmartRedactionToast: View {
+    let message: String
+    let isDetecting: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isDetecting ? "camera.metering.unknown" : "checkmark.circle.fill")
+                .foregroundColor(isDetecting ? Color.secondary : Color.green)
+            if isDetecting {
+                ProgressView().controlSize(.mini)
+            }
+            Text(message)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .cornerRadius(8)
+        .shadow(radius: 4)
+        .padding(.top, 20)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 

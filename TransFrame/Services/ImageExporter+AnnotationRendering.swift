@@ -83,12 +83,48 @@ extension ImageExporter {
             y: imageHeight - annotation.targetPoint.y
         )
 
+        // Measure the text first; grow the bubble downward (SwiftUI-down =
+        // CG minY decreasing) when the stored rect is too short for the
+        // content, so exports never silently truncate what the preview showed.
+        var bubbleRect = cgBubbleRect
+        var measuredText: (attributedString: NSAttributedString, framesetter: CTFramesetter, padding: CGFloat)?
+        if !annotation.text.isEmpty {
+            let fontSize = max(10, annotation.style.fontSize)
+            let font = NSFont.systemFont(ofSize: fontSize, weight: .medium)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: annotation.style.color.nsColor
+            ]
+            let attributedString = NSAttributedString(string: annotation.text, attributes: attributes)
+            let textPadding: CGFloat = 6.0
+            let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+            measuredText = (attributedString, framesetter, textPadding)
+
+            let insetWidth = max(1, cgBubbleRect.width - textPadding * 2)
+            let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
+                framesetter,
+                CFRangeMake(0, attributedString.length),
+                nil,
+                CGSize(width: insetWidth, height: .greatestFiniteMagnitude),
+                nil
+            )
+            let requiredHeight = ceil(suggested.height) + textPadding * 2
+            if requiredHeight > bubbleRect.height {
+                bubbleRect = CGRect(
+                    x: bubbleRect.minX,
+                    y: bubbleRect.maxY - requiredHeight,
+                    width: bubbleRect.width,
+                    height: requiredHeight
+                )
+            }
+        }
+
         context.saveGState()
 
         // 1. Draw pointer tail from bubble to target point
-        let attachX = max(cgBubbleRect.minX + 10, min(cgBubbleRect.maxX - 10, cgTarget.x))
-        let attachY = cgTarget.y < cgBubbleRect.minY ? cgBubbleRect.minY : (cgTarget.y > cgBubbleRect.maxY ? cgBubbleRect.maxY : cgBubbleRect.midY)
-        let halfBase = min(8.0, max(4.0, cgBubbleRect.width * 0.1))
+        let attachX = max(bubbleRect.minX + 10, min(bubbleRect.maxX - 10, cgTarget.x))
+        let attachY = cgTarget.y < bubbleRect.minY ? bubbleRect.minY : (cgTarget.y > bubbleRect.maxY ? bubbleRect.maxY : bubbleRect.midY)
+        let halfBase = min(8.0, max(4.0, bubbleRect.width * 0.1))
         let tailPath = CGMutablePath()
         tailPath.move(to: cgTarget)
         tailPath.addLine(to: CGPoint(x: attachX - halfBase, y: attachY))
@@ -105,25 +141,20 @@ extension ImageExporter {
 
         // 2. Draw bubble body
         context.setFillColor(annotation.bubbleColor.cgColor)
-        let path = CGPath(roundedRect: cgBubbleRect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        let path = CGPath(roundedRect: bubbleRect, cornerWidth: 8, cornerHeight: 8, transform: nil)
         context.addPath(path)
         context.fillPath()
 
         // 3. Draw text inside bubble
-        if !annotation.text.isEmpty {
-            let fontSize = max(10, annotation.style.fontSize)
-            let font = NSFont.systemFont(ofSize: fontSize, weight: .medium)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: annotation.style.color.nsColor
-            ]
-            let attributedString = NSAttributedString(string: annotation.text, attributes: attributes)
-            let textPadding: CGFloat = 6.0
-            let textRect = cgBubbleRect.insetBy(dx: textPadding, dy: textPadding)
-
-            let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+        if let measured = measuredText {
+            let textRect = bubbleRect.insetBy(dx: measured.padding, dy: measured.padding)
             let textPath = CGPath(rect: textRect, transform: nil)
-            let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, attributedString.length), textPath, nil)
+            let frame = CTFramesetterCreateFrame(
+                measured.framesetter,
+                CFRangeMake(0, measured.attributedString.length),
+                textPath,
+                nil
+            )
             CTFrameDraw(frame, context)
         }
 

@@ -48,6 +48,7 @@
 "error.ocr.failed" = "Falha no reconhecimento de texto.";
 "error.ocr.failed.recovery" = "Tente novamente com uma imagem mais clara.";
 "error.ocr.no.text" = "Nenhum texto foi reconhecido na imagem.";
+"error.image.load.failed" = "Não foi possível abrir a imagem \"%@\"";
 "error.ocr.no.text.recovery" = "Tente capturar uma área com texto visível.";
 "error.ocr.cancelled" = "O reconhecimento de texto foi cancelado.";
 "error.ocr.server.unreachable" = "Não é possível conectar ao servidor OCR.";
@@ -84,6 +85,8 @@
 "menu.capture.selection" = "Capturar Seleção";
 "menu.translation.mode" = "Modo de Tradução";
 "menu.translation.history" = "Histórico de Tradução";
+"menu.pick.color" = "Escolher cor da tela";
+"menu.open.image" = "Abrir imagem para edição...";
 "menu.settings" = "Configurações...";
 "menu.about" = "Sobre o TransFrame";
 "menu.quit" = "Sair do TransFrame";

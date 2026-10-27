@@ -48,14 +48,19 @@ echo "Found app at: $APP_PATH"
 cp -R "$APP_PATH" "$DMG_TEMP_DIR/"
 
 # 瘦身 Sparkle.framework (按单架构移除冗余切片并 strip)
+# 注意：lipo/strip 会使二进制原有签名失效，下方签名步骤会对这些二进制逐层重签。
 SPARKLE_DIR="$DMG_TEMP_DIR/TransFrame.app/Contents/Frameworks/Sparkle.framework"
 if [ -d "$SPARKLE_DIR" ]; then
     if [ "$TARGET_ARCH" = "arm64" ] || [ "$TARGET_ARCH" = "x86_64" ]; then
         echo "⚡ 正在精简 Sparkle.framework 架构 ($TARGET_ARCH)..."
         for b in "Versions/B/Sparkle" "Versions/B/Autoupdate" "Versions/B/Updater.app/Contents/MacOS/Updater" "Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader" "Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer"; do
             if [ -f "$SPARKLE_DIR/$b" ]; then
-                lipo -thin "$TARGET_ARCH" "$SPARKLE_DIR/$b" -output "$SPARKLE_DIR/$b.thin" 2>/dev/null && mv "$SPARKLE_DIR/$b.thin" "$SPARKLE_DIR/$b" || true
-                strip -x "$SPARKLE_DIR/$b" 2>/dev/null || true
+                if lipo -thin "$TARGET_ARCH" "$SPARKLE_DIR/$b" -output "$SPARKLE_DIR/$b.thin" 2>/dev/null; then
+                    mv "$SPARKLE_DIR/$b.thin" "$SPARKLE_DIR/$b"
+                else
+                    echo "⚠️ lipo -thin 失败（保留原二进制）: $b" >&2
+                fi
+                strip -x "$SPARKLE_DIR/$b" 2>/dev/null || echo "⚠️ strip 失败: $b" >&2
             fi
         done
     fi
@@ -63,13 +68,28 @@ fi
 
 # 优先使用本机钥匙串中的 Developer ID Application 证书签名（与 GitHub Release 保持一致）
 SIGN_IDENTITY=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | awk -F '"' '{print $2}' || true)
+APP_BUNDLE="$DMG_TEMP_DIR/TransFrame.app"
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "🔐 使用 Developer ID 签名: $SIGN_IDENTITY"
-    codesign --force --deep --options runtime --timestamp=none --sign "$SIGN_IDENTITY" "$DMG_TEMP_DIR/TransFrame.app"
+    # --deep 无法按各自 entitlements 签署嵌套 helper（Sparkle 2 官方明确不支持），
+    # 且 --timestamp=none 的签名无法通过 Apple 公证；改为从内到外逐层签名 + 安全时间戳。
+    CODESIGN_ARGS=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
 else
     echo "⚠️ 未找到 Developer ID 证书，回退为 Ad-hoc 签名"
-    codesign --force --deep --sign - "$DMG_TEMP_DIR/TransFrame.app"
+    CODESIGN_ARGS=(--force --sign -)
 fi
+# 嵌套代码先行（XPC services、Updater.app、Autoupdate），再签框架，最后签 app 外层
+for n in "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" \
+         "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" \
+         "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" \
+         "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"; do
+    if [ -e "$n" ]; then
+        codesign "${CODESIGN_ARGS[@]}" "$n"
+    fi
+done
+[ -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ] && \
+    codesign "${CODESIGN_ARGS[@]}" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+codesign "${CODESIGN_ARGS[@]}" "$APP_BUNDLE"
 
 # 创建 Applications 软链接
 ln -s /Applications "$DMG_TEMP_DIR/Applications"

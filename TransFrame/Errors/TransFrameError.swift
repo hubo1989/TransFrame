@@ -29,6 +29,9 @@ enum TransFrameError: LocalizedError, Sendable {
     /// Failed to encode the image to the specified format
     case exportEncodingFailed(format: ExportFormat)
 
+    /// Image upload to the configured host failed (network/HTTP/provider error)
+    case imageUploadFailed(reason: String)
+
     // MARK: - Clipboard Errors
 
     /// Failed to write the screenshot to the system clipboard
@@ -71,6 +74,8 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.disk.full", comment: "")
         case .exportEncodingFailed:
             return NSLocalizedString("error.export.encoding.failed", comment: "")
+        case .imageUploadFailed(let reason):
+            return String(format: NSLocalizedString("error.image.upload.failed", comment: ""), reason)
         case .clipboardWriteFailed:
             return NSLocalizedString("error.clipboard.write.failed", comment: "")
         case .hotkeyRegistrationFailed:
@@ -102,6 +107,8 @@ enum TransFrameError: LocalizedError, Sendable {
             return NSLocalizedString("error.disk.full.recovery", comment: "")
         case .exportEncodingFailed:
             return NSLocalizedString("error.export.encoding.failed.recovery", comment: "")
+        case .imageUploadFailed:
+            return NSLocalizedString("error.image.upload.failed.recovery", comment: "")
         case .clipboardWriteFailed:
             return NSLocalizedString("error.clipboard.write.failed.recovery", comment: "")
         case .hotkeyRegistrationFailed:

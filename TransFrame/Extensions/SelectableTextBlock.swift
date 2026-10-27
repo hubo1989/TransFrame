@@ -83,6 +83,10 @@ final class ResultsTextView: NSTextView {
 
     private var clickOrigin: NSPoint?
     private var pendingLineCopy: DispatchWorkItem?
+    /// Pasteboard changeCount captured when the deferred copy was scheduled;
+    /// if anything else writes to the pasteboard during the double-click
+    /// delay, the deferred copy must not clobber it.
+    private var pasteboardChangeCountAtClick: Int = 0
 
     override func mouseDown(with event: NSEvent) {
         // A second/third click cancels the pending single-click line copy:
@@ -113,10 +117,15 @@ final class ResultsTextView: NSTextView {
 
         // Defer past the double-click interval: only a true single click
         // copies the line.
+        pasteboardChangeCountAtClick = NSPasteboard.general.changeCount
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(line, forType: .string)
+            let pasteboard = NSPasteboard.general
+            // Skip if another app (or a second click here) wrote to the
+            // pasteboard during the delay — never clobber user data.
+            guard pasteboard.changeCount == self.pasteboardChangeCountAtClick else { return }
+            pasteboard.clearContents()
+            pasteboard.setString(line, forType: .string)
             self.onLineCopied?(line)
         }
         pendingLineCopy?.cancel()

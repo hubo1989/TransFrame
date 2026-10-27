@@ -72,8 +72,18 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         let encoded = try AnalysisImageEncoder.jpeg(image)
         let imageSize = CGSize(width: image.width, height: image.height)
-        let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt)
-        let responseData = try await executeRequest(request)
+
+        var responseData: Data
+        do {
+            let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt, includeResponseFormat: true)
+            responseData = try await executeRequest(request)
+        } catch VLMProviderError.invalidConfiguration {
+            // Some OpenAI-compatible endpoints reject response_format with a
+            // 400; retry once without it (mirrors OpenAIVLMProvider).
+            let request = try buildRequest(base64Image: encoded.base64String, prompts: prompt, includeResponseFormat: false)
+            responseData = try await executeRequest(request)
+        }
+
         let vlmResponse = try parseOllamaResponse(responseData)
 
         return vlmResponse.toScreenAnalysisResult(imageSize: imageSize)
@@ -125,7 +135,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
     }
 
     /// Builds the URLRequest for local server (Ollama /api/generate or OpenAI /chat/completions)
-    private func buildRequest(base64Image: String, prompts: VLMPromptPair = .ocr) throws -> URLRequest {
+    private func buildRequest(base64Image: String, prompts: VLMPromptPair = .ocr, includeResponseFormat: Bool = true) throws -> URLRequest {
         let isChatCompletions = configuration.baseURL.path.contains("v1") || configuration.baseURL.path.contains("chat/completions")
         let endpoint: URL
         if isChatCompletions {
@@ -149,7 +159,7 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
         request.timeoutInterval = timeout
 
         if isChatCompletions {
-            let body: [String: Any] = [
+            var body: [String: Any] = [
                 "model": configuration.modelName,
                 "messages": [
                     [
@@ -160,9 +170,13 @@ struct OllamaVLMProvider: VLMProvider, Sendable {
                         ]
                     ]
                 ],
-                "temperature": 0.1,
-                "response_format": ["type": "json_object"]
+                "temperature": 0.1
             ]
+            if includeResponseFormat {
+                // Ollama's OpenAI-compatible layer and most vLLM builds accept
+                // this; incompatible servers hit the 400 fallback in analyze.
+                body["response_format"] = ["type": "json_object"]
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } else {
             let prompt = """

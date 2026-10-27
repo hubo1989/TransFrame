@@ -7,6 +7,10 @@
 set -u
 cd "$(git rev-parse --show-toplevel 2>/dev/null || dirname "$0")"
 EV=scripts/e2e/eventsynth
+if [ ! -x "$EV" ]; then
+  echo "构建 eventsynth..."
+  swiftc -O scripts/e2e/eventsynth.swift -o "$EV" || { echo "eventsynth 构建失败"; exit 1; }
+fi
 NOTE=/tmp/tf-e2e/note.txt
 SHOT=/tmp/tf-e2e
 mkdir -p "$SHOT"
@@ -285,6 +289,17 @@ menu)
   ;;
 
 ocr)
+  # VLM 识别依赖外网；click 1500 200 / shot 320 260 600 260 等固定坐标
+  # 需要主屏宽度足够，条件不满足时明确 skip 而非误报 FAIL。
+  if ! nc -z -w 3 1.1.1.1 443 2>/dev/null; then
+    echo "  SKIP  ocr（无外网连接，VLM 不可达）"
+    continue
+  fi
+  SCR_W=$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>/dev/null | awk -F ', ' '{print $3}')
+  if ! [ "${SCR_W:-0}" -ge 1501 ] 2>/dev/null; then
+    echo "  SKIP  ocr（主屏宽度 ${SCR_W:-未知} 不足，固定坐标 1500 会越界）"
+    continue
+  fi
   TF=$(setup_textedit)
   [ -n "$TF" ] || TF="260 180 720 420"
   set -- $TF
@@ -455,10 +470,13 @@ square)
   echo "  press rect tool -> $R"
   case "$R" in notfound*) bad "找到矩形工具" ;; *) ok "找到并激活矩形工具" ;; esac
   # dismiss any system dialogs (e.g. Keychain prompts) before measuring
+  # (restrict to known system prompt processes so we never click other apps)
   osascript -l JavaScript >/dev/null <<'JXA'
 function run() {
   const se = Application("System Events");
+  const allowed = ["UserNotificationCenter", "SecurityAgent"];
   for (const p of se.applicationProcesses()) {
+    if (!allowed.includes(String(p.name()))) continue;
     try {
       for (const w of p.windows()) {
         for (const b of w.buttons()) {

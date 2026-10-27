@@ -186,13 +186,16 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             playCaptureSound()
             let clipboard = ClipboardService()
             do {
-                var finalImage = DocumentRenderer.shared.render(document: document) ?? document.baseImage
+                let rendered = DocumentRenderer.shared.render(document: document)
+                var finalImage = rendered ?? document.baseImage
+                // 渲染失败回退底图时保留标注，交由剪贴板侧合成，避免标注被静默丢弃
+                let fallbackAnnotations = rendered == nil ? document.annotations : []
                 if let bConfig = beautifyConfig, bConfig.isEnabled {
                     if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
                         finalImage = beautified
                     }
                 }
-                try clipboard.copy(finalImage, annotations: [])
+                try clipboard.copy(finalImage, annotations: fallbackAnnotations)
             } catch {
                 logger.error("Clipboard copy failed: \(error.localizedDescription)")
             }
@@ -208,10 +211,9 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             onTranslationRequested?(document)
 
         case .beautify:
-            if beautifyConfig == nil {
-                beautifyConfig = .default
-            }
-            beautifyConfig?.isEnabled.toggle()
+            // Handled inside the selection overlay (toggles isBeautifyEnabled);
+            // the resulting state is read back on confirm and never reaches here.
+            break
 
         case .smartMosaic:
             // Handled inside the selection overlay (adds mosaic annotations in place)
@@ -224,14 +226,17 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
             let directory = settings.saveLocation
             let format = settings.defaultFormat
             let url = exporter.generateFileURL(in: directory, format: format)
-            var finalImage = DocumentRenderer.shared.render(document: document) ?? document.baseImage
+            let rendered = DocumentRenderer.shared.render(document: document)
+            var finalImage = rendered ?? document.baseImage
+            // 渲染失败回退底图时保留标注，交由导出侧合成，避免存出无标注文件
+            let fallbackAnnotations = rendered == nil ? document.annotations : []
             if let bConfig = beautifyConfig, bConfig.isEnabled {
                 if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
                     finalImage = beautified
                 }
             }
             do {
-                try exporter.save(finalImage, annotations: [], to: url, format: format, beautifyConfig: nil)
+                try exporter.save(finalImage, annotations: fallbackAnnotations, to: url, format: format, beautifyConfig: nil)
             } catch {
                 logger.error("Save failed: \(error.localizedDescription)")
             }

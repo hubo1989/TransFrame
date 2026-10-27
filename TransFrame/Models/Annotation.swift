@@ -256,11 +256,25 @@ struct TextAnnotation: Identifiable, Equatable, Sendable {
         !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Caches text measurements keyed by (fontName, fontSize, wrapWidth, content).
+    /// `bounds` runs on hit-test and handle-drag frames; re-typesetting the
+    /// same text every frame stutters once many text annotations exist.
+    /// NSCache is thread-safe, evicts under pressure, and cached sizes stay
+    /// correct because the key covers every measurement input.
+    nonisolated(unsafe) private static let measuredBoundsCache = NSCache<NSString, NSValue>()
+
     /// Bounds of the text annotation measured with the actual font so multi-line
     /// content is never truncated.
     var bounds: CGRect {
         guard !content.isEmpty else {
             return CGRect(origin: position, size: CGSize(width: style.fontSize * 2, height: style.fontSize * 1.3))
+        }
+
+        let constraintWidth = wrapWidth ?? .greatestFiniteMagnitude
+        let wrapKey = wrapWidth.map { String(format: "%.1f", $0) } ?? "inf"
+        let cacheKey = "\(style.fontName)|\(String(format: "%.2f", style.fontSize))|\(wrapKey)|\(content)" as NSString
+        if let cached = Self.measuredBoundsCache.object(forKey: cacheKey) {
+            return CGRect(origin: position, size: cached.rectValue.size)
         }
 
         let font = NSFont(name: style.fontName, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
@@ -271,7 +285,6 @@ struct TextAnnotation: Identifiable, Equatable, Sendable {
             .paragraphStyle: paragraph
         ]
 
-        let constraintWidth = wrapWidth ?? .greatestFiniteMagnitude
         let measured = (content as NSString).boundingRect(
             with: CGSize(width: constraintWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -280,10 +293,12 @@ struct TextAnnotation: Identifiable, Equatable, Sendable {
         )
 
         // Add a small horizontal tolerance so the trailing glyph is fully covered
-        return CGRect(
-            origin: position,
-            size: CGSize(width: ceil(measured.width) + 1, height: ceil(measured.height))
+        let size = CGSize(width: ceil(measured.width) + 1, height: ceil(measured.height))
+        Self.measuredBoundsCache.setObject(
+            NSValue(rect: CGRect(origin: .zero, size: size)),
+            forKey: cacheKey
         )
+        return CGRect(origin: position, size: size)
     }
 }
 
@@ -459,9 +474,15 @@ struct NumberLabelAnnotation: Identifiable, Equatable, Sendable {
         self.id = id
         self.position = position
         self.number = max(1, number)
-        self.size = max(12, min(256, size))
+        self.size = Self.clampedSize(size)
         self.color = color
         self.leadPoint = leadPoint
+    }
+
+    /// Uniform diameter clamp shared by init, scaled(by:), and handle drags
+    /// so a resize never jumps a 12–16pt label up to 16pt.
+    static func clampedSize(_ size: CGFloat) -> CGFloat {
+        max(12, min(256, size))
     }
 
     /// The circle bounding rectangle centered at position (excluding leadPoint)
@@ -884,7 +905,7 @@ extension Annotation {
             return .text(t)
         case .numberLabel(var n):
             n.position = scalePoint(n.position)
-            n.size = max(12, min(256, n.size * factor))
+            n.size = NumberLabelAnnotation.clampedSize(n.size * factor)
             if let lp = n.leadPoint {
                 n.leadPoint = scalePoint(lp)
             }
@@ -1125,7 +1146,7 @@ extension Annotation {
                 n.leadPoint = dist > (n.size / 2 + 4) ? point : nil
             case .bottomRight:
                 let dist = hypot(point.x - n.position.x, point.y - n.position.y)
-                n.size = max(16, min(256, dist * 2))
+                n.size = NumberLabelAnnotation.clampedSize(dist * 2)
             default:
                 break
             }

@@ -30,6 +30,8 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
     let apiMode: OpenAIAPIMode
     private let logger = Logger.translation
+    /// Logger for the stateless response parser, usable without an instance.
+    private static let parserLogger = Logger.translation
 
     // MARK: - Initialization
 
@@ -183,7 +185,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
                 responseData = try await executeRequest(request)
             }
 
-            let (content, isTruncated, finishReason) = try extractContentAndStatus(from: responseData)
+            let (content, isTruncated, finishReason) = try Self.extractContentAndStatus(from: responseData)
 
             logDebug("Attempt \(attempt + 1)/\(maxAttempts): received \(content.count) chars, finish reason: \(finishReason ?? "unknown")")
 
@@ -272,9 +274,11 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         }
     }
 
-    /// Extracts content text and truncation status from OpenAI response
-    func extractContentAndStatus(from data: Data) throws -> (content: String, isTruncated: Bool, finishReason: String?) {
-        logDebug("Received raw response payload: \(data.count) bytes")
+    /// Extracts content text and truncation status from an OpenAI response.
+    /// Stateless — declared static so connection probes can validate a 200
+    /// body without constructing a fully configured provider instance.
+    static func extractContentAndStatus(from data: Data) throws -> (content: String, isTruncated: Bool, finishReason: String?) {
+        Self.parserLogger.debug("Received raw response payload: \(data.count, privacy: .public)")
 
         // Check for error response first
         if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data),
@@ -348,10 +352,10 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         // Fallback to reasoningContent or reasoning if content is empty
         if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if let reasoning = message.reasoningContent, !reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                logInfo("Main content is empty, falling back to reasoning_content")
+                Self.parserLogger.info("Main content is empty, falling back to reasoning_content")
                 content = reasoning
             } else if let reasoningObj = message.reasoning, !reasoningObj.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                logInfo("Main content is empty, falling back to reasoning")
+                Self.parserLogger.info("Main content is empty, falling back to reasoning")
                 content = reasoningObj
             }
         }
@@ -465,19 +469,21 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         }
         request.timeoutInterval = timeout
 
-        // Continuation rounds keep the conversation shape but drop the base64
-        // image payload: the assistant's partial JSON already anchors the
-        // context, and re-uploading would multiply bandwidth and prompt tokens.
+        // Continuation rounds keep the conversation shape but drop only the
+        // base64 image part — the text instruction stays so the model still
+        // knows the task (mirrors ClaudeVLMProvider's per-block replacement).
         let effectiveMessages: [OpenAIChatMessage]
         if isContinuation {
             effectiveMessages = messages.map { message in
-                if case .vision = message.content {
-                    return OpenAIChatMessage(
-                        role: message.role,
-                        content: .text(Self.continuationImagePlaceholder)
-                    )
+                guard case .vision(let parts) = message.content else { return message }
+                var kept: [OpenAIChatMessage.VisionContent] = parts.compactMap { part in
+                    if case .text(let text) = part { return .text(text) }
+                    return nil
                 }
-                return message
+                if kept.isEmpty {
+                    kept = [.text(Self.continuationImagePlaceholder)]
+                }
+                return OpenAIChatMessage(role: message.role, content: .vision(kept))
             }
         } else {
             effectiveMessages = messages

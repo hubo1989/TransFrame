@@ -124,29 +124,36 @@ final class BeautifyRenderer: @unchecked Sendable {
 
         // 2. Draw Rounded Image with Shadow
         let imageRect = CGRect(x: padding, y: padding, width: originalWidth, height: originalHeight)
-        context.saveGState()
 
-        // Shadow configuration
-        if config.shadowOpacity > 0 && config.shadowRadius > 0 {
-            let shadowColor = NSColor.black.withAlphaComponent(CGFloat(config.shadowOpacity)).cgColor
-            context.setShadow(
-                offset: CGSize(width: 0, height: -config.shadowRadius * 0.4),
-                blur: config.shadowRadius,
-                color: shadowColor
-            )
-        }
-
-        // Rounded clipping path
+        // Rounded path shared by the shadow pass and the clipped image pass.
         let path = CGPath(
             roundedRect: imageRect,
             cornerWidth: config.cornerRadius,
             cornerHeight: config.cornerRadius,
             transform: nil
         )
+
+        // Shadow pass: fill the path with the shadow applied, then restore.
+        // Filling before clipping keeps the shadow outside the rounded rect —
+        // a single clip-then-draw pass would clip the shadow away entirely.
+        if config.shadowOpacity > 0 && config.shadowRadius > 0 {
+            let shadowColor = NSColor.black.withAlphaComponent(CGFloat(config.shadowOpacity)).cgColor
+            context.saveGState()
+            context.setShadow(
+                offset: CGSize(width: 0, height: -config.shadowRadius * 0.4),
+                blur: config.shadowRadius,
+                color: shadowColor
+            )
+            context.addPath(path)
+            context.setFillColor(NSColor.black.cgColor)
+            context.fillPath()
+            context.restoreGState()
+        }
+
+        // Image pass: clip to the rounded rect and draw the screenshot.
+        context.saveGState()
         context.addPath(path)
         context.clip()
-
-        // Draw original image inside the rounded rect
         context.draw(image, in: imageRect)
         context.restoreGState()
 

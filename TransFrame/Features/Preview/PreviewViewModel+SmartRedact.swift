@@ -54,10 +54,15 @@ extension PreviewViewModel {
     }
 
     /// Auto-hides the transient smart-redaction toast.
+    /// Captures the message it was scheduled for: if a newer detection has
+    /// replaced it meanwhile, the stale task leaves the new toast alone.
     func dismissSmartRedactionMessage() {
+        let scheduledFor = smartRedactionMessage
         Task {
             try? await Task.sleep(for: .seconds(3))
-            smartRedactionMessage = nil
+            if smartRedactionMessage == scheduledFor {
+                smartRedactionMessage = nil
+            }
         }
     }
 }

@@ -1047,11 +1047,7 @@ final class SettingsViewModel {
         case 200:
             // 与实际分析共用同一解析器：HTTP 200 但正文无法解析时如实报错，
             // 避免"测试通过、实际识别失败"的错位（2026-10-23 用户反馈）。
-            let probe = OpenAIVLMProvider(
-                configuration: VLMProviderConfiguration(apiKey: apiKey, baseURL: baseURL, modelName: modelName),
-                apiMode: mode
-            )
-            _ = try probe.extractContentAndStatus(from: data)
+            _ = try OpenAIVLMProvider.extractContentAndStatus(from: data)
             return (true, String(format: NSLocalizedString("settings.vlm.test.success", comment: ""), modelName))
         case 401:
             throw VLMProviderError.authenticationFailed

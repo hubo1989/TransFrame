@@ -48,6 +48,7 @@
 "error.ocr.failed" = "텍스트 인식에 실패했습니다.";
 "error.ocr.failed.recovery" = "더 선명한 이미지로 다시 시도하세요.";
 "error.ocr.no.text" = "이미지에서 텍스트를 인식하지 못했습니다.";
+"error.image.load.failed" = "이미지 \"%@\"을(를) 열 수 없습니다";
 "error.ocr.no.text.recovery" = "보이는 텍스트가 있는 영역을 캡처해 보세요.";
 "error.ocr.cancelled" = "텍스트 인식이 취소되었습니다.";
 "error.ocr.server.unreachable" = "OCR 서버에 연결할 수 없습니다.";
@@ -84,6 +85,8 @@
 "menu.capture.selection" = "선택 영역 캡처";
 "menu.translation.mode" = "번역 모드";
 "menu.translation.history" = "번역 기록";
+"menu.pick.color" = "화면 색상 선택";
+"menu.open.image" = "편집할 이미지 열기...";
 "menu.settings" = "설정...";
 "menu.about" = "TransFrame 정보";
 "menu.quit" = "TransFrame 종료";

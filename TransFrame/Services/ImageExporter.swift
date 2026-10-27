@@ -115,27 +115,6 @@ struct ImageExporter: Sendable {
         return result
     }
 
-    /// Renders composited annotations and optional beautification to a final CGImage.
-    func renderFinalImage(
-        _ image: CGImage,
-        annotations: [Annotation],
-        beautifyConfig: BeautifyConfig? = nil
-    ) throws -> CGImage {
-        var finalImage: CGImage
-        if annotations.isEmpty {
-            finalImage = image
-        } else {
-            finalImage = try compositeAnnotations(annotations, onto: image)
-        }
-
-        if let bConfig = beautifyConfig, bConfig.isEnabled {
-            if let beautified = BeautifyRenderer.shared.render(image: finalImage, config: bConfig) {
-                finalImage = beautified
-            }
-        }
-        return finalImage
-    }
-
     // MARK: - Save with Translations
 
     func saveWithTranslations(

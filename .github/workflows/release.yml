@@ -227,7 +227,8 @@ jobs:
             -ov -format UDZO \
             "$DMG_FILE"
 
-          # Also create an explicit arm64-named DMG for release downloads
+          # arm64-only build; keep the un-suffixed name for backward compatibility,
+          # but release notes state this is an arm64-only artifact (see Create Release body).
           cp "$DMG_FILE" "$ARM64_DMG_FILE"
 
           # Get file size
@@ -345,6 +346,8 @@ jobs:
             ${{ env.PROJECT_NAME }}-*.dmg
             appcast.xml
           generate_release_notes: true
+          body: |
+            > **注意**：本次构建为 **arm64-only**。`$NAME-$VERSION.dmg` 与 `$NAME-$VERSION-arm64.dmg` 为同一 arm64 产物（无后缀名为向后兼容保留），不含 x86_64 切片。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

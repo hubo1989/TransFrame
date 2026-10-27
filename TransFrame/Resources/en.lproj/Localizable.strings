@@ -32,6 +32,8 @@
 /* Export Errors */
 "error.export.encoding.failed" = "Failed to encode the image.";
 "error.export.encoding.failed.recovery" = "Try a different format in Settings.";
+"error.image.upload.failed" = "Image upload failed: %@";
+"error.image.upload.failed.recovery" = "Check the image host configuration and network, then retry.";
 "error.export.encoding.failed.detail" = "Failed to encode the image as %@.";
 
 /* Clipboard Errors */
@@ -50,6 +52,7 @@
 "error.pipeline.translateFailed" = "Translation failed: %@";
 "error.ocr.failed.recovery" = "Please try again with a clearer image.";
 "error.ocr.no.text" = "No text was recognized in the image.";
+"error.image.load.failed" = "Could not open image \"%@\"";
 "error.ocr.no.text.recovery" = "Try capturing an area with visible text.";
 "error.ocr.cancelled" = "Text recognition was cancelled.";
 "error.ocr.server.unreachable" = "Cannot connect to OCR server.";
@@ -496,6 +499,8 @@
    ======================================== */
 
 "history.title" = "Translation History";
+"history.filter.all" = "All";
+"history.filter.starred" = "Starred";
 "history.search.placeholder" = "Search history...";
 "history.clear.all" = "Clear all history";
 "history.empty.title" = "No Translation History";
@@ -714,6 +719,7 @@
    ======================================== */
 
 "bilingualResult.window.title" = "Bilingual Translation";
+"bilingualResult.pin" = "Pin";
 "bilingualResult.loading" = "Translating...";
 "bilingualResult.loading.analyzing" = "Analyzing image...";
 "bilingualResult.loading.translating" = "Translating text...";
@@ -853,6 +859,7 @@
 "preview.panel.rerun" = "Recognize Again";
 "preview.panel.copyAll" = "Copy All";
 "preview.panel.close" = "Close";
+"preview.panel.expandDrawer" = "Expand results panel";
 "preview.panel.recognizing" = "Recognizing...";
 "preview.panel.copyLine" = "Copy";
 "preview.panel.original" = "Original";

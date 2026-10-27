@@ -68,11 +68,16 @@ final class BilingualResultWindowController: NSObject {
 
         let newWindow = BilingualResultPanel(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
-            styleMask: [.borderless, .resizable],
+            // .titled + .fullSizeContentView keeps the borderless look while
+            // retaining system edge-resize (a pure .borderless mask ignores
+            // .resizable for user resizing) and a VoiceOver window title.
+            styleMask: [.titled, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
+        newWindow.titleVisibility = .hidden
+        newWindow.titlebarAppearsTransparent = true
         newWindow.isOpaque = false
         newWindow.backgroundColor = .clear
         newWindow.hasShadow = true
@@ -145,11 +150,16 @@ final class BilingualResultWindowController: NSObject {
 
         let newWindow = BilingualResultPanel(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
-            styleMask: [.borderless, .resizable],
+            // .titled + .fullSizeContentView keeps the borderless look while
+            // retaining system edge-resize (a pure .borderless mask ignores
+            // .resizable for user resizing) and a VoiceOver window title.
+            styleMask: [.titled, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
+        newWindow.titleVisibility = .hidden
+        newWindow.titlebarAppearsTransparent = true
         newWindow.isOpaque = false
         newWindow.backgroundColor = .clear
         newWindow.hasShadow = true
