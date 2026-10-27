@@ -95,6 +95,12 @@ final class PreviewViewModel {
     var bilingualSegments: [BilingualSegment] = []
     var isTranslating: Bool = false
 
+    @ObservationIgnored
+    var ocrTask: Task<Void, Never>?
+    @ObservationIgnored
+    var translationTask: Task<Void, Never>?
+    var analysisGeneration: UInt64 = 0
+
     // MARK: - Annotation Tools
 
     @ObservationIgnored
@@ -264,6 +270,8 @@ final class PreviewViewModel {
     func hide() {
         guard isVisible else { return }
         isVisible = false
+        ocrTask?.cancel()
+        translationTask?.cancel()
         undoStack.removeAll()
         redoStack.removeAll()
         onDismiss?()

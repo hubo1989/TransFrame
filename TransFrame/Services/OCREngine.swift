@@ -237,17 +237,16 @@ actor OCREngine {
     /// Creates a configured VNRecognizeTextRequest
     private func createRecognitionRequest(config: Configuration) -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest { _, _ in }
-
-        // Set recognition level
         request.recognitionLevel = config.recognitionLevel.visionLevel
 
-        // With auto detection, leave recognitionLanguages at Vision's default
-        if !config.useAutoLanguageDetection {
+        if config.useAutoLanguageDetection {
+            request.automaticallyDetectsLanguage = true
+        } else {
             request.recognitionLanguages = Array(config.languages).map(\.visionLanguage)
+            request.automaticallyDetectsLanguage = false
         }
 
         request.usesLanguageCorrection = true
-
         return request
     }
 }

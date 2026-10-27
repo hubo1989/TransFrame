@@ -37,6 +37,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
     private var currentMode: CaptureMode = .region
     private var currentSnapshotSet: FrozenSnapshotSet?
     private var beautifyConfig: BeautifyConfig?
+    private var isStartingCapture = false
 
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
@@ -49,11 +50,12 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
 
     /// Triggers screen capture session with instant freeze.
     func startCapture(mode: CaptureMode = .region) {
-        // Prevent launching another session if overlays are active
-        guard activeOverlays.isEmpty else {
+        // Prevent launching another session if overlays are active or starting
+        guard activeOverlays.isEmpty, !isStartingCapture else {
             logger.warning("Capture session already in progress, ignoring trigger")
             return
         }
+        isStartingCapture = true
 
         self.currentMode = mode
         let triggerTime = ContinuousClock.now
@@ -88,6 +90,7 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
                     CaptureDocumentStore.shared.register(doc)
                     self.dispatchAction(.copy, for: doc)
                     self.onCaptureComplete?(doc)
+                    self.isStartingCapture = false
                     return
                 }
 
@@ -122,9 +125,11 @@ final class CaptureSessionController: NSObject, SelectionOverlayDelegate {
                 // Record freeze visible time
                 self.currentSnapshotSet?.freezeVisibleAt = .now
                 self.logger.info("All frozen overlays presented successfully")
+                self.isStartingCapture = false
 
             } catch {
                 self.logger.error("Failed to start capture session: \(error.localizedDescription)")
+                self.isStartingCapture = false
                 self.closeAllOverlays()
             }
         }

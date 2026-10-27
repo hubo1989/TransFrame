@@ -20,18 +20,24 @@ extension PreviewViewModel {
         isTranslating = true
         ocrTranslationError = nil
 
-        Task { @MainActor in
-            defer { isTranslating = false }
+        translationTask?.cancel()
+        analysisGeneration &+= 1
+        let generation = analysisGeneration
+        translationTask = Task { @MainActor in
+            defer {
+                if generation == self.analysisGeneration {
+                    self.isTranslating = false
+                }
+            }
 
             let pipeline = ImageTranslationPipeline()
             let context = PipelineContext()
 
-            // Stage-split so failures are attributed correctly: analysis
-            // (VLM) errors read as recognition, not translation failures.
             let analysis: ScreenAnalysisResult
             do {
                 analysis = try await pipeline.analyze(image: image, context: context)
             } catch {
+                guard generation == self.analysisGeneration else { return }
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 errorMessage = String(format: String(localized: "error.pipeline.ocrFailed"), message)
                 ocrTranslationError = errorMessage
@@ -39,6 +45,7 @@ extension PreviewViewModel {
                 return
             }
 
+            guard generation == self.analysisGeneration else { return }
             let filtered = analysis.filteredForTranslation()
             guard !filtered.segments.isEmpty else {
                 errorMessage = String(localized: "error.ocr.no.text")
@@ -48,12 +55,15 @@ extension PreviewViewModel {
 
             let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
             do {
-                bilingualSegments = try await pipeline.translate(
+                let segments = try await pipeline.translate(
                     analysisResult: filtered,
                     config: config,
                     context: context
                 )
+                guard generation == self.analysisGeneration else { return }
+                bilingualSegments = segments
             } catch {
+                guard generation == self.analysisGeneration else { return }
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 errorMessage = String(format: String(localized: "error.pipeline.translateFailed"), message)
                 ocrTranslationError = errorMessage

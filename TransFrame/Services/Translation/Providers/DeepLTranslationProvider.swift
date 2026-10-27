@@ -23,11 +23,20 @@ actor DeepLTranslationProvider: TranslationProvider {
     )
 
     private var baseURL: String {
-        // Use free tier URL if configured, otherwise pro tier
+        // Use free tier URL if configured, otherwise pro tier.
+        // Ensure the URL always points to the /translate operation endpoint.
+        let raw: String
         if let customURL = config.options?.baseURL, !customURL.isEmpty {
-            return customURL
+            raw = customURL
+        } else {
+            raw = "https://api.deepl.com/v2/translate"
         }
-        return "https://api.deepl.com/v2/translate"
+        // If user supplied only the host/version root (e.g. .../v2), append /translate.
+        let trimmed = raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+        if trimmed.hasSuffix("/translate") {
+            return trimmed
+        }
+        return trimmed + "/translate"
     }
 
     // MARK: - Initialization

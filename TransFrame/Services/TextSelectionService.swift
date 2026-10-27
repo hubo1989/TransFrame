@@ -153,6 +153,17 @@ actor TextSelectionService {
         // Save current clipboard content
         let savedClipboard = try saveClipboardContent()
 
+        // Ensure clipboard is restored even if we throw below
+        defer {
+            if let saved = savedClipboard {
+                do {
+                    try restoreClipboardContent(saved)
+                } catch {
+                    logger.warning("Failed to restore clipboard: \(error.localizedDescription, privacy: .private(mask: .hash))")
+                }
+            }
+        }
+
         // Clear clipboard to detect when new content is pasted
         clearClipboard()
 
@@ -161,16 +172,6 @@ actor TextSelectionService {
 
         // Wait for clipboard to be updated with selected text
         let capturedText = try await waitForClipboardUpdate(previousChangeCount: savedClipboard?.changeCount ?? -1)
-
-        // Restore original clipboard content
-        if let saved = savedClipboard {
-            do {
-                try restoreClipboardContent(saved)
-            } catch {
-                // Log but don't fail - we still got the text
-                logger.warning("Failed to restore clipboard: \(error.localizedDescription, privacy: .private(mask: .hash))")
-            }
-        }
 
         // Validate we got some text
         guard !capturedText.isEmpty else {

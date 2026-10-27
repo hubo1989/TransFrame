@@ -42,7 +42,9 @@ actor AnalysisPipeline {
         _ analysisResult: ScreenAnalysisResult,
         ocrFallback: @Sendable () async throws -> OCRResult
     ) async throws -> ScreenAnalysisResult {
-        guard analysisResult.containsOnlyPromptLeakage else {
+        // Fallback to OCR when VLM returned nothing useful: empty segments
+        // or only prompt/schema leakage.
+        guard analysisResult.segments.isEmpty || analysisResult.containsOnlyPromptLeakage else {
             return analysisResult
         }
 

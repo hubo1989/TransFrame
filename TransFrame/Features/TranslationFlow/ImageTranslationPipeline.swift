@@ -14,12 +14,23 @@ struct ImageTranslationPipelineConfig: Sendable, Equatable {
     @MainActor
     static func fromAppSettings(scene: TranslationScene? = nil) -> ImageTranslationPipelineConfig {
         let settings = AppSettings.shared
+        // Resolve preferred engine consistently with TextTranslationFlow:
+        // sceneBinding uses scene binding; all other modes use parallelEngines[0].
+        let preferredEngine: TranslationEngineType
+        if settings.engineSelectionMode == .sceneBinding, let scene {
+            preferredEngine = settings.sceneBindings[scene]?.primaryEngine
+                ?? SceneEngineBinding.default(for: scene).primaryEngine
+        } else if let first = settings.parallelEngines.first {
+            preferredEngine = first
+        } else {
+            preferredEngine = settings.translationEngine
+        }
         return ImageTranslationPipelineConfig(
             targetLanguage: settings.translationTargetLanguage?.rawValue ?? "zh-Hans",
             sourceLanguage: settings.translationSourceLanguage == .auto
                 ? nil
                 : settings.translationSourceLanguage.rawValue,
-            preferredEngine: settings.translationEngine,
+            preferredEngine: preferredEngine,
             scene: scene,
             mode: settings.engineSelectionMode,
             fallbackEnabled: settings.translationFallbackEnabled,

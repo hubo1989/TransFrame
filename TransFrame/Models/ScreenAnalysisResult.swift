@@ -109,50 +109,49 @@ extension TextSegment {
         return false
     }
     /// Heuristic for leaked OCR prompt/schema instructions accidentally returned by VLMs.
+    /// Conservative: only matches clear schema/prompt patterns, not ordinary technical content.
     var isLikelyOCRPromptLeakage: Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
         let normalized = trimmed.lowercased()
+
+        // Very strong signals: unambiguous prompt/schema instruction phrases
         let strongSignals = [
-            "\"segments\"",
-            "\"boundingbox\"",
-            "\"confidence\"",
-            "\"width\"",
-            "\"height\"",
             "return json",
             "json format",
-            "top-left corner",
+            "\"segments\"",
+            "\"boundingbox\"",
             "normalized to image size",
-            "boundingbox",
-            "置信度",
-            "左上角",
-            "右上角",
-            "箱形尺寸",
             "json格式",
             "返回json",
+            "置信度: 0.0-1.0",
+            "置信度:0.0-1.0",
+            "x,y: top-left",
+            "x,y:左上角",
+            "x, y: top-left",
+            "x, y: 左上角",
+            "x, y:左上角",
         ]
 
-        if strongSignals.contains(where: normalized.contains) {
+        if strongSignals.contains(where: { normalized.contains($0) }) {
             return true
         }
 
-        let weakSignals = [
-            "x, y",
-            "width, height",
+        // Multi-signal heuristic: need at least 2 schema-related markers
+        let schemaMarkers = [
+            "boundingbox",
+            "\"confidence\"",
             "0.0-1.0",
             "0.0–1.0",
-            "宽度",
-            "高度",
             "归一化",
+            "箱形尺寸",
+            "confidence:",
         ]
-        let weakSignalCount = weakSignals.reduce(into: 0) { count, signal in
-            if normalized.contains(signal) {
-                count += 1
-            }
+        let markerCount = schemaMarkers.reduce(into: 0) { count, signal in
+            if normalized.contains(signal) { count += 1 }
         }
-
-        return weakSignalCount >= 2
+        return markerCount >= 2
     }
 }
 

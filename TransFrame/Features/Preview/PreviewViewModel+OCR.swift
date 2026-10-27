@@ -12,16 +12,22 @@ extension PreviewViewModel {
         isPerformingOCR = true
         ocrTranslationError = nil
 
-        Task {
-            await executeOCR()
+        ocrTask?.cancel()
+        analysisGeneration &+= 1
+        let generation = analysisGeneration
+        ocrTask = Task {
+            await executeOCR(generation: generation)
         }
     }
 
-    func executeOCR() async {
-        defer { isPerformingOCR = false }
+    func executeOCR(generation: UInt64? = nil) async {
+        let currentGeneration = generation ?? analysisGeneration
+        defer {
+            if currentGeneration == analysisGeneration {
+                isPerformingOCR = false
+            }
+        }
 
-        // Recognize in the user's source language; auto (or an unsupported
-        // language) falls back to Vision's automatic language detection.
         let languages = Set(
             [AppSettings.shared.translationSourceLanguage]
                 .compactMap { OCREngine.RecognitionLanguage(translationLanguage: $0) }
@@ -32,11 +38,13 @@ extension PreviewViewModel {
                 image,
                 languages: languages
             )
+            guard currentGeneration == analysisGeneration else { return }
             ocrResult = result
             if result.observations.isEmpty {
                 errorMessage = String(localized: "error.ocr.no.text")
             }
         } catch {
+            guard currentGeneration == analysisGeneration else { return }
             let message = "\(String(localized: "error.ocr.failed")) \(error.localizedDescription)"
             ocrTranslationError = message
             errorMessage = message

@@ -160,10 +160,16 @@ final class TextTranslationPopupController: NSObject {
 
 extension TextTranslationPopupController: NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
+        guard let closedWindow = notification.object as? NSWindow else { return }
         Task { @MainActor in
-            window = nil
-            onDismiss?()
-            popupDelegate?.textTranslationPopupDidDismiss()
+            // Only clear the reference if this is still the current window,
+            // preventing an old window's async close callback from clearing
+            // a newly-presented window's reference.
+            if window === closedWindow {
+                window = nil
+                onDismiss?()
+                popupDelegate?.textTranslationPopupDidDismiss()
+            }
         }
     }
 }

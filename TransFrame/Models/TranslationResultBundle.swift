@@ -86,9 +86,12 @@ struct TranslationResultBundle: Sendable {
 
     // MARK: - Computed Properties
 
-    /// Primary result (from the primary engine)
+    /// Primary result (from the primary engine, falling back to any successful engine)
     var primaryResult: [BilingualSegment] {
-        results.first { $0.engine == primaryEngine && $0.isSuccess }?.segments ?? []
+        if let primary = results.first(where: { $0.engine == primaryEngine && $0.isSuccess }) {
+            return primary.segments
+        }
+        return results.first(where: { $0.isSuccess })?.segments ?? []
     }
 
     /// Whether any engine had errors
