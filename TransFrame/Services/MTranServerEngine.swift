@@ -94,7 +94,21 @@ actor MTranServerEngine: TranslationProvider {
                 guard inet_pton(AF_INET6, rawAddress, &parsed) == 1 else { return nil }
                 return host
             }
-            return host == "localhost" ? "127.0.0.1" : host
+            if host == "localhost" { return "127.0.0.1" }
+            // percentEncodedHost throws an uncatchable NSInvalidArgumentException
+            // on illegal characters (e.g. legacy UserDefaults hosts with spaces
+            // or non-ASCII input); restrict to hostname/IPv4 syntax.
+            guard host.allSatisfy(Self.isHostnameSafeCharacter) else { return nil }
+            return host
+        }
+
+        private static func isHostnameSafeCharacter(_ character: Character) -> Bool {
+            guard let ascii = character.asciiValue else { return false }
+            switch ascii {
+            case 0x30...0x39, 0x41...0x5A, 0x61...0x7A: return true // 0-9 A-Z a-z
+            case 0x2E, 0x2D, 0x5F: return true                     // . - _
+            default: return false
+            }
         }
 
         var isValid: Bool {

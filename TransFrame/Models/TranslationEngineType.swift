@@ -295,7 +295,9 @@ final class MTranServerChecker: @unchecked Sendable {
         self.now = now
     }
 
-    /// Check if MTranServer is available (synchronous property, never performs network I/O)
+    /// Check if MTranServer is available (synchronous property, never performs network I/O).
+    /// Cached-only snapshot: returns false whenever no fresh (TTL-valid) probe
+    /// exists; use `checkAvailability(...)` for an authoritative answer.
     static var isAvailable: Bool { shared.isAvailable }
 
     var isAvailable: Bool { cachedAvailability(for: .default) }
@@ -400,8 +402,14 @@ final class MTranServerChecker: @unchecked Sendable {
                     logger.info("MTranServer available via \(endpoint)")
                     return true
                 }
-                if endpoint != "/translate" && [404, 405, 501].contains(statusCode) {
-                    continue
+                if endpoint != "/translate" {
+                    // 404/405/501: endpoint missing. 401/403/429: a gateway in
+                    // front may only guard some paths while /translate works.
+                    // Other statuses (5xx server errors) fail fast — the
+                    // server itself is unhealthy and /translate won't be well.
+                    if [401, 403, 404, 405, 429, 501].contains(statusCode) {
+                        continue
+                    }
                 }
                 return false
             } catch is CancellationError {

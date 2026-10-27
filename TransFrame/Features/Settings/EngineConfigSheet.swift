@@ -419,10 +419,13 @@ struct EngineConfigSheet: View {
             }
 
             // Test connection with the unsaved form snapshot, not the old engine config.
+            // Empty form fields mean "keep the saved value" (same contract as
+            // saveConfig), so the probe must not hit a different URL than the
+            // one that will actually be persisted.
             var testConfig = config
             var options = config.options ?? EngineOptions.default(for: engine) ?? EngineOptions()
-            options.baseURL = baseURL
-            options.modelName = modelName
+            if !baseURL.isEmpty { options.baseURL = baseURL }
+            if !modelName.isEmpty { options.modelName = modelName }
             testConfig.options = options
             try await TranslationService.shared.verifyConnection(for: engine, config: testConfig)
 

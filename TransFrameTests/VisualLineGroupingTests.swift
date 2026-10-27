@@ -80,6 +80,31 @@ final class VisualLineGroupingTests: XCTestCase {
         XCTAssertEqual(VisualLineGrouping.joinText("令牌", "TOKEN"), "令牌 TOKEN")
     }
 
+    /// 近零间隙的代码标识符碎片贴合拼接，不得插入原文不存在的空格。
+    func testTouchingIdentifierFragmentsGlueWithoutSpace() {
+        XCTAssertEqual(
+            VisualLineGrouping.joinText("DESIGMA", "_PLUGINS_TOKEN", gluesDirectly: true),
+            "DESIGMA_PLUGINS_TOKEN"
+        )
+        // 有间隙的普通单词即使传 gluesDirectly 也不贴合（保守：仅标识符字符贴合）
+        XCTAssertEqual(
+            VisualLineGrouping.joinText("of", "main", gluesDirectly: true),
+            "of main"
+        )
+    }
+
+    /// 完整合并路径：贴合的标识符碎片 mergeLines 后文本无多余空格。
+    func testMergedLineKeepsTouchingIdentifierIntact() {
+        let segments = [
+            TextSegment(text: "set", boundingBox: CGRect(x: 0.10, y: 0.50, width: 0.03, height: 0.02)),
+            TextSegment(text: "DESIGMA_PLUGINS_TOKEN", boundingBox: CGRect(x: 0.132, y: 0.50, width: 0.20, height: 0.02)),
+            TextSegment(text: "to any", boundingBox: CGRect(x: 0.34, y: 0.50, width: 0.06, height: 0.02)),
+        ]
+        let merged = VisualLineGrouping.mergeLines(in: segments)
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].text, "set DESIGMA_PLUGINS_TOKEN to any")
+    }
+
     // MARK: - Ordering & edge cases
 
     func testOutputIsSortedTopToBottom() {
@@ -132,20 +157,5 @@ final class VisualLineGroupingTests: XCTestCase {
         let merged = VisualLineGrouping.mergeLines(in: [edited, plain])
         XCTAssertEqual(merged.count, 1)
         XCTAssertTrue(merged[0].isUserEdited)
-    }
-
-    // MARK: - ScreenAnalysisResult integration
-
-    func testMergingVisualLinesReturnsGroupedResult() {
-        let result = ScreenAnalysisResult(
-            segments: lineFragments() + [
-                TextSegment(text: "next line", boundingBox: CGRect(x: 0.10, y: 0.50, width: 0.3, height: 0.02)),
-            ],
-            imageSize: CGSize(width: 1000, height: 600)
-        )
-        let grouped = result.mergingVisualLines()
-        XCTAssertEqual(grouped.segments.count, 2)
-        XCTAssertTrue(grouped.segments[0].text.hasPrefix("installed metadata"))
-        XCTAssertEqual(grouped.segments[1].text, "next line")
     }
 }

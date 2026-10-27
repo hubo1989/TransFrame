@@ -264,6 +264,12 @@ extension TranslationEngineRegistry {
            inFlight.customSnapshot == customSnapshot {
             return try await inFlight.task.value
         }
+        // Stale or force-refreshed creation: cancel and drop it so repeated
+        // saves don't spawn concurrent duplicate providers for the same type.
+        if let stale = inFlightCreations[type] {
+            stale.task.cancel()
+            inFlightCreations.removeValue(forKey: type)
+        }
 
         let mutationRevision = bumpEngineMutationRevision(for: type)
         let token = allocateCreationToken()

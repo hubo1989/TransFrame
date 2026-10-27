@@ -19,6 +19,13 @@ final class LLMResponseTruncationTests: XCTestCase {
         XCTAssertThrowsError(try LLMTranslationResponseParser.extractText(from: data, for: .openai))
     }
 
+    /// 译文正文含换行 + "data:"（日志/SSE 示例文本）时不得误判为 SSE 流。
+    func testJSONBodyContainingDataLineIsNotTreatedAsSSE() throws {
+        let payload = #"{"stop_reason":"end_turn","content":[{"type":"text","text":"日志示例\ndata: 123"}]}"#
+        let text = try LLMTranslationResponseParser.extractText(from: Data(payload.utf8), for: .claude)
+        XCTAssertEqual(text, "日志示例\ndata: 123")
+    }
+
     func testBatchingRespectsBudgetAndPreservesAllSourceText() {
         let texts = [String(repeating: "汉", count: 20), String(repeating: "字", count: 20), "third", "fourth"]
         let batches = LLMTranslationBatching.split(texts: texts, maxOutputTokens: 20, promptTemplate: nil)

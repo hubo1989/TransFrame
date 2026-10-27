@@ -60,14 +60,21 @@ enum VisualLineGrouping {
     }
 
     /// Merges one line's fragments (left-to-right) into a single segment:
-    /// joined text, union bounding box, averaged confidence.
+    /// joined text, union bounding box, averaged confidence. Fragments that
+    /// nearly touch (gap ≤ 25% of the shorter line height) join without a
+    /// space so VLM-split code identifiers ("DESIGMA" + "_PLUGINS_TOKEN")
+    /// are not corrupted by inserted spaces.
     private static func mergedSegment(from fragments: [TextSegment]) -> TextSegment? {
         guard let first = fragments.first else { return nil }
         guard fragments.count > 1 else { return first }
 
         let ordered = fragments.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
-        let joinedText = ordered.map(\.text).reduce(into: "") { partial, next in
-            partial = joinText(partial, next)
+        var joinedText = ordered[0].text
+        for (previous, next) in zip(ordered, ordered.dropFirst()) {
+            let gap = next.boundingBox.minX - previous.boundingBox.maxX
+            let referenceHeight = min(previous.boundingBox.height, next.boundingBox.height)
+            let nearlyTouching = referenceHeight > 0 && gap <= referenceHeight * 0.25
+            joinedText = joinText(joinedText, next.text, gluesDirectly: nearlyTouching)
         }
         let box = union(of: ordered.map(\.boundingBox))
         let confidence = ordered.map(\.confidence).reduce(0, +) / Float(ordered.count)
@@ -79,12 +86,41 @@ enum VisualLineGrouping {
         )
     }
 
-    /// Joins two fragments: CJK-adjacent text glues directly, everything
-    /// else gets a single space.
-    static func joinText(_ lhs: String, _ rhs: String) -> String {
+    /// Joins two fragments: CJK-adjacent text glues directly; a near-zero gap
+    /// between two identifier-shaped fragments (underscore boundary, or both
+    /// sides look like code identifiers) glues directly so VLM-split tokens
+    /// ("DESIGMA" + "_PLUGINS_TOKEN") survive; everything else gets a space.
+    static func joinText(_ lhs: String, _ rhs: String, gluesDirectly: Bool = false) -> String {
         guard let last = lhs.last, let first = rhs.first else { return lhs + rhs }
         if isCJK(last), isCJK(first) { return lhs + rhs }
+        if gluesDirectly,
+           isIdentifierCharacter(last), isIdentifierCharacter(first),
+           lhs.hasSuffix("_") || rhs.hasPrefix("_")
+               || (isIdentifierLike(lhs) && isIdentifierLike(rhs)) {
+            return lhs + rhs
+        }
         return lhs + " " + rhs
+    }
+
+    /// Heuristic "looks like a code identifier": contains an underscore or a
+    /// digit, or has an uppercase letter after the first character
+    /// (camelCase / SCREAMING_CASE). Capitalized plain words like "Name"
+    /// don't qualify, so touching OCR fragments of normal prose still get
+    /// the separating space.
+    private static func isIdentifierLike(_ text: String) -> Bool {
+        guard let first = text.first else { return false }
+        let afterFirst = text.dropFirst()
+        return text.contains("_")
+            || text.contains(where: \.isNumber)
+            || afterFirst.contains(where: \.isUppercase)
+    }
+
+    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+        guard let ascii = character.asciiValue else { return false }
+        return (0x30...0x39).contains(ascii)
+            || (0x41...0x5A).contains(ascii)
+            || (0x61...0x7A).contains(ascii)
+            || ascii == 0x5F
     }
 
     private static func isCJK(_ character: Character) -> Bool {
@@ -98,19 +134,5 @@ enum VisualLineGrouping {
 
     private static func union(of boxes: [CGRect]) -> CGRect {
         boxes.reduce(CGRect.null) { $0.union($1) }
-    }
-}
-
-extension ScreenAnalysisResult {
-    /// Translation prep step after `filteredForTranslation()`: merges
-    /// same-line fragments so each visual line is translated as one unit.
-    func mergingVisualLines() -> ScreenAnalysisResult {
-        let merged = VisualLineGrouping.mergeLines(in: segments)
-        return ScreenAnalysisResult(
-            segments: merged,
-            rawSegments: rawSegments,
-            filteredOutSegments: filteredOutSegments,
-            imageSize: imageSize
-        )
     }
 }

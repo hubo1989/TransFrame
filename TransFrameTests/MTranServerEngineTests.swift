@@ -85,6 +85,15 @@ final class MTranServerEngineTests: XCTestCase {
         XCTAssertEqual(MTranTestURLProtocol.requests.map(\.url?.path), ["/health"])
     }
 
+    /// 网关只拦截 /health 与 /（401），/translate 正常时仍应判可用。
+    func testHealthUnauthorizedFallsThroughToTranslate() async throws {
+        MTranTestURLProtocol.statusCodes = ["/health": 401, "/": 403]
+
+        let available = try await checker.checkAvailability(configuration: makeConfig())
+        XCTAssertTrue(available)
+        XCTAssertEqual(MTranTestURLProtocol.requests.map(\.url?.path), ["/health", "/", "/translate"])
+    }
+
     func testHealthNotFoundFallsBackToRoot() async throws {
         MTranTestURLProtocol.statusCodes = ["/health": 404]
 
@@ -259,6 +268,23 @@ final class MTranServerEngineTests: XCTestCase {
         XCTAssertEqual(config?.serverPort, 8989)
         XCTAssertNil(MTranServerEngine.Configuration(serverURL: "http://localhost:8989/api"))
         XCTAssertNil(MTranServerEngine.Configuration(serverURL: "http://[bad:host]:8989"))
+    }
+
+    /// 残留非法 host（空格/非 ASCII）不得触发 percentEncodedHost 的
+    /// 不可捕获 NSInvalidArgumentException：endpointHost 返回 nil，配置判无效。
+    func testIllegalHostnameIsRejectedNotCrashing() {
+        for badHost in ["my host.example", "服务器.本地", "host\nevil"] {
+            let config = MTranServerEngine.Configuration(
+                serverAddress: badHost, serverPort: 8989, timeout: 10.0, autoDetectSourceLanguage: true
+            )
+            XCTAssertNil(config.endpointHost, "host 必须被拒绝: \(String(describing: badHost))")
+            XCTAssertFalse(config.isValid)
+        }
+        // 合法 host 仍通过
+        let valid = MTranServerEngine.Configuration(
+            serverAddress: "192.168.1.10", serverPort: 8989, timeout: 10.0, autoDetectSourceLanguage: true
+        )
+        XCTAssertEqual(valid.endpointHost, "192.168.1.10")
     }
 
     func testEngineOptionsConfigureProviderEndpointAndTimeout() async {

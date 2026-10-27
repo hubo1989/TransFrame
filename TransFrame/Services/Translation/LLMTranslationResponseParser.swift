@@ -7,7 +7,10 @@ enum LLMTranslationResponseParser {
             throw TranslationProviderError.translationFailed("Unable to decode data to UTF-8 string")
         }
         let trimmed = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("data:") || trimmed.contains("\ndata:") {
+        // Only treat the response as an SSE stream when the first payload line
+        // is a data event. Translation bodies legitimately containing "\ndata:"
+        // (logs, SSE examples) must still parse as plain JSON.
+        if trimmed.hasPrefix("data:") {
             guard engine != .claude else {
                 return try extractClaudeSSE(from: trimmed)
             }
