@@ -166,6 +166,7 @@ final class TranslationConfigurationTests: XCTestCase {
             .connectionFailed("offline"),
             .invalidConfiguration("missing key"),
             .translationFailed("bad gateway"),
+            .incompleteResponse("truncated"),
             .emptyInput,
             .unsupportedLanguage("tlh"),
             .timeout,
@@ -181,5 +182,19 @@ final class TranslationConfigurationTests: XCTestCase {
             XCTAssertFalse(description.isEmpty)
             XCTAssertFalse(suggestion.isEmpty)
         }
+    }
+
+    /// 面板国旗横排：每个语言都有非空国旗，快捷列表内国旗互不重复。
+    func testFlagEmojiCoversAllLanguagesUniquelyForQuickSwitcher() {
+        let allFlags = TranslationLanguage.allCases.map(\.flagEmoji)
+        XCTAssertTrue(allFlags.allSatisfy { !$0.isEmpty }, "每个语言都必须有国旗 emoji")
+
+        let quickSwitcher: [TranslationLanguage] = [
+            .chineseSimplified, .english, .japanese, .korean,
+            .french, .german, .spanish, .russian,
+        ]
+        let quickFlags = quickSwitcher.map(\.flagEmoji)
+        XCTAssertEqual(Set(quickFlags).count, quickFlags.count, "快捷切换语言的国旗必须可区分")
+        XCTAssertEqual(TranslationLanguage.auto.flagEmoji, "🌐")
     }
 }

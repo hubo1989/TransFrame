@@ -33,12 +33,6 @@ struct PreviewAnnotatedImageView: View {
                     "Screenshot preview, \(viewModel.dimensionsText), from \(viewModel.displayName)"
                 ))
 
-            if !viewModel.isTranslating && viewModel.hasTranslationResults {
-                BilingualOverlayView(segments: viewModel.bilingualSegments)
-                    .frame(width: imageSize.width, height: imageSize.height)
-                    .clipped()
-            }
-
             AnnotationCanvas(
                 annotations: viewModel.annotations,
                 currentAnnotation: viewModel.currentAnnotation,

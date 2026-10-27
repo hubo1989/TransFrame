@@ -59,6 +59,43 @@ enum TranslationLanguage: String, CaseIterable, Sendable, Codable {
         )
     }
 
+    /// Flag emoji for quick visual pickers. Verified rendering as real flag
+    /// glyphs on macOS (not regional-indicator letters).
+    var flagEmoji: String {
+        switch self {
+        case .auto: return "🌐"
+        case .english: return "🇬🇧"
+        case .chineseSimplified: return "🇨🇳"
+        case .chineseTraditional: return "🇹🇼"
+        case .japanese: return "🇯🇵"
+        case .korean: return "🇰🇷"
+        case .french: return "🇫🇷"
+        case .german: return "🇩🇪"
+        case .spanish: return "🇪🇸"
+        case .italian: return "🇮🇹"
+        case .portuguese: return "🇵🇹"
+        case .russian: return "🇷🇺"
+        case .arabic: return "🇸🇦"
+        case .hindi: return "🇮🇳"
+        case .thai: return "🇹🇭"
+        case .vietnamese: return "🇻🇳"
+        case .dutch: return "🇳🇱"
+        case .polish: return "🇵🇱"
+        case .turkish: return "🇹🇷"
+        case .ukrainian: return "🇺🇦"
+        case .czech: return "🇨🇿"
+        case .swedish: return "🇸🇪"
+        case .danish: return "🇩🇰"
+        case .finnish: return "🇫🇮"
+        case .norwegian: return "🇳🇴"
+        case .greek: return "🇬🇷"
+        case .hebrew: return "🇮🇱"
+        case .indonesian: return "🇮🇩"
+        case .malay: return "🇲🇾"
+        case .romanian: return "🇷🇴"
+        }
+    }
+
     /// BCP 47 language tag
     var bcp47Tag: String {
         rawValue

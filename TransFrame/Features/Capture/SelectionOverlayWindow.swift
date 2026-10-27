@@ -329,9 +329,6 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             if isBeautifyEnabled {
                 drawBeautifyPreview(for: sel, context: context)
             }
-            if case .selected = state {
-                drawBilingualOverlay(for: sel)
-            }
             drawSelectionBox(sel, context: context)
             switch state {
             case .selected:
@@ -413,33 +410,6 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
             )
         }
         context.restoreGState()
-    }
-
-    /// Draws each translated segment as a strip just below its original
-    /// text inside the selection — in-image bilingual view; the original
-    /// screenshot stays fully visible. Only while the translate tab is active.
-    private func drawBilingualOverlay(for selRect: CGRect) {
-        guard resultsModel.isVisible,
-              resultsModel.activeTab == .translate,
-              !resultsModel.segments.isEmpty else { return }
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSBezierPath(rect: selRect).addClip()
-        for segment in resultsModel.segments {
-            guard let strip = BilingualOverlayLayout.translationStrip(for: segment, in: selRect.size) else { continue }
-            let attr = NSAttributedString(string: segment.translated, attributes: [
-                .font: NSFont.systemFont(ofSize: strip.fontSize, weight: .medium),
-                .foregroundColor: NSColor.white
-            ])
-            let frame = strip.frame.offsetBy(dx: selRect.minX, dy: selRect.minY)
-            NSColor.black.withAlphaComponent(0.78).setFill()
-            NSBezierPath(roundedRect: frame, xRadius: 3, yRadius: 3).fill()
-            attr.draw(
-                with: strip.textFrame.offsetBy(dx: selRect.minX, dy: selRect.minY),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
-            )
-        }
     }
 
     private func drawSelectionBox(_ rect: CGRect, context: CGContext) {
