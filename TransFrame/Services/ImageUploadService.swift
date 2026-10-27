@@ -71,14 +71,38 @@ struct UploadResult: Sendable {
 private enum ImageHostSecretStore {
     private static let service = "TransFrame.ImageHostSettings"
 
-    static func save(_ value: String, account: String) {
-        let data = Data(value.utf8)
-        let query: [String: Any] = [
+    private static func baseQuery(account: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    }
+
+    /// Whether a secret is stored for `account`, checked without fetching
+    /// the secret data. Callers use this to decide whether to read Keychain
+    /// at all (e.g. skip the migration read when nothing has been saved yet).
+    static func exists(account: String) -> Bool {
+        var query = baseQuery(account: account)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// Upserts the secret. An empty value deletes the stored entry instead —
+    /// that is the "user cleared the key in Settings" path, and it must not
+    /// silently leave the previous secret behind.
+    static func save(_ value: String, account: String) {
+        let query = baseQuery(account: account)
+        guard !value.isEmpty else {
+            SecItemDelete(query as CFDictionary)
+            return
+        }
+        let data = Data(value.utf8)
+        let status = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
         if status == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
@@ -87,13 +111,12 @@ private enum ImageHostSecretStore {
     }
 
     static func read(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+        guard exists(account: account) else {
+            return nil
+        }
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data else {
@@ -130,19 +153,21 @@ final class ImageUploadService {
 
         // Secrets live in Keychain; migrate legacy plaintext (from older
         // builds that stored the whole struct in UserDefaults) exactly once.
+        // Only touch Keychain when an entry is actually stored — a brand-new
+        // install never queries secret data at all.
         let (ossAccount, cosAccount, kodoAccount) = Self.secretAccounts
 
-        if let stored = ImageHostSecretStore.read(account: ossAccount), !stored.isEmpty {
+        if ImageHostSecretStore.exists(account: ossAccount), let stored = ImageHostSecretStore.read(account: ossAccount), !stored.isEmpty {
             loaded.ossAccessKeySecret = stored
         } else if !loaded.ossAccessKeySecret.isEmpty {
             ImageHostSecretStore.save(loaded.ossAccessKeySecret, account: ossAccount)
         }
-        if let stored = ImageHostSecretStore.read(account: cosAccount), !stored.isEmpty {
+        if ImageHostSecretStore.exists(account: cosAccount), let stored = ImageHostSecretStore.read(account: cosAccount), !stored.isEmpty {
             loaded.cosSecretKey = stored
         } else if !loaded.cosSecretKey.isEmpty {
             ImageHostSecretStore.save(loaded.cosSecretKey, account: cosAccount)
         }
-        if let stored = ImageHostSecretStore.read(account: kodoAccount), !stored.isEmpty {
+        if ImageHostSecretStore.exists(account: kodoAccount), let stored = ImageHostSecretStore.read(account: kodoAccount), !stored.isEmpty {
             loaded.kodoSecretKey = stored
         } else if !loaded.kodoSecretKey.isEmpty {
             ImageHostSecretStore.save(loaded.kodoSecretKey, account: kodoAccount)
@@ -173,10 +198,42 @@ final class ImageUploadService {
         settings.activeHost != .none
     }
 
+    /// The account name of the secret the active host signs with, or nil
+    /// when the host needs no key (none / local PicGo).
+    private var activeHostSecretAccount: String? {
+        let (ossAccount, cosAccount, kodoAccount) = Self.secretAccounts
+        switch settings.activeHost {
+        case .none, .picgo:
+            return nil
+        case .aliyunOSS:
+            return ossAccount
+        case .tencentCOS:
+            return cosAccount
+        case .qiniuKodo:
+            return kodoAccount
+        }
+    }
+
+    /// True when the active host can actually sign an upload — i.e. its
+    /// secret is stored in Keychain (Settings writes it there on save).
+    /// Checking before the request avoids a late signature failure from the
+    /// remote API with no hint that the key is simply missing.
+    var hasActiveHostSecret: Bool {
+        guard let account = activeHostSecretAccount else {
+            return true
+        }
+        return ImageHostSecretStore.exists(account: account)
+    }
+
     /// Uploads a CGImage using the currently active image host.
     func upload(image: CGImage) async throws -> UploadResult {
         guard settings.activeHost != .none else {
             throw TransFrameError.imageUploadFailed(reason: "no image host configured")
+        }
+        guard hasActiveHostSecret else {
+            throw TransFrameError.imageUploadFailed(
+                reason: "missing API key for \(settings.activeHost.displayName); save one in Settings first"
+            )
         }
 
         // Convert CGImage to PNG Data
