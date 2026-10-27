@@ -177,9 +177,11 @@ final class TextTranslationCoordinator {
         // Step 1: Capture selected text
         let textSelectionService = TextSelectionService.shared
         let selectedText: String
+        let insertionTarget: CapturedTextInsertion?
 
         do {
-            let selectionResult = try await textSelectionService.captureSelectedText()
+            let selectionResult = try await textSelectionService.captureSelectedText(bindForInsertion: true)
+            insertionTarget = selectionResult.insertionTarget
             selectedText = selectionResult.text
             logger.info("Captured selected text: \(selectedText.count) characters")
         } catch let error as TextSelectionService.CaptureError {
@@ -239,7 +241,7 @@ final class TextTranslationCoordinator {
         showInsertionProgress(message: String(localized: "translateAndInsert.progress.inserting"))
 
         do {
-            try await TextInsertService.shared.deleteSelectionAndInsert(translatedText)
+            try TextInsertService.shared.replaceSelection(with: translatedText, captured: insertionTarget)
             logger.info("Successfully inserted translated text")
         } catch let error as TextInsertService.InsertError {
             logger.error("Text insertion failed: \(error.localizedDescription)")
@@ -248,6 +250,11 @@ final class TextTranslationCoordinator {
             alert.alertStyle = .warning
             alert.messageText = String(localized: "textTranslation.error.insertFailed")
             alert.informativeText = error.localizedDescription
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            if pasteboard.setString(translatedText, forType: .string) {
+                alert.informativeText += "\n\n" + String(localized: "textTranslation.error.insertFailed.copied")
+            }
             alert.addButton(withTitle: String(localized: "common.ok"))
             alert.runModal()
         } catch {

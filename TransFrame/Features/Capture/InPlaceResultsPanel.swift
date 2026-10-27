@@ -89,16 +89,20 @@ struct InPlaceResultsPanel: View {
             .buttonStyle(.plain)
             .customTooltip(String(localized: "preview.panel.rerun"))
 
-            Button {
-                copy(currentTabText)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 11))
-                    .frame(width: 20, height: 20)
+            if model.activeTab == .translate {
+                translationCopyButtons
+            } else {
+                Button {
+                    copy(currentTabText)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .disabled(currentTabText.isEmpty)
+                .customTooltip(String(localized: "preview.panel.copyAll"))
             }
-            .buttonStyle(.plain)
-            .disabled(currentTabText.isEmpty)
-            .customTooltip(String(localized: "preview.panel.copyAll"))
 
             Button {
                 model.onClose?()
@@ -164,32 +168,40 @@ struct InPlaceResultsPanel: View {
         }
     }
 
+    /// 国旗横排一键切换目标语言，避免下拉二次点击。
     private var targetLanguagePicker: some View {
-        HStack(spacing: 6) {
-            Text(String(localized: "preview.panel.targetLanguage"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Menu {
-                ForEach(Self.targetLanguages, id: \.self) { language in
-                    Button {
-                        guard AppSettings.shared.translationTargetLanguage != language else { return }
-                        AppSettings.shared.translationTargetLanguage = language
-                        model.onRerun?()
-                    } label: {
-                        if AppSettings.shared.translationTargetLanguage == language {
-                            Label(language.localizedName, systemImage: "checkmark")
-                        } else {
-                            Text(language.localizedName)
-                        }
-                    }
-                }
-            } label: {
-                Text(AppSettings.shared.translationTargetLanguage?.localizedName ?? "—")
-                    .font(.caption)
+        HStack(spacing: 4) {
+            ForEach(Self.targetLanguages, id: \.self) { language in
+                languageFlagButton(for: language)
             }
-            .controlSize(.small)
-            .fixedSize()
         }
+    }
+
+    private func languageFlagButton(for language: TranslationLanguage) -> some View {
+        let isSelected = AppSettings.shared.translationTargetLanguage == language
+        return Button {
+            guard AppSettings.shared.translationTargetLanguage != language else { return }
+            AppSettings.shared.translationTargetLanguage = language
+            model.onRerun?()
+        } label: {
+            Text(language.flagEmoji)
+                .font(.system(size: 16))
+                .frame(width: 27, height: 22)
+        }
+        .buttonStyle(.plain)
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.28)
+                : Color.primary.opacity(0.06)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+        )
+        .customTooltip(language.localizedName)
+        .accessibilityLabel(Text(language.localizedName))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     // MARK: - Helpers
@@ -234,10 +246,52 @@ struct InPlaceResultsPanel: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// 翻译结果三键复制：原文 / 译文 / 全部（原文译文交替，与面板显示一致）。
+    private var translationCopyButtons: some View {
+        HStack(spacing: 3) {
+            panelCopyButton(
+                title: String(localized: "preview.panel.copySource"),
+                text: model.segments.map(\.sourceText).joined(separator: "\n")
+            )
+            panelCopyButton(
+                title: String(localized: "preview.panel.copyTranslation"),
+                text: model.segments.map(\.translated).joined(separator: "\n")
+            )
+            panelCopyButton(
+                title: String(localized: "preview.panel.copyAll"),
+                text: ResultsTextBuilder.translationText(segments: model.segments).string
+            )
+        }
+    }
+
+    private func panelCopyButton(title: String, text: String) -> some View {
+        Button {
+            copy(text)
+            flashMessage(title)
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 10))
+                Text(title)
+                    .font(.caption2)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 20)
+        }
+        .buttonStyle(.plain)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+        .disabled(text.isEmpty)
+        .customTooltip(title)
+    }
+
     /// Shows the copy feedback; a newer flash invalidates older timers, so
     /// rapid line clicks don't clear each other's message early.
     private func flashCopy(line: String) {
-        copiedFlash = String(localized: "preview.panel.copyLine") + ": " + line
+        flashMessage(String(localized: "preview.panel.copyLine") + ": " + line)
+    }
+
+    private func flashMessage(_ message: String) {
+        copiedFlash = message
         flashGeneration += 1
         let generation = flashGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {

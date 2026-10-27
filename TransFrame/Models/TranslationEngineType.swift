@@ -258,134 +258,169 @@ enum EngineCategory: String, CaseIterable, Sendable, Codable {
 // MARK: - MTranServer Availability Checker
 
 /// Helper to check if MTranServer is available on the system
-enum MTranServerChecker {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var _isAvailable: Bool?
+final class MTranServerChecker: @unchecked Sendable {
+    static let shared = MTranServerChecker()
 
-    /// Check if MTranServer is available (synchronous property)
-    static var isAvailable: Bool {
-        if let cached = lock.withLock({ _isAvailable }) {
-            return cached
+    private struct EndpointKey: Hashable, Sendable {
+        let host: String
+        let port: Int
+    }
+
+    private struct CacheEntry {
+        let isAvailable: Bool
+        let checkedAt: TimeInterval
+    }
+
+    private struct InFlightProbe {
+        let token: UInt64
+        let task: Task<Bool?, Never>
+    }
+
+    private let lock = NSLock()
+    private let session: URLSession
+    private let cacheTTL: TimeInterval
+    private let now: @Sendable () -> TimeInterval
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "MTranServerChecker")
+    private var cachedResults: [EndpointKey: CacheEntry] = [:]
+    private var inFlightProbes: [EndpointKey: InFlightProbe] = [:]
+    private var nextToken: UInt64 = 0
+
+    init(
+        session: URLSession = .shared,
+        cacheTTL: TimeInterval = 5,
+        now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
+        self.session = session
+        self.cacheTTL = cacheTTL
+        self.now = now
+    }
+
+    /// Check if MTranServer is available (synchronous property, never performs network I/O).
+    /// Cached-only snapshot: returns false whenever no fresh (TTL-valid) probe
+    /// exists; use `checkAvailability(...)` for an authoritative answer.
+    static var isAvailable: Bool { shared.isAvailable }
+
+    var isAvailable: Bool { cachedAvailability(for: .default) }
+
+    func cachedAvailability(
+        for configuration: MTranServerEngine.Configuration = .default
+    ) -> Bool {
+        guard let key = endpointKey(for: configuration) else { return false }
+        let currentTime = now()
+        return lock.withLock {
+            guard let entry = cachedResults[key],
+                  currentTime - entry.checkedAt < cacheTTL else { return false }
+            return entry.isAvailable
         }
-
-        let result = checkMTranServer()
-        lock.withLock { _isAvailable = result }
-        return result
     }
 
     /// Check if MTranServer is available asynchronously without blocking calling threads
-    static func checkAvailability() async -> Bool {
-        if let cached = lock.withLock({ _isAvailable }) {
-            return cached
-        }
-
-        let result = await checkMTranServerAsync()
-        lock.withLock { _isAvailable = result }
-        return result
+    static func checkAvailability(
+        configuration: MTranServerEngine.Configuration = .default,
+        forceRefresh: Bool = false
+    ) async throws -> Bool {
+        try await shared.checkAvailability(configuration: configuration, forceRefresh: forceRefresh)
     }
 
-    private static func resolvedHostAndPort() -> (host: String, port: Int) {
-        let defaults = UserDefaults.standard
-        let prefix = "TransFrame."
-        var host = defaults.string(forKey: prefix + "mtranServerHost") ?? "localhost"
-        let port = defaults.object(forKey: prefix + "mtranServerPort") as? Int ?? 8989
-        if host == "localhost" {
-            host = "127.0.0.1"
+    func checkAvailability(
+        configuration: MTranServerEngine.Configuration = .default,
+        forceRefresh: Bool = false
+    ) async throws -> Bool {
+        try Task.checkCancellation()
+        guard let key = endpointKey(for: configuration) else { return false }
+        let currentTime = now()
+        let probe: InFlightProbe? = lock.withLock {
+            if !forceRefresh,
+               let entry = cachedResults[key],
+               currentTime - entry.checkedAt < cacheTTL {
+                return nil
+            }
+            if let existing = inFlightProbes[key] { return existing }
+            nextToken &+= 1
+            let token = nextToken
+            let task = Task { [session, logger] in
+                await Self.probeEndpoint(configuration: configuration, session: session, logger: logger)
+            }
+            let created = InFlightProbe(token: token, task: task)
+            inFlightProbes[key] = created
+            return created
         }
-        return (host, port)
+        guard let probe else { return cachedAvailability(for: configuration) }
+        let result = try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return await probe.task.value
+        } onCancel: {
+            probe.task.cancel()
+        }
+        try Task.checkCancellation()
+        lock.withLock {
+            guard inFlightProbes[key]?.token == probe.token else { return }
+            inFlightProbes.removeValue(forKey: key)
+            if let result {
+                cachedResults[key] = CacheEntry(isAvailable: result, checkedAt: now())
+            }
+        }
+        return result ?? false
     }
 
-    private static func checkMTranServerAsync() async -> Bool {
-        let (host, port) = resolvedHostAndPort()
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "MTranServerChecker")
-        logger.info("Checking MTranServer async at \(host):\(port)")
+    static func resetCache() { shared.resetCache() }
 
+    func resetCache() {
+        let probes = lock.withLock {
+            nextToken &+= 1
+            cachedResults.removeAll()
+            defer { inFlightProbes.removeAll() }
+            return Array(inFlightProbes.values)
+        }
+        probes.forEach { $0.task.cancel() }
+    }
+
+    private func endpointKey(
+        for configuration: MTranServerEngine.Configuration
+    ) -> EndpointKey? {
+        guard let host = configuration.endpointHost else { return nil }
+        return EndpointKey(host: host.lowercased(), port: configuration.serverPort)
+    }
+
+    private static func probeEndpoint(
+        configuration: MTranServerEngine.Configuration,
+        session: URLSession,
+        logger: Logger
+    ) async -> Bool? {
         let endpoints = ["/health", "/", "/translate"]
         for endpoint in endpoints {
-            var components = URLComponents()
-            components.scheme = "http"
-            components.host = host
-            components.port = port
-            components.path = endpoint
-
-            guard let url = components.url else { continue }
+            if Task.isCancelled { return nil }
+            guard let url = configuration.endpointURL(path: endpoint) else { return false }
             var request = URLRequest(url: url)
-            request.timeoutInterval = 2.0
+            request.timeoutInterval = min(configuration.timeout, 2.0)
             request.httpMethod = "GET"
 
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode > 0 {
+                let (_, response) = try await session.data(for: request)
+                guard let statusCode = (response as? HTTPURLResponse)?.statusCode else { return false }
+                if (200..<300).contains(statusCode) {
                     logger.info("MTranServer available via \(endpoint)")
                     return true
                 }
+                if endpoint != "/translate" {
+                    // 404/405/501: endpoint missing. 401/403/429: a gateway in
+                    // front may only guard some paths while /translate works.
+                    // Other statuses (5xx server errors) fail fast — the
+                    // server itself is unhealthy and /translate won't be well.
+                    if [401, 403, 404, 405, 429, 501].contains(statusCode) {
+                        continue
+                    }
+                }
+                return false
+            } catch is CancellationError {
+                return nil
+            } catch let error as URLError where error.code == .cancelled {
+                return nil
             } catch {
                 logger.debug("MTranServer check \(endpoint) failed: \(error.localizedDescription)")
+                return false
             }
         }
-
-        logger.info("MTranServer final availability: false")
         return false
-    }
-
-    private final class ResultBox: @unchecked Sendable {
-        var value: Bool = false
-    }
-
-    private static func checkMTranServer() -> Bool {
-        let (host, port) = resolvedHostAndPort()
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TransFrame", category: "MTranServerChecker")
-        logger.info("Checking MTranServer at \(host):\(port)")
-
-        // Try multiple endpoints for health check
-        let endpoints = ["/health", "/", "/translate"]
-        var isAvailable = false
-
-        for endpoint in endpoints {
-            var components = URLComponents()
-            components.scheme = "http"
-            components.host = host
-            components.port = port
-            components.path = endpoint
-
-            guard let url = components.url else { continue }
-
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 2.0
-            request.httpMethod = "GET"
-
-            let semaphore = DispatchSemaphore(value: 0)
-            let resultBox = ResultBox()
-
-            let task = URLSession.shared.dataTask(with: request) { _, response, error in
-                if let error = error {
-                    logger.debug("MTranServer check \(endpoint) failed: \(error.localizedDescription)")
-                }
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                logger.debug("MTranServer check \(endpoint): status \(statusCode)")
-                resultBox.value = statusCode > 0
-                semaphore.signal()
-            }
-
-            task.resume()
-            _ = semaphore.wait(timeout: .now() + 2.5)
-
-            if resultBox.value {
-                isAvailable = true
-                logger.info("MTranServer available via \(endpoint)")
-                break
-            }
-        }
-
-        logger.info("MTranServer final availability: \(isAvailable)")
-        return isAvailable
-    }
-
-    /// Reset the cached availability check
-    static func resetCache() {
-        lock.withLock {
-            _isAvailable = nil
-        }
     }
 }

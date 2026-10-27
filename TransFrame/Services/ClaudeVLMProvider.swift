@@ -32,6 +32,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     private let timeout: TimeInterval
 
     private let logger = Logger.translation
+    private let session: URLSession
 
     // MARK: - Initialization
 
@@ -39,9 +40,10 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
     /// - Parameters:
     ///   - configuration: VLM provider configuration
     ///   - timeout: Request timeout in seconds (default: 60)
-    init(configuration: VLMProviderConfiguration, timeout: TimeInterval = 60) {
+    init(configuration: VLMProviderConfiguration, timeout: TimeInterval = 60, session: URLSession = .shared) {
         self.configuration = configuration
         self.timeout = timeout
+        self.session = session
     }
 
     /// Convenience initializer with individual parameters
@@ -54,7 +56,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         apiKey: String,
         baseURL: URL = ClaudeVLMProvider.defaultBaseURL,
         modelName: String = ClaudeVLMProvider.defaultModel,
-        timeout: TimeInterval = 60
+        timeout: TimeInterval = 60,
+        session: URLSession = .shared
     ) {
         self.configuration = VLMProviderConfiguration(
             apiKey: apiKey,
@@ -62,6 +65,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
             modelName: modelName
         )
         self.timeout = timeout
+        self.session = session
     }
 
     private func logDebug(_ message: String) {
@@ -207,10 +211,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
             ))
         }
 
-        // Final deduplication before returning
-        let deduplicated = deduplicateSegments(allSegments)
-        logWarning("Max continuation attempts reached, \(allSegments.count) -> \(deduplicated.count) segments after dedup")
-        return VLMAnalysisResponse(segments: deduplicated)
+        logWarning("Max continuation attempts reached after \(allSegments.count) segments")
+        throw VLMProviderError.invalidResponse("VLM response remained truncated after \(maxAttempts) attempts")
     }
 
     /// Filters out segments from new array that already exist in existing array
@@ -250,11 +252,6 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         return (content, isTruncated, claudeResponse.stopReason)
     }
 
-    /// Placeholder replacing the base64 image in continuation rounds, so the
-    /// same capture is not uploaded again for every truncation retry.
-    private static let continuationImagePlaceholder =
-        "(image omitted: the same image as in the first message)"
-
     /// Builds request with custom messages and continuation settings
     private func buildRequest(messages: [ClaudeMessage], isContinuation: Bool, systemPrompt: String = VLMPromptTemplate.systemPrompt) throws -> URLRequest {
         let endpoint = configuration.baseURL.resolvingLocalhost.appendingPathComponent("v1/messages")
@@ -269,23 +266,8 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.timeoutInterval = timeout
 
-        // Continuation rounds keep the conversation shape but drop the base64
-        // image payload: the assistant's partial JSON already anchors the
-        // context, and re-uploading would multiply bandwidth and prompt tokens.
-        let effectiveMessages: [ClaudeMessage]
-        if isContinuation {
-            effectiveMessages = messages.map { message in
-                let blocks = message.content.map { block -> ClaudeContentBlock in
-                    if case .image = block {
-                        return .text(Self.continuationImagePlaceholder)
-                    }
-                    return block
-                }
-                return ClaudeMessage(role: message.role, content: blocks)
-            }
-        } else {
-            effectiveMessages = messages
-        }
+        // 每次 HTTP 请求彼此独立，续写轮必须保留原图上下文。
+        let effectiveMessages = messages
 
         // Use higher max_tokens for continuation requests to minimize truncation
         let maxTokens = isContinuation ? 16384 : 8192
@@ -311,7 +293,7 @@ struct ClaudeVLMProvider: VLMProvider, Sendable {
         let (data, response): (Data, URLResponse)
 
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError {
             switch error.code {
             case .timedOut:

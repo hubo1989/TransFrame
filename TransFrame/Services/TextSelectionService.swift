@@ -5,13 +5,15 @@ import ApplicationServices
 import os
 
 /// Result of text selection capture
-struct TextSelectionResult: Sendable {
+struct TextSelectionResult {
     /// The captured selected text
     let text: String
     /// The name of the source application (if available)
     let sourceApplication: String?
     /// The bundle identifier of the source application (if available)
     let sourceBundleIdentifier: String?
+    /// 仅在 translate-and-insert 中绑定；普通取词翻译不需要 AX 选区。
+    @MainActor var insertionTarget: CapturedTextInsertion?
 }
 
 /// Service for capturing selected text from any application.
@@ -142,6 +144,10 @@ actor TextSelectionService {
     /// - Returns: A TextSelectionResult containing the selected text and source application info
     /// - Throws: CaptureError if the capture fails
     func captureSelectedText() async throws -> TextSelectionResult {
+        try await captureSelectedText(bindForInsertion: false)
+    }
+
+    func captureSelectedText(bindForInsertion: Bool) async throws -> TextSelectionResult {
         // Check accessibility permission
         guard AXIsProcessTrusted() else {
             throw CaptureError.accessibilityPermissionDenied
@@ -149,6 +155,7 @@ actor TextSelectionService {
 
         // Get source application info before capturing
         let sourceAppInfo = getActiveApplicationInfo()
+        let insertionTarget = bindForInsertion ? await AXTextInsertionTarget.capture() : nil
 
         // Save current clipboard content
         let savedClipboard = try saveClipboardContent()
@@ -177,11 +184,15 @@ actor TextSelectionService {
         guard !capturedText.isEmpty else {
             throw CaptureError.noSelection
         }
+        let verifiedTarget = await MainActor.run {
+            insertionTarget?.matching(clipboardText: capturedText)
+        }
 
         return TextSelectionResult(
             text: capturedText,
             sourceApplication: sourceAppInfo.name,
-            sourceBundleIdentifier: sourceAppInfo.bundleIdentifier
+            sourceBundleIdentifier: sourceAppInfo.bundleIdentifier,
+            insertionTarget: verifiedTarget
         )
     }
 

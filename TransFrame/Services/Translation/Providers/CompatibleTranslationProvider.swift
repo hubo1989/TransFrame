@@ -15,17 +15,25 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
     nonisolated let id: String
     nonisolated let name: String
     nonisolated let configHash: Int
+    nonisolated let configurationSnapshot: ConfigurationSnapshot
 
     private let config: TranslationEngineConfig
     private let compatibleConfig: CompatibleConfig
     private let promptConfigID: String?
     private let keychain: KeychainService
+    private let session: URLSession
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "TransFrame",
         category: "CompatibleTranslationProvider"
     )
 
     // MARK: - Configuration
+
+    struct ConfigurationSnapshot: Equatable, Sendable {
+        let engineConfig: TranslationEngineConfig
+        let compatibleConfig: CompatibleConfig
+        let promptConfigID: String?
+    }
 
     struct CompatibleConfig: Codable, Equatable, Sendable, Identifiable {
         var id: UUID
@@ -50,6 +58,7 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
 
         static var `default`: CompatibleConfig {
             CompatibleConfig(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
                 displayName: "Custom",
                 baseURL: "http://localhost:8000/v1",
                 modelName: "default",
@@ -63,6 +72,8 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
 
         var configHash: Int {
             var hasher = Hasher()
+            hasher.combine(id)
+            hasher.combine(displayName)
             hasher.combine(baseURL)
             hasher.combine(modelName)
             hasher.combine(hasAPIKey)
@@ -70,17 +81,10 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
         }
     }
 
-    // MARK: - Initialization
-
-    init(config: TranslationEngineConfig, keychain: KeychainService) async throws {
-        self.config = config
-        self.keychain = keychain
-
-        let savedConfigs: [CompatibleConfig] = await MainActor.run {
-            AppSettings.shared.compatibleProviderConfigs
-        }
-
-        // Parse compatible config from customName or fallback to AppSettings authoritative store
+    static func resolveConfigurationSnapshot(
+        from config: TranslationEngineConfig,
+        savedConfigs: [CompatibleConfig]
+    ) -> ConfigurationSnapshot {
         let resolvedCompatibleConfig: CompatibleConfig
         if let customName = config.customName,
            let jsonData = customName.data(using: .utf8),
@@ -100,26 +104,53 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
         let resolvedPromptConfigID = savedConfigs.contains(where: { $0.id == resolvedCompatibleConfig.id })
             ? resolvedCompatibleConfig.id.uuidString
             : nil
-        self.compatibleConfig = resolvedCompatibleConfig
-        self.promptConfigID = resolvedPromptConfigID
 
-        self.id = "custom"
-        self.name = self.compatibleConfig.displayName
-        self.configHash = self.compatibleConfig.configHash
+        return ConfigurationSnapshot(
+            engineConfig: config,
+            compatibleConfig: resolvedCompatibleConfig,
+            promptConfigID: resolvedPromptConfigID
+        )
+    }
+
+    // MARK: - Initialization
+
+    init(config: TranslationEngineConfig, keychain: KeychainService) async throws {
+        let savedConfigs: [CompatibleConfig] = await MainActor.run {
+            AppSettings.shared.compatibleProviderConfigs
+        }
+        let snapshot = Self.resolveConfigurationSnapshot(from: config, savedConfigs: savedConfigs)
+        self.init(snapshot: snapshot, keychain: keychain, providerID: "custom")
     }
 
     init(
         config: TranslationEngineConfig,
         compatibleConfig: CompatibleConfig,
-        keychain: KeychainService
+        keychain: KeychainService,
+        session: URLSession = .shared
     ) async throws {
-        self.config = config
-        self.compatibleConfig = compatibleConfig
-        self.promptConfigID = compatibleConfig.id.uuidString
+        let snapshot = ConfigurationSnapshot(
+            engineConfig: config,
+            compatibleConfig: compatibleConfig,
+            promptConfigID: compatibleConfig.id.uuidString
+        )
+        self.init(snapshot: snapshot, keychain: keychain, providerID: compatibleConfig.keychainId, session: session)
+    }
+
+    init(
+        snapshot: ConfigurationSnapshot,
+        keychain: KeychainService,
+        providerID: String,
+        session: URLSession = .shared
+    ) {
+        self.config = snapshot.engineConfig
+        self.compatibleConfig = snapshot.compatibleConfig
+        self.promptConfigID = snapshot.promptConfigID
         self.keychain = keychain
-        self.id = compatibleConfig.keychainId
-        self.name = compatibleConfig.displayName
-        self.configHash = compatibleConfig.configHash
+        self.session = session
+        self.id = providerID
+        self.name = snapshot.compatibleConfig.displayName
+        self.configHash = snapshot.compatibleConfig.configHash
+        self.configurationSnapshot = snapshot
     }
 
     // MARK: - TranslationProvider Protocol
@@ -168,8 +199,25 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
     ) async throws -> [TranslationResult] {
         guard !texts.isEmpty else { return [] }
 
-        // Combine texts for efficiency
-        let combinedText = texts.joined(separator: "\n---\n")
+        let batches = LLMTranslationBatching.split(
+            texts: texts, maxOutputTokens: config.options?.maxTokens ?? 2048, promptTemplate: promptTemplate
+        )
+        guard batches.count == 1, batches[0] == texts else {
+            var results: [TranslationResult] = []
+            for batch in batches {
+                results.append(contentsOf: try await translateSingleBatch(
+                    batch, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate
+                ))
+            }
+            return results
+        }
+        return try await translateSingleBatch(texts, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate)
+    }
+
+    private func translateSingleBatch(
+        _ texts: [String], from sourceLanguage: String?, to targetLanguage: String, promptTemplate: String?
+    ) async throws -> [TranslationResult] {
+        let combinedText = texts.joined(separator: LLMTranslationBatching.separator)
         let combinedResult = try await translate(
             text: combinedText,
             from: sourceLanguage,
@@ -177,7 +225,7 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
             promptTemplate: promptTemplate
         )
 
-        let translatedTexts = combinedResult.translatedText.components(separatedBy: "\n---\n")
+        let translatedTexts = combinedResult.translatedText.components(separatedBy: LLMTranslationBatching.separator)
 
         if translatedTexts.count == texts.count {
             return zip(texts, translatedTexts).map { source, translated in
@@ -188,6 +236,9 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
                     targetLanguage: combinedResult.targetLanguage
                 )
             }
+        }
+        guard texts.count > 1 else {
+            return [combinedResult]
         }
 
         // Split failed - translate individually to ensure correct mapping
@@ -345,7 +396,7 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
             }
             logger.info("Sending request to \(apiURL.absoluteString) with headers: \(safeHeaders)")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw TranslationProviderError.connectionFailed("Invalid response")
@@ -368,89 +419,9 @@ actor CompatibleTranslationProvider: TranslationProvider, TranslationPromptConfi
     }
 
     private func parseResponse(_ data: Data) throws -> String {
-        guard let rawString = String(data: data, encoding: .utf8) else {
-            throw TranslationProviderError.translationFailed("Unable to decode data to UTF-8 string")
-        }
-
-        let trimmedResponse = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check if response is Server-Sent Events (SSE) stream format
-        if trimmedResponse.hasPrefix("data:") || trimmedResponse.contains("\ndata:") {
-            return try parseSSEStream(trimmedResponse)
-        }
-
-        let jsonObject: Any
-        do {
-            jsonObject = try JSONSerialization.jsonObject(with: data)
-        } catch {
-            logger.error("JSON serialization failed: \(error.localizedDescription). Response size: \(data.count) bytes")
-            throw error
-        }
-
-        guard let json = jsonObject as? [String: Any] else {
-            logger.error("Response JSON is not a dictionary object")
-            throw TranslationProviderError.translationFailed("Response JSON is not a dictionary")
-        }
-
-        // Handle error responses from OpenAI compatible APIs
-        if let errorObj = json["error"] as? [String: Any],
-           let errorMessage = errorObj["message"] as? String {
-            logger.error("API returned error: \(errorMessage)")
-            throw TranslationProviderError.translationFailed("API error: \(errorMessage)")
-        }
-
-        guard let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            logger.error("Unexpected JSON response structure (missing choices or content)")
-            throw TranslationProviderError.translationFailed("Unexpected JSON response structure")
-        }
-
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        try LLMTranslationResponseParser.extractText(from: data, for: .custom)
     }
 
-    private func parseSSEStream(_ streamText: String) throws -> String {
-        var resultText = ""
-        let lines = streamText.components(separatedBy: .newlines)
-
-        for line in lines {
-            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedLine.isEmpty else { continue }
-
-            // Skip stream end marker
-            if trimmedLine == "data: [DONE]" {
-                continue
-            }
-
-            if trimmedLine.hasPrefix("data:") {
-                let jsonText = trimmedLine.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                guard !jsonText.isEmpty else { continue }
-
-                guard let jsonData = jsonText.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                    continue
-                }
-
-                if let choices = json["choices"] as? [[String: Any]],
-                   let firstChoice = choices.first {
-                    if let delta = firstChoice["delta"] as? [String: Any],
-                       let content = delta["content"] as? String {
-                        resultText += content
-                    } else if let text = firstChoice["text"] as? String {
-                        resultText += text
-                    }
-                }
-            }
-        }
-
-        guard !resultText.isEmpty else {
-            logger.error("Failed to extract any text from SSE stream (length: \(streamText.count))")
-            throw TranslationProviderError.translationFailed("Empty text from SSE stream")
-        }
-
-        return resultText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     private func translate(
         text: String,

@@ -13,9 +13,12 @@ import NaturalLanguage
 /// Orchestrates multiple translation providers with various selection modes
 @available(macOS 13.0, *)
 actor TranslationService {
+    typealias EngineConfigsProvider = @Sendable () async -> [TranslationEngineType: TranslationEngineConfig]
+
     static let shared = TranslationService()
 
     private let registry: TranslationEngineRegistry
+    private let engineConfigsProvider: EngineConfigsProvider
     private let keychain = KeychainService.shared
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "TransFrame",
@@ -25,8 +28,14 @@ actor TranslationService {
     // Prompt configuration
     private var promptConfig: TranslationPromptConfig = TranslationPromptConfig()
 
-    init(registry: TranslationEngineRegistry = .shared) {
+    init(
+        registry: TranslationEngineRegistry = .shared,
+        engineConfigsProvider: @escaping EngineConfigsProvider = {
+            await MainActor.run { AppSettings.shared.engineConfigs }
+        }
+    ) {
         self.registry = registry
+        self.engineConfigsProvider = engineConfigsProvider
     }
 
     // MARK: - Main Translation API
@@ -642,22 +651,27 @@ actor TranslationService {
     /// Filters engine list to only include engines that are explicitly enabled in user settings.
     /// Apple is treated as always enabled (it's the default built-in engine).
     private func filterEnabledEngines(_ engines: [TranslationEngineType]) async -> [TranslationEngineType] {
-        let configs = await MainActor.run {
-            AppSettings.shared.engineConfigs
-        }
+        let configs = await engineConfigsProvider()
         return engines.filter { engine in
             engine == .apple || configs[engine]?.isEnabled == true
         }
     }
 
-    private func resolvedProvider(for engine: TranslationEngineType) async throws -> any TranslationProvider {
-        if let provider = await registry.provider(for: engine) {
+    private func resolvedProvider(
+        for engine: TranslationEngineType,
+        config overrideConfig: TranslationEngineConfig? = nil
+    ) async throws -> any TranslationProvider {
+        if overrideConfig == nil, await registry.hasManualOverride(for: engine),
+           let provider = await registry.provider(for: engine) {
             return provider
         }
 
-        let engineConfig = await MainActor.run {
-            AppSettings.shared.engineConfigs[engine] ?? .default(for: engine)
+        if let overrideConfig {
+            return try await registry.createTemporaryProvider(for: engine, config: overrideConfig)
         }
+
+        let configs = await engineConfigsProvider()
+        let engineConfig = configs[engine] ?? .default(for: engine)
 
         return try await registry.createProvider(for: engine, config: engineConfig)
     }
@@ -714,29 +728,22 @@ actor TranslationService {
 
     /// Verify connection and throw details on failure
     func verifyConnection(for engine: TranslationEngineType) async throws {
-        let provider: any TranslationProvider
-        if let existing = await registry.provider(for: engine) {
-            provider = existing
-        } else {
-            provider = try await resolvedProvider(for: engine)
-        }
+        try await verifyConnection(for: engine, config: nil)
+    }
+
+    func verifyConnection(
+        for engine: TranslationEngineType,
+        config: TranslationEngineConfig?
+    ) async throws {
+        let provider = try await resolvedProvider(for: engine, config: config)
         try await provider.verifyConnection()
     }
 
     /// Test connection to a specific engine
     func testConnection(for engine: TranslationEngineType) async -> Bool {
-        // First try to get existing provider
-        if let provider = await registry.provider(for: engine) {
+        if await registry.hasManualOverride(for: engine),
+           let provider = await registry.provider(for: engine) {
             return await provider.checkConnection()
-        }
-
-        // If provider doesn't exist, create it for engines that need credentials
-        // (Google, DeepL, Baidu, LLM providers, etc.)
-        guard engine.requiresAPIKey else {
-            // Built-in engines (apple, mtranServer) should already be registered in init
-            // If missing, log warning but return true to avoid false failure in UI
-            logger.warning("Built-in engine \(engine.rawValue) provider not found in registry")
-            return true
         }
 
         let provider: any TranslationProvider

@@ -574,28 +574,6 @@ final class PRDAcceptanceTests: XCTestCase {
         )
     }
 
-    /// TextSegment 的坐标原点为左上角，译文必须贴在原文下边缘。
-    func testBilingualOverlayAnchorPlacesTranslationBelowTopLeftBox() {
-        let display = CGSize(width: 300, height: 200)
-        let topBox = CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.1)
-        let top = BilingualOverlayLayout.translationAnchor(for: topBox, in: display)
-        XCTAssertEqual(top.x, 30, accuracy: 0.5)
-        XCTAssertEqual(top.y, 41, accuracy: 0.5)
-        XCTAssertEqual(top.maxWidth, 150, accuracy: 0.5)
-
-        let lowerBox = CGRect(x: 0.25, y: 0.7, width: 0.2, height: 0.1)
-        let lower = BilingualOverlayLayout.translationAnchor(for: lowerBox, in: display)
-        XCTAssertEqual(lower.x, 75, accuracy: 0.5)
-        XCTAssertEqual(lower.y, 161, accuracy: 0.5)
-        XCTAssertGreaterThan(lower.y, top.y)
-
-        let tiny = BilingualOverlayLayout.translationAnchor(
-            for: CGRect(x: 0.95, y: 0.5, width: 0.01, height: 0.01), in: display
-        )
-        XCTAssertGreaterThanOrEqual(tiny.fontSize, 10)
-        XCTAssertLessThanOrEqual(tiny.x + tiny.maxWidth, display.width)
-    }
-
     /// VLM gateways forwarding the OpenAI Responses API put a `reasoning`
     /// output item in front of the `message` item — parsing must skip it and
     /// read the message's text blocks (user report 2026-10-23: deepseek relay).
@@ -629,7 +607,9 @@ final class PRDAcceptanceTests: XCTestCase {
     }
 
     /// 验证真实选区窗口的绘制结果，不依赖右侧面板或坐标函数自报成功。
-    func testTranslationStripsRenderInsideSelectionAndKeepSourcePixels() throws {
+    /// 译文只出现在右侧结果面板：翻译 tab 激活时选区内的原图像素必须
+    /// 完全不被遮挡（用户反馈密集文字下原位覆盖不可读，已撤除）。
+    func testTranslateTabKeepsSelectionPixelsUntouched() throws {
         let screen = try XCTUnwrap(NSScreen.main)
         let bounds = CGRect(origin: .zero, size: screen.frame.size)
         let displayID = CGMainDisplayID()
@@ -677,10 +657,14 @@ final class PRDAcceptanceTests: XCTestCase {
         func color(at point: CGPoint) throws -> (r: Double, g: Double, b: Double) {
             try XCTUnwrap(Self.pixel(in: rendered, x: Int(point.x * scale), y: Int(point.y * scale)))
         }
-        let strip = try color(at: CGPoint(x: 162, y: 255))
-        XCTAssertLessThan(strip.r, 0.5, "译文背景必须画在选区中的原文下方")
-        let source = try color(at: CGPoint(x: 162, y: 235))
-        XCTAssertGreaterThan(source.r, 0.95, "译文不能覆盖原文区域")
+        // 原图区域：任何位置都不得绘制译文/面板
+        let formerStripArea = try color(at: CGPoint(x: 350, y: 268))
+        XCTAssertGreaterThan(
+            formerStripArea.r, 0.95,
+            "译文不得绘制在选区画布上（只在右侧面板显示）"
+        )
+        let sourceArea = try color(at: CGPoint(x: 350, y: 240))
+        XCTAssertGreaterThan(sourceArea.r, 0.95, "原文区必须保持原始像素")
         let unused = try color(at: CGPoint(x: 162, y: 475))
         XCTAssertGreaterThan(unused.r, 0.95, "不能沿错误的 Y 轴绘制译文")
         let attachment = XCTAttachment(image: NSImage(cgImage: rendered, size: bounds.size))

@@ -77,6 +77,7 @@ enum TranslationProviderError: LocalizedError, Sendable {
     case connectionFailed(String)
     case invalidConfiguration(String)
     case translationFailed(String)
+    case incompleteResponse(String)
     case emptyInput
     case unsupportedLanguage(String)
     case timeout
@@ -92,6 +93,8 @@ enum TranslationProviderError: LocalizedError, Sendable {
             return "Invalid configuration: \(message)"
         case .translationFailed(let message):
             return "Translation failed: \(message)"
+        case .incompleteResponse(let message):
+            return "Translation output was incomplete: \(message)"
         case .emptyInput:
             return "Cannot translate empty text."
         case .unsupportedLanguage(let language):
@@ -116,6 +119,8 @@ enum TranslationProviderError: LocalizedError, Sendable {
             return NSLocalizedString("translation.provider.recovery.invalidConfiguration", comment: "")
         case .translationFailed:
             return NSLocalizedString("translation.provider.recovery.translationFailed", comment: "")
+        case .incompleteResponse:
+            return "Increase the output token limit or retry with a shorter text."
         case .emptyInput:
             return NSLocalizedString("translation.provider.recovery.emptyInput", comment: "")
         case .unsupportedLanguage:

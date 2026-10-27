@@ -29,7 +29,10 @@ actor TranslationRenderPipeline {
         do {
             return try await recorder.measure(stage: .translation, operationID: context.operationID) {
                 try Task.checkCancellation()
-                let texts = analysisResult.segments.map(\.text)
+                // Merge same-line fragments first: every visual line is
+                // translated as one unit and gets one overlay anchor.
+                let groupedSegments = VisualLineGrouping.mergeLines(in: analysisResult.segments)
+                let texts = groupedSegments.map(\.text)
                 let translatedSegments = try await translationService.translate(
                     segments: texts,
                     to: config.targetLanguage,
@@ -42,13 +45,13 @@ actor TranslationRenderPipeline {
                     sceneBindings: config.sceneBindings
                 )
 
-                guard translatedSegments.count == analysisResult.segments.count else {
+                guard translatedSegments.count == groupedSegments.count else {
                     throw PipelineError.translationFailed(
-                        "Translation segment count mismatch: expected \(analysisResult.segments.count), got \(translatedSegments.count)"
+                        "Translation segment count mismatch: expected \(groupedSegments.count), got \(translatedSegments.count)"
                     )
                 }
 
-                return zip(analysisResult.segments, translatedSegments).map { original, translated in
+                return zip(groupedSegments, translatedSegments).map { original, translated in
                     BilingualSegment(
                         segment: original,
                         translatedText: translated.translated,
