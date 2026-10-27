@@ -224,6 +224,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
     /// In-flight drawer analysis; cancelled on rerun and when the drawer closes
     /// so a dismissed overlay keeps no running network work writing into it.
     private var inPlaceAnalysisTask: Task<Void, Never>?
+    private var inPlaceAnalysisGeneration: UInt64 = 0
 
     /// Selection snapshot captured when a click starts outside the current
     /// selection; tiny clicks (no drag) must restore it instead of re-picking.
@@ -1663,9 +1664,8 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
     /// Runs OCR or translation on the selection and shows results in the
     /// embedded right-side drawer. The capture window stays open.
-    private func runInPlaceAnalysis(tab: InPlaceResultsModel.Tab, in selectionRect: CGRect) {
-        // Second click on the same tab closes the drawer (PRD toggle behaviour)
-        if resultsModel.isVisible, resultsModel.activeTab == tab, !resultsModel.isLoading {
+    private func runInPlaceAnalysis(tab: InPlaceResultsModel.Tab, in selectionRect: CGRect, forceRerun: Bool = false) {
+        if !forceRerun, resultsModel.isVisible, resultsModel.activeTab == tab, !resultsModel.isLoading {
             hideResultsPanel()
             return
         }
@@ -1683,12 +1683,16 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
 
         // Cancel any in-flight run so a slow old result can't overwrite a new one
         inPlaceAnalysisTask?.cancel()
+        inPlaceAnalysisGeneration &+= 1
+        let generation = inPlaceAnalysisGeneration
         inPlaceAnalysisTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return }
             defer {
-                self.resultsModel.isLoading = false
-                self.layoutResultsPanel(for: selectionRect)
-                self.needsDisplay = true
+                if self.inPlaceAnalysisGeneration == generation {
+                    self.resultsModel.isLoading = false
+                    self.layoutResultsPanel(for: selectionRect)
+                    self.needsDisplay = true
+                }
             }
             do {
                 switch tab {
@@ -1712,12 +1716,11 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                 case .translate:
                     let pipeline = ImageTranslationPipeline()
                     let context = PipelineContext()
-                    // Stage-split so failures are attributed correctly: the
-                    // drawer reads VLM errors as recognition, not translation.
                     let analysis: ScreenAnalysisResult
                     do {
                         analysis = try await pipeline.analyze(image: cropped, context: context)
                     } catch {
+                        guard self.inPlaceAnalysisGeneration == generation else { return }
                         self.resultsModel.statusMessage = String(
                             format: String(localized: "error.pipeline.ocrFailed"),
                             Self.pipelineErrorMessage(error)
@@ -1737,8 +1740,10 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                             context: context
                         )
                         if Task.isCancelled { return }
+                        guard self.inPlaceAnalysisGeneration == generation else { return }
                         self.resultsModel.segments = segments
                     } catch {
+                        guard self.inPlaceAnalysisGeneration == generation else { return }
                         self.resultsModel.statusMessage = String(
                             format: String(localized: "error.pipeline.translateFailed"),
                             Self.pipelineErrorMessage(error)
@@ -1746,6 +1751,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
                     }
                 }
             } catch {
+                guard self.inPlaceAnalysisGeneration == generation else { return }
                 let message = Self.pipelineErrorMessage(error)
                 self.resultsModel.statusMessage = message
             }
@@ -1779,7 +1785,7 @@ final class SelectionOverlayView: NSView, SelectionToolbarDelegate, NSTextFieldD
         if resultsPanelHost == nil {
             resultsModel.onRerun = { [weak self] in
                 guard let self, case .selected(let rect) = self.state else { return }
-                self.runInPlaceAnalysis(tab: self.resultsModel.activeTab, in: rect)
+                self.runInPlaceAnalysis(tab: self.resultsModel.activeTab, in: rect, forceRerun: true)
             }
             resultsModel.onClose = { [weak self] in
                 self?.hideResultsPanel()

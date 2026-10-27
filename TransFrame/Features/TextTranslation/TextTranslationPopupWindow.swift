@@ -29,6 +29,7 @@ final class TextTranslationPopupController: NSObject {
 
     private var window: NSWindow?
     private weak var popupDelegate: TextTranslationPopupDelegate?
+    private var presentationID = UUID()
     var onDismiss: (() -> Void)?
 
     private let debounceInterval: TimeInterval = 0.3
@@ -84,6 +85,7 @@ final class TextTranslationPopupController: NSObject {
         newWindow.minSize = NSSize(width: 380, height: 200)
         newWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
+        presentationID = UUID()
         self.window = newWindow
         lastPresentationTime = Date()
 
@@ -160,10 +162,16 @@ final class TextTranslationPopupController: NSObject {
 
 extension TextTranslationPopupController: NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
+        guard let closedWindow = notification.object as? NSWindow else { return }
         Task { @MainActor in
-            window = nil
-            onDismiss?()
-            popupDelegate?.textTranslationPopupDidDismiss()
+            // Only clear the reference if this is still the current window,
+            // preventing an old window's async close callback from clearing
+            // a newly-presented window's reference.
+            if window === closedWindow {
+                window = nil
+                onDismiss?()
+                popupDelegate?.textTranslationPopupDidDismiss()
+            }
         }
     }
 }

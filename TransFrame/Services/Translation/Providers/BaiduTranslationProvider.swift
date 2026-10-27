@@ -171,12 +171,14 @@ actor BaiduTranslationProvider: TranslationProvider {
             throw TranslationProviderError.translationFailed("Baidu error: \(errorMsg)")
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let transResult = json["trans_result"] as? [[String: Any]],
-              let firstResult = transResult.first,
-              let translatedText = firstResult["dst"] as? String else {
+              !transResult.isEmpty else {
             throw TranslationProviderError.translationFailed("Failed to parse Baidu response")
         }
+
+        let translatedText = transResult.compactMap { $0["dst"] as? String }
+            .joined(separator: "\n")
 
         let from = (json["from"] as? String) ?? "auto"
         let to = (json["to"] as? String) ?? "zh"

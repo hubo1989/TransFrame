@@ -65,12 +65,21 @@ actor TranslationService {
 
         switch mode {
         case .primaryWithFallback:
+            // Use the user-configured second engine as fallback when available
+            let configuredFallback: TranslationEngineType? = {
+                guard fallbackEnabled else { return nil }
+                if parallelEngines.count > 1 {
+                    return parallelEngines[1]
+                }
+                return nil
+            }()
             return try await translateWithFallback(
                 segments: segments,
                 to: targetLanguage,
                 from: sourceLanguage,
                 primaryEngine: preferredEngine,
                 fallbackEnabled: fallbackEnabled,
+                fallbackEngine: configuredFallback,
                 scene: scene
             )
 
@@ -132,10 +141,14 @@ actor TranslationService {
                 mode: .primaryWithFallback
             )
             return result
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             errors.append(error)
             logger.warning("Primary engine \(primaryEngine.rawValue) failed: \(error.localizedDescription)")
         }
+
+        try Task.checkCancellation()
 
         // Try fallback if enabled
         if fallbackEnabled {
@@ -146,6 +159,12 @@ actor TranslationService {
                 actualFallback = SceneEngineBinding.default(for: scene).fallbackEngine ?? .mtranServer
             } else {
                 actualFallback = primaryEngine == .apple ? .mtranServer : .apple
+            }
+
+            // Avoid retrying the same engine that just failed
+            guard actualFallback != primaryEngine else {
+                logger.warning("Fallback engine \(actualFallback.rawValue) equals primary, skipping")
+                throw MultiEngineError.allEnginesFailed(errors)
             }
 
             // Skip fallback if the engine is not explicitly enabled in user settings
@@ -173,6 +192,8 @@ actor TranslationService {
                     selectionMode: .primaryWithFallback,
                     scene: scene
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 errors.append(error)
                 logger.warning("Fallback engine \(actualFallback.rawValue) also failed: \(error.localizedDescription)")
@@ -418,23 +439,24 @@ actor TranslationService {
             let detectedSourceLang = detectLanguage(for: text)
             var resolvedSourceLang = explicitSourceLang ?? detectedSourceLang
 
-            // 2. Handle cases where text clearly contains Chinese and target is Chinese
-            // Only force resolvedSourceLang to targetLang (Chinese) if:
-            // - The target is Chinese AND
-            // - The detected source is nil (NLP failed) or already detected as Chinese AND
-            // - The text actually contains Han characters
-            // This prevents misclassifying Japanese/Korean containing Kanji/Hanja as Chinese
-            if let targetLang,
+            // 2. Handle cases where text clearly contains Chinese and target is Chinese.
+            // Skip when detected source variant matches the target, or when detection
+            // failed but the text contains Han characters (likely same-script Chinese).
+            // Do NOT rewrite detected Traditional → Simplified or vice versa.
+            if explicitSourceLang == nil,
+               let targetLang,
                (targetLang == .chineseSimplified || targetLang == .chineseTraditional),
                containsHanCharacters(text) {
-                if detectedSourceLang == nil || 
-                   detectedSourceLang == .chineseSimplified || 
-                   detectedSourceLang == .chineseTraditional {
+                if detectedSourceLang == nil || detectedSourceLang == targetLang {
                     resolvedSourceLang = targetLang
                 }
+                // If detectedSourceLang is a different Chinese variant, leave it
+                // as-is so the engine performs the script conversion.
             }
 
-            // 3. Self-translation bypass
+            // 3. Self-translation bypass — only skip when source and target are
+            // truly identical. Simplified ↔ Traditional Chinese are different
+            // targets and must go through the translation engine.
             if let resolvedSourceLang, let targetLang, resolvedSourceLang == targetLang {
                 finalResults[index] = TranslationResult(
                     sourceText: text,
@@ -450,7 +472,7 @@ actor TranslationService {
 
         if !pendingTexts.isEmpty {
             let translatedResults: [TranslationResult]
-            
+
             if let promptConfigurableProvider = provider as? TranslationPromptConfigurable {
                 let promptTemplate = await resolvedPromptTemplate(
                     for: provider,
@@ -471,42 +493,49 @@ actor TranslationService {
                 )
             }
 
-            if translatedResults.count == pendingTexts.count {
-                for (offset, result) in translatedResults.enumerated() {
-                    let originalIndex = pendingIndices[offset]
-                    finalResults[originalIndex] = result
-                }
-            } else {
+            if translatedResults.count != pendingTexts.count {
                 logger.error("Provider returned mismatch count. Expected: \(pendingTexts.count), got: \(translatedResults.count)")
-                for (offset, originalIndex) in pendingIndices.enumerated() {
-                    if offset < translatedResults.count {
-                        finalResults[originalIndex] = translatedResults[offset]
-                    } else {
-                        let originalText = texts[originalIndex]
-                        finalResults[originalIndex] = TranslationResult(
-                            sourceText: originalText,
-                            translatedText: originalText,
-                            sourceLanguage: sourceLanguage ?? "auto",
-                            targetLanguage: targetLanguage
-                        )
-                    }
-                }
+                throw TranslationProviderError.translationFailed(
+                    "\(provider.name) returned \(translatedResults.count) results for \(pendingTexts.count) texts"
+                )
+            }
+
+            for (offset, result) in translatedResults.enumerated() {
+                let originalIndex = pendingIndices[offset]
+                finalResults[originalIndex] = result
             }
         }
 
-        return finalResults.map { result in
-            let res = result ?? TranslationResult(
+        var hasFailedSlot = false
+        let sanitized = finalResults.map { result -> TranslationResult? in
+            guard let res = result else {
+                hasFailedSlot = true
+                return nil
+            }
+            let cleaned = self.sanitizeTranslation(translated: res.translatedText, source: res.sourceText)
+            if cleaned == res.sourceText, res.translatedText != res.sourceText {
+                hasFailedSlot = true
+            }
+            return TranslationResult(
+                sourceText: res.sourceText,
+                translatedText: cleaned,
+                sourceLanguage: res.sourceLanguage,
+                targetLanguage: res.targetLanguage
+            )
+        }
+
+        if hasFailedSlot {
+            throw TranslationProviderError.translationFailed(
+                "\(provider.name) returned invalid or empty translations"
+            )
+        }
+
+        return sanitized.map { result in
+            result ?? TranslationResult(
                 sourceText: "",
                 translatedText: "",
                 sourceLanguage: sourceLanguage ?? "auto",
                 targetLanguage: targetLanguage
-            )
-            let sanitizedText = self.sanitizeTranslation(translated: res.translatedText, source: res.sourceText)
-            return TranslationResult(
-                sourceText: res.sourceText,
-                translatedText: sanitizedText,
-                sourceLanguage: res.sourceLanguage,
-                targetLanguage: res.targetLanguage
             )
         }
     }

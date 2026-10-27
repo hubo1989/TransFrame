@@ -42,9 +42,16 @@ enum BilingualOverlayLayout {
     /// TextSegment 使用左上角原点；译文从原文下边缘开始，按画布宽度换行。
     static func translationAnchor(for boundingBox: CGRect, in displaySize: CGSize) -> Anchor {
         let x = max(0, min(boundingBox.minX * displaySize.width, displaySize.width))
-        let y = boundingBox.maxY * displaySize.height + 1
+        let belowY = boundingBox.maxY * displaySize.height + 1
         let stripWidth = min(max(boundingBox.width * displaySize.width, 60), max(0, displaySize.width - x))
         let fontSize = min(max(boundingBox.height * displaySize.height * 0.85, 10), 16)
+        let estimatedStripHeight = fontSize * 1.6 + 4
+        let y: CGFloat
+        if belowY + estimatedStripHeight < displaySize.height {
+            y = belowY
+        } else {
+            y = max(0, boundingBox.minY * displaySize.height - estimatedStripHeight - 1)
+        }
         return Anchor(x: x, y: y, maxWidth: stripWidth, fontSize: fontSize)
     }
 

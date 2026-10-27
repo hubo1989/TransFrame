@@ -189,7 +189,7 @@ enum TranslationEngineType: String, CaseIterable, Sendable, Codable, Identifiabl
         case .google:
             return "https://translation.googleapis.com/language/translate/v2"
         case .deepl:
-            return "https://api.deepl.com/v2"
+            return "https://api.deepl.com/v2/translate"
         case .baidu:
             return "https://fanyi-api.baidu.com/api/trans/vip/translate"
         default:

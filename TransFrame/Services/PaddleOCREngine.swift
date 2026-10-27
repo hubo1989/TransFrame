@@ -473,8 +473,14 @@ actor PaddleOCREngine {
     private func buildArguments(config: Configuration, imagePath: String) -> [String] {
         switch config.mode {
         case .fast:
-            // Fast mode: use ocr command (~1s)
-            let langCode = config.languages.contains(.chinese) ? "ch" : "en"
+            let langCode: String
+            if config.languages.contains(.chinese) {
+                langCode = "ch"
+            } else if let first = config.languages.first {
+                langCode = first.cliValue
+            } else {
+                langCode = "ch"
+            }
             return [
                 "ocr",
                 "-i", imagePath,

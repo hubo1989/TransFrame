@@ -53,43 +53,29 @@ enum VLMTextDeduplicator {
             textCounts[normalizedText, default: 0] += 1
         }
 
-        // Calculate threshold: max of minCountThreshold or percentage of total
-        // Clamp percentageMultiplier to valid range (0, 1] to prevent division issues
         let total = segments.count
         let validatedMultiplier = max(0.01, min(1.0, config.percentageMultiplier))
         let percentageThreshold = max(config.minCountThreshold, Int(Double(total) * validatedMultiplier))
 
-        // First pass: build a set of texts that are over-represented (likely hallucinations)
         var overrepresentedTexts = Set<String>()
         for (text, count) in textCounts {
             if count > percentageThreshold {
                 overrepresentedTexts.insert(text)
-                // Log only safe statistics: length, count, threshold
                 logger?(text.count, count, percentageThreshold)
             }
         }
 
-        // Second pass: deduplicate
-        var seenTexts = Set<String>()  // For overrepresented texts, only keep first
-        var seenSignatures = Set<String>()  // For normal texts, use position-based signature
+        // Deduplicate using text+position signature ONLY.
+        // Do NOT collapse same-text segments at different positions —
+        // those are legitimate repeated UI elements (buttons, table cells).
+        var seenSignatures = Set<String>()
         var result: [VLMTextSegment] = []
 
         for segment in segments {
-            let normalizedText = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if overrepresentedTexts.contains(normalizedText) {
-                // For overrepresented texts, only keep the first occurrence
-                if !seenTexts.contains(normalizedText) {
-                    seenTexts.insert(normalizedText)
-                    result.append(segment)
-                }
-            } else {
-                // For normal texts, use position-based deduplication
-                let signature = segmentSignature(segment, precision: config.positionPrecision)
-                if !seenSignatures.contains(signature) {
-                    seenSignatures.insert(signature)
-                    result.append(segment)
-                }
+            let signature = segmentSignature(segment, precision: config.positionPrecision)
+            if !seenSignatures.contains(signature) {
+                seenSignatures.insert(signature)
+                result.append(segment)
             }
         }
 

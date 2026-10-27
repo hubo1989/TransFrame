@@ -172,7 +172,14 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
         
         // For OpenAI and Ollama, we can perform a models GET check (non-billing)
         if engineType == .openai || engineType == .ollama {
-            let endpoint = engineType == .ollama ? baseURL.appendingPathComponent("api/tags") : baseURL.appendingPathComponent("models")
+            let endpoint: URL
+            if engineType == .ollama {
+                // Use the same OpenAI-compatible path family as translation to
+                // avoid "test passes but translation 404" (or vice versa).
+                endpoint = Self.appendingAPISuffix(baseURL, suffix: "v1/models")
+            } else {
+                endpoint = Self.appendingAPISuffix(baseURL, suffix: "models")
+            }
             
             var request = URLRequest(url: endpoint)
             request.httpMethod = "GET"
@@ -249,10 +256,14 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
                 .replacingOccurrences(of: "{text}", with: text)
         }
 
-        // Default prompt
+        // Default prompt — include separator preservation instruction when batch separators present
+        let separatorHint = text.contains("\n---\n")
+            ? "Preserve the literal '---' separators exactly where they appear in the input. Do not add or remove any separators."
+            : ""
         return """
             Translate the following text from \(source) to \(target).
             Provide ONLY the translated text without any explanations, notes, or formatting.
+            \(separatorHint)
 
             Text to translate:
             \(text)
@@ -273,7 +284,7 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
         switch engineType {
         case .claude:
             // Claude uses /v1/messages endpoint
-            endpoint = baseURL.appendingPathComponent("v1/messages")
+            endpoint = Self.appendingAPISuffix(baseURL, suffix: "v1/messages")
             if let apiKey = credentials?.apiKey {
                 // Security: reject non-HTTPS endpoints (except localhost) when sending API keys
                 if let host = baseURL.host, !Self.isLocalhost(host) && baseURL.scheme != "https" {
@@ -284,11 +295,24 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
                 headers["x-api-key"] = apiKey
                 headers["anthropic-version"] = "2023-06-01"
             }
-        default:
-            // OpenAI, Gemini, Ollama use /chat/completions endpoint
-            endpoint = baseURL.appendingPathComponent("chat/completions")
+        case .gemini:
+            // Gemini OpenAI-compatible endpoint: /v1beta/openai/chat/completions
+            endpoint = Self.appendingAPISuffix(baseURL, suffix: "v1beta/openai/chat/completions")
             if let apiKey = credentials?.apiKey {
-                // Security: reject non-HTTPS endpoints (except localhost) when sending API keys
+                if let host = baseURL.host, !Self.isLocalhost(host) && baseURL.scheme != "https" {
+                    throw TranslationProviderError.invalidConfiguration(
+                        "Refusing to send API key over insecure connection (HTTP). Use HTTPS or a localhost URL."
+                    )
+                }
+                headers["Authorization"] = "Bearer \(apiKey)"
+            }
+        case .ollama:
+            // Ollama OpenAI-compatible endpoint: /v1/chat/completions
+            endpoint = Self.appendingAPISuffix(baseURL, suffix: "v1/chat/completions")
+        default:
+            // OpenAI and others use /chat/completions (base typically ends with /v1)
+            endpoint = Self.appendingAPISuffix(baseURL, suffix: "chat/completions")
+            if let apiKey = credentials?.apiKey {
                 if let host = baseURL.host, !Self.isLocalhost(host) && baseURL.scheme != "https" {
                     throw TranslationProviderError.invalidConfiguration(
                         "Refusing to send API key over insecure connection (HTTP). Use HTTPS or a localhost URL."
@@ -499,6 +523,37 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
 
     private func getModelName() -> String {
         return config.options?.modelName ?? engineType.defaultModelName ?? "gpt-4o-mini"
+    }
+
+    /// Appends an API path suffix to a base URL without duplicating version segments.
+    /// If the base URL already ends with a matching prefix of the suffix, only the
+    /// remainder is appended. Handles trailing slashes and `URL.appendingPathComponent`
+    /// percent-encoding quirks.
+    private nonisolated static func appendingAPISuffix(_ base: URL, suffix: String) -> URL {
+        var url = base
+        while url.absoluteString.hasSuffix("/") {
+            url.deleteLastPathComponent()
+        }
+        let baseParts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+        let suffixParts = suffix.split(separator: "/").map(String.init)
+        // Find the longest overlapping prefix of suffix already present at end of base
+        for overlap in stride(from: min(baseParts.count, suffixParts.count), through: 1, by: -1) {
+            let baseTail = Array(baseParts.suffix(overlap)).map { $0.lowercased() }
+            let suffixHead = Array(suffixParts.prefix(overlap)).map { $0.lowercased() }
+            if baseTail == suffixHead {
+                // Append only the non-overlapping remainder
+                let remainder = suffixParts.dropFirst(overlap)
+                for part in remainder {
+                    url = url.appendingPathComponent(part)
+                }
+                return url
+            }
+        }
+        // No overlap: append all parts
+        for part in suffixParts {
+            url = url.appendingPathComponent(part)
+        }
+        return url
     }
 
     /// Check if a hostname refers to localhost (safe for HTTP)

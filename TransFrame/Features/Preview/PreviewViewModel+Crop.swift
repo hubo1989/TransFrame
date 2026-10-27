@@ -67,8 +67,12 @@ extension PreviewViewModel {
             $0.offsetBy(dx: -originShift.x, dy: -originShift.y)
         }
 
-        // Invalidate OCR cache for the previous crop area
+        // Invalidate OCR cache and translation results for the previous crop area
+        ocrTask?.cancel()
+        translationTask?.cancel()
+        analysisGeneration &+= 1
         ocrResult = nil
+        bilingualSegments = []
 
         screenshot = Screenshot(
             id: screenshot.id,
