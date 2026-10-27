@@ -753,6 +753,7 @@
 "textTranslation.error.cancelled" = "翻译已取消";
 "textTranslation.error.serviceUnavailable" = "翻译服务不可用";
 "textTranslation.error.insertFailed" = "插入翻译文本失败";
+"textTranslation.error.insertFailed.copied" = "译文已复制到剪贴板。";
 
 "textTranslation.recovery.emptyInput" = "请先选择一些文本";
 "textTranslation.recovery.translationFailed" = "请重试";
@@ -858,13 +859,14 @@
 "preview.panel.translateTab" = "翻译";
 "preview.panel.rerun" = "重新识别";
 "preview.panel.copyAll" = "复制全部";
+"preview.panel.copySource" = "复制原文";
+"preview.panel.copyTranslation" = "复制译文";
 "preview.panel.close" = "关闭";
 "preview.panel.expandDrawer" = "展开结果面板";
 "preview.panel.recognizing" = "正在识别...";
 "preview.panel.copyLine" = "复制";
 "preview.panel.original" = "原文";
 "preview.panel.translation" = "译文";
-"preview.panel.targetLanguage" = "目标语言";
 "preview.panel.noResults" = "暂无结果，点击「文本识别」开始";
 "preview.panel.translating" = "正在翻译...";
 "preview.panel.translate" = "翻译";

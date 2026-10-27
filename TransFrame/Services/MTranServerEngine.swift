@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os.log
 
@@ -8,10 +9,10 @@ actor MTranServerEngine: TranslationProvider {
     nonisolated let name = "MTransServer"
 
     var isAvailable: Bool {
-        get async { await checkConnection() }
+        configuration.isValid
     }
 
-    nonisolated var configuration: Configuration { .default }
+    nonisolated var configuration: Configuration { configuredSnapshot ?? .default }
 
     // MARK: - Properties
 
@@ -21,7 +22,7 @@ actor MTranServerEngine: TranslationProvider {
     // MARK: - Configuration
 
     /// MTranServer configuration options
-    struct Configuration: Sendable {
+    struct Configuration: Sendable, Equatable {
         /// Server address (e.g., "localhost" or "192.168.1.100")
         var serverAddress: String
 
@@ -33,6 +34,39 @@ actor MTranServerEngine: TranslationProvider {
 
         /// Whether to automatically detect source language
         var autoDetectSourceLanguage: Bool
+
+        init(
+            serverAddress: String,
+            serverPort: Int,
+            timeout: TimeInterval,
+            autoDetectSourceLanguage: Bool
+        ) {
+            self.serverAddress = serverAddress
+            self.serverPort = serverPort
+            self.timeout = timeout
+            self.autoDetectSourceLanguage = autoDetectSourceLanguage
+        }
+
+        init?(
+            serverURL: String,
+            timeout: TimeInterval = 10.0,
+            autoDetectSourceLanguage: Bool = true
+        ) {
+            let trimmed = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            let endpoint = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
+            guard let components = URLComponents(string: endpoint),
+                  let host = components.percentEncodedHost,
+                  components.path.isEmpty || components.path == "/",
+                  components.query == nil, components.fragment == nil,
+                  components.user == nil, components.password == nil else { return nil }
+            self.init(
+                serverAddress: host,
+                serverPort: components.port ?? 8989,
+                timeout: timeout,
+                autoDetectSourceLanguage: autoDetectSourceLanguage
+            )
+            guard isValid else { return nil }
+        }
 
         /// Default configuration from UserDefaults
         static var `default`: Configuration {
@@ -48,11 +82,67 @@ actor MTranServerEngine: TranslationProvider {
                 autoDetectSourceLanguage: true
             )
         }
+
+        var endpointHost: String? {
+            let host = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !host.isEmpty, (1...65_535).contains(serverPort),
+                  timeout.isFinite, timeout > 0 else { return nil }
+            if host.hasPrefix("[") || host.hasSuffix("]") {
+                guard host.hasPrefix("["), host.hasSuffix("]") else { return nil }
+                let rawAddress = String(host.dropFirst().dropLast())
+                var parsed = in6_addr()
+                guard inet_pton(AF_INET6, rawAddress, &parsed) == 1 else { return nil }
+                return host
+            }
+            return host == "localhost" ? "127.0.0.1" : host
+        }
+
+        var isValid: Bool {
+            guard let url = endpointURL(path: "/translate"),
+                  url.host != nil, url.port == serverPort else { return false }
+            return true
+        }
+
+        func endpointURL(path: String) -> URL? {
+            guard let host = endpointHost else { return nil }
+            var components = URLComponents()
+            components.scheme = "http"
+            components.percentEncodedHost = host
+            components.port = serverPort
+            components.path = path
+            return components.url
+        }
     }
 
     // MARK: - Initialization
 
-    private init() {}
+    private let configuredSnapshot: Configuration?
+    private let session: URLSession
+    private let checker: MTranServerChecker
+
+    init(
+        configuration: Configuration? = nil,
+        session: URLSession = .shared,
+        checker: MTranServerChecker = .shared
+    ) {
+        self.configuredSnapshot = configuration
+        self.session = session
+        self.checker = checker
+    }
+
+    static func provider(
+        config: TranslationEngineConfig,
+        session: URLSession = .shared,
+        checker: MTranServerChecker = .shared
+    ) -> MTranServerEngine {
+        let baseURL = config.options?.baseURL
+        let timeout = config.options?.timeout ?? 10.0
+        guard let baseURL, !baseURL.isEmpty,
+              let parsed = Configuration(serverURL: baseURL, timeout: timeout) else {
+            return MTranServerEngine(configuration: .default, session: session, checker: checker)
+        }
+        return MTranServerEngine(configuration: parsed, session: session, checker: checker)
+    }
 
     // MARK: - Public API
 
@@ -68,19 +158,16 @@ actor MTranServerEngine: TranslationProvider {
         _ text: String,
         from sourceLanguage: String? = nil,
         to targetLanguage: String,
-        config: Configuration = .default
+        config: Configuration? = nil
     ) async throws -> TranslationResult {
+        let config = config ?? configuration
         logger.info("Starting translation: \(text.count) chars to \(targetLanguage)")
         logger.info("Config: \(config.serverAddress):\(config.serverPort)")
 
-        // Reset cache to ensure we check with current settings
-        MTranServerChecker.resetCache()
-        guard await MTranServerChecker.checkAvailability() else {
-            logger.error("MTranServer not available")
-            throw MTranServerError.notAvailable
-        }
+        // Validate input before making a request. Health state never gates translation.
+        try Task.checkCancellation()
+        guard config.isValid else { throw MTranServerError.invalidURL }
 
-        // Validate input
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MTranServerError.emptyInput
         }
@@ -123,7 +210,7 @@ actor MTranServerEngine: TranslationProvider {
     /// - Returns: TranslationResult containing translated text
     /// - Throws: MTranServerError if translation fails
     func translate(_ text: String, to targetLanguage: String) async throws -> TranslationResult {
-        try await translate(text, from: nil, to: targetLanguage, config: .default)
+        try await translate(text, from: nil, to: targetLanguage, config: configuration)
     }
 
     // MARK: - TranslationProvider Protocol
@@ -133,7 +220,7 @@ actor MTranServerEngine: TranslationProvider {
         from sourceLanguage: String?,
         to targetLanguage: String
     ) async throws -> TranslationResult {
-        try await translate(text, from: sourceLanguage, to: targetLanguage, config: .default)
+        try await translate(text, from: sourceLanguage, to: targetLanguage, config: configuration)
     }
 
     func translate(
@@ -146,12 +233,13 @@ actor MTranServerEngine: TranslationProvider {
         var results: [TranslationResult] = []
         results.reserveCapacity(texts.count)
 
+        let config = configuration
         for text in texts {
             let result = try await translate(
                 text,
                 from: sourceLanguage,
                 to: targetLanguage,
-                config: .default
+                config: config
             )
             results.append(result)
         }
@@ -160,10 +248,25 @@ actor MTranServerEngine: TranslationProvider {
     }
 
     func verifyConnection() async throws {
-        MTranServerChecker.resetCache()
-        guard await MTranServerChecker.checkAvailability() else {
+        try await verifyConnection(config: configuration)
+    }
+
+    func verifyConnection(config: Configuration) async throws {
+        guard config.isValid else { throw MTranServerError.invalidURL }
+        try Task.checkCancellation()
+        let isAvailable = try await checker.checkAvailability(
+            configuration: config,
+            forceRefresh: true
+        )
+        guard isAvailable else {
             throw TranslationProviderError.connectionFailed("MTranServer is not reachable")
         }
+    }
+
+    func checkConnection(config: Configuration) async throws -> Bool {
+        guard config.isValid else { throw MTranServerError.invalidURL }
+        try Task.checkCancellation()
+        return try await checker.checkAvailability(configuration: config, forceRefresh: true)
     }
 
     // MARK: - Private Methods
@@ -206,10 +309,7 @@ actor MTranServerEngine: TranslationProvider {
 
     /// Builds the URL for MTranServer API endpoint
     private func buildURL(config: Configuration) throws -> URL {
-        // Normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
-        let host = config.serverAddress == "localhost" ? "127.0.0.1" : config.serverAddress
-        let urlString = "http://\(host):\(config.serverPort)/translate"
-        guard let url = URL(string: urlString) else {
+        guard let url = config.endpointURL(path: "/translate") else {
             throw MTranServerError.invalidURL
         }
         return url
@@ -235,71 +335,35 @@ actor MTranServerEngine: TranslationProvider {
         jsonData: Data,
         timeout: TimeInterval
     ) async throws -> TranslationResponse {
-        try await withThrowingTaskGroup(of: Result<TranslationResponse, any Error>.self) { group in
-            // Translation task
-            group.addTask { [jsonData, url] in
-                await self.executeTranslationRequest(url: url, jsonData: jsonData)
-            }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
 
-            // Timeout task
-            _ = group.addTaskUnlessCancelled { [timeout] in
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return .failure(MTranServerError.timeout)
-            }
-
-            // Wait for first completed task
-            guard let result = try await group.next() else {
-                throw MTranServerError.timeout
-            }
-            group.cancelAll()
-            return try result.get()
-        }
-    }
-
-    /// Executes the HTTP request to MTranServer
-    private func executeTranslationRequest(
-        url: URL,
-        jsonData: Data
-    ) async -> Result<TranslationResponse, any Error> {
         do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = jsonData
-            
-            // Debug: log request body
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                logger.debug("Request body: \(jsonString)")
-            }
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            // Debug: log response
-            if let responseString = String(data: data, encoding: .utf8) {
-                logger.debug("Response body: \(responseString)")
-            }
-
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                logger.error("Invalid response type")
-                return .failure(MTranServerError.invalidResponse)
+                throw MTranServerError.invalidResponse
             }
-            
-            logger.debug("Response status code: \(httpResponse.statusCode)")
-
             guard httpResponse.statusCode == 200 else {
                 if httpResponse.statusCode == 503 {
-                    return .failure(MTranServerError.serviceUnavailable)
+                    throw MTranServerError.serviceUnavailable
                 }
-                return .failure(MTranServerError.httpError(statusCode: httpResponse.statusCode))
+                throw MTranServerError.httpError(statusCode: httpResponse.statusCode)
             }
-
-            let decoded = try JSONDecoder().decode(TranslationResponse.self, from: data)
-            return .success(decoded)
+            return try JSONDecoder().decode(TranslationResponse.self, from: data)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .timedOut {
+            throw MTranServerError.timeout
         } catch let error as MTranServerError {
-            return .failure(error)
+            throw error
         } catch {
             logger.error("Request failed: \(error)")
-            return .failure(MTranServerError.requestFailed(underlying: error))
+            throw MTranServerError.requestFailed(underlying: error)
         }
     }
 }

@@ -1256,28 +1256,10 @@ final class SettingsViewModel {
 
         Task {
             do {
-                // Parse URL and update settings temporarily for test
-                guard let (host, port) = parseMTranServerURL(mtranServerURL), !host.isEmpty else {
+                guard let config = MTranServerEngine.Configuration(serverURL: mtranServerURL) else {
                     throw MTranServerError.invalidURL
                 }
-
-                // Save current settings
-                let originalHost = settings.mtranServerHost
-                let originalPort = settings.mtranServerPort
-
-                // Update settings for test
-                settings.mtranServerHost = host
-                settings.mtranServerPort = port
-
-                // Reset cache to use new settings
-                MTranServerChecker.resetCache()
-
-                // Check availability
-                let isAvailable = await MTranServerChecker.checkAvailability()
-
-                // Restore original settings if test is just for checking
-                settings.mtranServerHost = originalHost
-                settings.mtranServerPort = originalPort
+                let isAvailable = await MTranServerEngine(configuration: config).checkConnection()
 
                 await MainActor.run {
                     mtranTestSuccess = isAvailable

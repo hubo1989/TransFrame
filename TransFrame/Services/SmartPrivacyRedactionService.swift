@@ -52,7 +52,7 @@ final class SmartPrivacyRedactionService: Sendable {
         }
 
         logger.info("Smart privacy detection started via \(provider.name)")
-        let result = try await provider.analyze(image: image, prompt: .privacy)
+        let result = try await engine.analyze(image: image, prompt: .privacy)
 
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)

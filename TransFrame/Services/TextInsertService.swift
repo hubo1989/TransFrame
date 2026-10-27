@@ -25,6 +25,12 @@ actor TextInsertService {
         case accessibilityPermissionDenied
         /// Text contains characters that cannot be typed
         case unsupportedCharacters(String)
+        /// 翻译期间原控件或原选区已变化。
+        case targetChanged
+        /// 未捕获到可安全替换的 AX 文本选区。
+        case targetUnavailable
+        /// AX 写入后无法确认目标内容，绝不自动重复输入。
+        case insertionNotVerified
 
         var errorDescription: String? {
             switch self {
@@ -44,6 +50,24 @@ actor TextInsertService {
                 return NSLocalizedString(
                     "error.text.insert.unsupported.chars",
                     value: "Cannot type characters: \(chars)",
+                    comment: ""
+                )
+            case .targetChanged:
+                return NSLocalizedString(
+                    "error.text.insert.target.changed",
+                    value: "The original selection or focused app changed. The translation was not inserted.",
+                    comment: ""
+                )
+            case .targetUnavailable:
+                return NSLocalizedString(
+                    "error.text.insert.target.unavailable",
+                    value: "Cannot safely replace this selection. The translation was not inserted.",
+                    comment: ""
+                )
+            case .insertionNotVerified:
+                return NSLocalizedString(
+                    "error.text.insert.not.verified",
+                    value: "Text insertion could not be verified. Check the original app before retrying.",
                     comment: ""
                 )
             }
@@ -67,6 +91,24 @@ actor TextInsertService {
                 return NSLocalizedString(
                     "error.text.insert.unsupported.chars.recovery",
                     value: "Some characters cannot be typed with keyboard simulation",
+                    comment: ""
+                )
+            case .targetChanged:
+                return NSLocalizedString(
+                    "error.text.insert.target.changed.recovery",
+                    value: "Select the text again to translate and insert",
+                    comment: ""
+                )
+            case .targetUnavailable:
+                return NSLocalizedString(
+                    "error.text.insert.target.unavailable.recovery",
+                    value: "Copy the translation manually or select an editable text field",
+                    comment: ""
+                )
+            case .insertionNotVerified:
+                return NSLocalizedString(
+                    "error.text.insert.not.verified.recovery",
+                    value: "Do not retry blindly; check whether some text was already inserted",
                     comment: ""
                 )
             }
@@ -108,6 +150,13 @@ actor TextInsertService {
             // Small delay between characters for reliability
             try await Task.sleep(nanoseconds: UInt64(keystrokeDelay * 1_000_000_000))
         }
+    }
+
+    /// 只替换捕获时的 AX 目标。nil 表示无法核验，禁止回退键盘输入。
+    @MainActor
+    func replaceSelection(with text: String, captured: CapturedTextInsertion?) throws {
+        guard let captured else { throw InsertError.targetUnavailable }
+        try captured.replace(with: text)
     }
 
     /// Deletes the currently selected text and inserts new text via Unicode events.

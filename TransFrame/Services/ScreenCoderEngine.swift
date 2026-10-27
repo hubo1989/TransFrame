@@ -63,13 +63,27 @@ actor ScreenCoderEngine {
     /// - Returns: ScreenAnalysisResult containing extracted text segments with positions
     /// - Throws: ScreenCoderEngineError or VLMProviderError if analysis fails
     func analyze(image: CGImage) async throws -> ScreenAnalysisResult {
+        try await analyze(image: image, prompt: .ocr)
+    }
+
+    func analyze(image: CGImage, prompt: VLMPromptPair) async throws -> ScreenAnalysisResult {
         let provider = try await currentProvider()
-        
+
         guard await provider.isAvailable else {
             throw ScreenCoderEngineError.providerNotAvailable(provider.name)
         }
-        
-        return try await provider.analyze(image: image)
+
+        let tiles = AnalysisImageTiler.tiles(for: image)
+        guard tiles.count > 1 else {
+            return try await provider.analyze(image: image, prompt: prompt)
+        }
+        var results: [ScreenAnalysisResult] = []
+        results.reserveCapacity(tiles.count)
+        for tile in tiles {
+            try Task.checkCancellation()
+            results.append(try await provider.analyze(image: tile.image, prompt: prompt))
+        }
+        return try AnalysisImageTiler.merging(tiles.map(\.pixelRect), results: results)
     }
     
     /// Returns the currently configured VLM provider.

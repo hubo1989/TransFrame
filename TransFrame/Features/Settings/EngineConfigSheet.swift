@@ -418,8 +418,13 @@ struct EngineConfigSheet: View {
                 }
             }
 
-            // Test connection
-            try await TranslationService.shared.verifyConnection(for: engine)
+            // Test connection with the unsaved form snapshot, not the old engine config.
+            var testConfig = config
+            var options = config.options ?? EngineOptions.default(for: engine) ?? EngineOptions()
+            options.baseURL = baseURL
+            options.modelName = modelName
+            testConfig.options = options
+            try await TranslationService.shared.verifyConnection(for: engine, config: testConfig)
 
             await MainActor.run {
                 testSuccess = true

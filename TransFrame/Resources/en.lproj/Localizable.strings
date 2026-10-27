@@ -753,6 +753,7 @@
 "textTranslation.error.cancelled" = "Translation was cancelled";
 "textTranslation.error.serviceUnavailable" = "Translation service is unavailable";
 "textTranslation.error.insertFailed" = "Failed to insert translated text";
+"textTranslation.error.insertFailed.copied" = "The translated text has been copied to the clipboard.";
 
 "textTranslation.recovery.emptyInput" = "Please select some text first";
 "textTranslation.recovery.translationFailed" = "Please try again";
@@ -858,13 +859,14 @@
 "preview.panel.translateTab" = "Translation";
 "preview.panel.rerun" = "Recognize Again";
 "preview.panel.copyAll" = "Copy All";
+"preview.panel.copySource" = "Copy Original";
+"preview.panel.copyTranslation" = "Copy Translation";
 "preview.panel.close" = "Close";
 "preview.panel.expandDrawer" = "Expand results panel";
 "preview.panel.recognizing" = "Recognizing...";
 "preview.panel.copyLine" = "Copy";
 "preview.panel.original" = "Original";
 "preview.panel.translation" = "Translation";
-"preview.panel.targetLanguage" = "Target Language";
 "preview.panel.noResults" = "No results yet. Click Text Recognition to start";
 "preview.panel.translating" = "Translating...";
 "preview.panel.translate" = "Translate";

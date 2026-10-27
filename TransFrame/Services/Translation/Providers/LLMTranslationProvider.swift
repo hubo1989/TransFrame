@@ -88,69 +88,15 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
     ) async throws -> [TranslationResult] {
         guard !texts.isEmpty else { return [] }
 
-        // For multiple texts, combine into single request for efficiency
-        let combinedText = texts.joined(separator: "\n---\n")
-        let credentials = try await getCredentials()
-        let prompt = buildPrompt(
-            text: combinedText,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: targetLanguage,
-            promptTemplate: promptTemplate
+        let batches = LLMTranslationBatching.split(
+            texts: texts, maxOutputTokens: config.options?.maxTokens ?? 2048, promptTemplate: promptTemplate
         )
-
-        let start = Date()
-        let translatedText = try await callLLMAPI(
-            prompt: prompt,
-            credentials: credentials
-        )
-        let latency = Date().timeIntervalSince(start)
-
-        logger.info("Translation completed in \(latency)s")
-
-        let combinedResult = TranslationResult(
-            sourceText: combinedText,
-            translatedText: translatedText,
-            sourceLanguage: sourceLanguage ?? "Auto",
-            targetLanguage: targetLanguage
-        )
-
-        let translatedTexts = combinedResult.translatedText.components(separatedBy: "\n---\n")
-
-        if translatedTexts.count == texts.count {
-            return zip(texts, translatedTexts).map { source, translated in
-                TranslationResult(
-                    sourceText: source,
-                    translatedText: translated.trimmingCharacters(in: .whitespacesAndNewlines),
-                    sourceLanguage: combinedResult.sourceLanguage,
-                    targetLanguage: combinedResult.targetLanguage
-                )
-            }
-        }
-
-        logger.warning("Batch split failed, falling back to individual translations")
-        var results: [TranslationResult] = []
-        results.reserveCapacity(texts.count)
-        for text in texts {
-            let prompt = buildPrompt(
-                text: text,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                promptTemplate: promptTemplate
-            )
-            let translatedText = try await callLLMAPI(
-                prompt: prompt,
-                credentials: credentials
-            )
-            results.append(
-                TranslationResult(
-                    sourceText: text,
-                    translatedText: translatedText,
-                    sourceLanguage: sourceLanguage ?? "Auto",
-                    targetLanguage: targetLanguage
-                )
+        guard batches.count == 1, batches[0] == texts else {
+            return try await translateBatches(
+                batches, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate
             )
         }
-        return results
+        return try await translateSingleBatch(texts, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate)
     }
 
     func translate(
@@ -231,6 +177,38 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
     // MARK: - Custom Prompt
 
     // MARK: - Private Methods
+
+    private func translateBatches(
+        _ batches: [[String]], from sourceLanguage: String?, to targetLanguage: String, promptTemplate: String?
+    ) async throws -> [TranslationResult] {
+        var results: [TranslationResult] = []
+        for batch in batches {
+            results.append(contentsOf: try await translateSingleBatch(
+                batch, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate
+            ))
+        }
+        return results
+    }
+
+    private func translateSingleBatch(
+        _ texts: [String], from sourceLanguage: String?, to targetLanguage: String, promptTemplate: String?
+    ) async throws -> [TranslationResult] {
+        let credentials = try await getCredentials()
+        let combinedText = texts.joined(separator: LLMTranslationBatching.separator)
+        let prompt = buildPrompt(text: combinedText, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage, promptTemplate: promptTemplate)
+        let translatedText = try await callLLMAPI(prompt: prompt, credentials: credentials)
+        let translatedTexts = translatedText.components(separatedBy: LLMTranslationBatching.separator)
+        if translatedTexts.count == texts.count {
+            return zip(texts, translatedTexts).map {
+                TranslationResult(sourceText: $0, translatedText: $1.trimmingCharacters(in: .whitespacesAndNewlines), sourceLanguage: sourceLanguage ?? "Auto", targetLanguage: targetLanguage)
+            }
+        }
+        guard texts.count > 1 else {
+            return [TranslationResult(sourceText: combinedText, translatedText: translatedText, sourceLanguage: sourceLanguage ?? "Auto", targetLanguage: targetLanguage)]
+        }
+        logger.warning("Batch split failed, retrying only unmatched individual texts")
+        return try await translateBatches(texts.map { [$0] }, from: sourceLanguage, to: targetLanguage, promptTemplate: promptTemplate)
+    }
 
     private func getCredentials() async throws -> StoredCredentials? {
         guard engineType.requiresAPIKey else { return nil }
@@ -399,108 +377,9 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
     }
 
     private func parseResponse(_ data: Data, for engineType: TranslationEngineType) throws -> String {
-        guard let rawString = String(data: data, encoding: .utf8) else {
-            throw TranslationProviderError.translationFailed("Unable to decode data to UTF-8 string")
-        }
-
-        let trimmedResponse = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check if response is Server-Sent Events (SSE) stream format
-        if trimmedResponse.hasPrefix("data:") || trimmedResponse.contains("\ndata:") {
-            return try parseSSEStream(trimmedResponse, for: engineType)
-        }
-
-        let jsonObject: Any
-        do {
-            jsonObject = try JSONSerialization.jsonObject(with: data)
-        } catch {
-            logger.error("JSON serialization failed for \(engineType.rawValue): \(error.localizedDescription). Response size: \(data.count) bytes")
-            throw error
-        }
-
-        guard let json = jsonObject as? [String: Any] else {
-            logger.error("Response JSON for \(engineType.rawValue) is not a dictionary object")
-            throw TranslationProviderError.translationFailed("Response JSON is not a dictionary")
-        }
-
-        // Handle error responses from LLM APIs
-        if let errorObj = json["error"] as? [String: Any],
-           let errorMessage = errorObj["message"] as? String {
-            logger.error("API returned error for \(engineType.rawValue): \(errorMessage)")
-            throw TranslationProviderError.translationFailed("API error: \(errorMessage)")
-        }
-
-        let content: String?
-
-        switch engineType {
-        case .claude:
-            content = (json["content"] as? [[String: Any]])?
-                .first?["text"] as? String
-        default:
-            content = ((json["choices"] as? [[String: Any]])?
-                .first?["message"] as? [String: Any])?["content"] as? String
-        }
-
-        guard let text = content else {
-            logger.error("Unexpected JSON response structure for \(engineType.rawValue) (missing choices or content)")
-            throw TranslationProviderError.translationFailed("Unexpected JSON response structure")
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        try LLMTranslationResponseParser.extractText(from: data, for: engineType)
     }
 
-    private func parseSSEStream(_ streamText: String, for engineType: TranslationEngineType) throws -> String {
-        var resultText = ""
-        let lines = streamText.components(separatedBy: .newlines)
-
-        for line in lines {
-            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedLine.isEmpty else { continue }
-
-            // Skip stream end marker
-            if trimmedLine == "data: [DONE]" {
-                continue
-            }
-
-            if trimmedLine.hasPrefix("data:") {
-                let jsonText = trimmedLine.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                guard !jsonText.isEmpty else { continue }
-
-                guard let jsonData = jsonText.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                    continue
-                }
-
-                switch engineType {
-                case .claude:
-                    // Claude streaming format (usually text delta in content_block_delta or message_delta)
-                    if let type = json["type"] as? String, type == "content_block_delta",
-                       let delta = json["delta"] as? [String: Any],
-                       let text = delta["text"] as? String {
-                        resultText += text
-                    }
-                default:
-                    // OpenAI/Gemini/Ollama streaming format
-                    if let choices = json["choices"] as? [[String: Any]],
-                       let firstChoice = choices.first {
-                        if let delta = firstChoice["delta"] as? [String: Any],
-                           let content = delta["content"] as? String {
-                            resultText += content
-                        } else if let text = firstChoice["text"] as? String {
-                            resultText += text
-                        }
-                    }
-                }
-            }
-        }
-
-        guard !resultText.isEmpty else {
-            logger.error("Failed to extract any text from SSE stream for \(engineType.rawValue) (length: \(streamText.count))")
-            throw TranslationProviderError.translationFailed("Empty text from SSE stream")
-        }
-
-        return resultText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     private func getBaseURL() throws -> URL {
         if let customURL = config.options?.baseURL {

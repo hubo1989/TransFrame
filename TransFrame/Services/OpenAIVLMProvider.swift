@@ -29,6 +29,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     private let timeout: TimeInterval
 
     let apiMode: OpenAIAPIMode
+    private let session: URLSession
     private let logger = Logger.translation
     /// Logger for the stateless response parser, usable without an instance.
     private static let parserLogger = Logger.translation
@@ -40,10 +41,11 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
     ///   - configuration: VLM provider configuration
     ///   - apiMode: OpenAI API protocol mode (.chat or .response)
     ///   - timeout: Request timeout in seconds (default: 60)
-    init(configuration: VLMProviderConfiguration, apiMode: OpenAIAPIMode = .chat, timeout: TimeInterval = 60) {
+    init(configuration: VLMProviderConfiguration, apiMode: OpenAIAPIMode = .chat, timeout: TimeInterval = 60, session: URLSession = .shared) {
         self.configuration = configuration
         self.apiMode = apiMode
         self.timeout = timeout
+        self.session = session
     }
 
     private func logDebug(_ message: String) {
@@ -74,7 +76,8 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         baseURL: URL = OpenAIVLMProvider.defaultBaseURL,
         modelName: String = OpenAIVLMProvider.defaultModel,
         apiMode: OpenAIAPIMode = .chat,
-        timeout: TimeInterval = 60
+        timeout: TimeInterval = 60,
+        session: URLSession = .shared
     ) {
         self.configuration = VLMProviderConfiguration(
             apiKey: apiKey,
@@ -83,6 +86,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         )
         self.apiMode = apiMode
         self.timeout = timeout
+        self.session = session
     }
 
     // MARK: - VLMProvider Protocol
@@ -252,10 +256,8 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
             ))
         }
 
-        // Final deduplication before returning
-        let deduplicated = deduplicateSegments(allSegments)
-        logWarning("Max continuation attempts reached, \(allSegments.count) -> \(deduplicated.count) segments after dedup")
-        return VLMAnalysisResponse(segments: deduplicated)
+        logWarning("Max continuation attempts reached after \(allSegments.count) segments")
+        throw VLMProviderError.invalidResponse("VLM response remained truncated after \(maxAttempts) attempts")
     }
 
     /// Filters out segments from new array that already exist in existing array
@@ -442,11 +444,6 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
 
     // MARK: - Private Methods
 
-    /// Placeholder replacing the base64 image in continuation rounds, so the
-    /// same capture is not uploaded again for every truncation retry.
-    private static let continuationImagePlaceholder =
-        "(image omitted: the same image as in the first message)"
-
     /// Builds the URLRequest for OpenAI Chat Completions or Responses API with custom messages
     private func buildRequest(
         messages: [OpenAIChatMessage],
@@ -469,25 +466,8 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         }
         request.timeoutInterval = timeout
 
-        // Continuation rounds keep the conversation shape but drop only the
-        // base64 image part — the text instruction stays so the model still
-        // knows the task (mirrors ClaudeVLMProvider's per-block replacement).
-        let effectiveMessages: [OpenAIChatMessage]
-        if isContinuation {
-            effectiveMessages = messages.map { message in
-                guard case .vision(let parts) = message.content else { return message }
-                var kept: [OpenAIChatMessage.VisionContent] = parts.compactMap { part in
-                    if case .text(let text) = part { return .text(text) }
-                    return nil
-                }
-                if kept.isEmpty {
-                    kept = [.text(Self.continuationImagePlaceholder)]
-                }
-                return OpenAIChatMessage(role: message.role, content: .vision(kept))
-            }
-        } else {
-            effectiveMessages = messages
-        }
+        // 每次 HTTP 请求彼此独立，没有会话状态；续写必须保留原图上下文。
+        let effectiveMessages = messages
 
         // Responses API
         if apiMode == .response {
@@ -553,7 +533,7 @@ struct OpenAIVLMProvider: VLMProvider, Sendable {
         }
 
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError {
             logWarning("Network error: \(error.localizedDescription)")
             switch error.code {
