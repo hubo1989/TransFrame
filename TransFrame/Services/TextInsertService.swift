@@ -5,6 +5,7 @@
 //  Created for US-005: Add copy and insert buttons to translation popup
 //
 
+import AppKit
 import Foundation
 import CoreGraphics
 import ApplicationServices
@@ -154,9 +155,31 @@ actor TextInsertService {
 
     /// 只替换捕获时的 AX 目标。nil 表示无法核验，禁止回退键盘输入。
     @MainActor
-    func replaceSelection(with text: String, captured: CapturedTextInsertion?) throws {
+    func replaceSelection(with text: String, captured: CapturedTextInsertion?) async throws {
         guard let captured else { throw InsertError.targetUnavailable }
-        try captured.replace(with: text)
+        try await captured.replace(with: text)
+    }
+
+    /// 无 AX 绑定（如 Electron 无障碍未启用）时的降级插入：
+    /// 以「触发时前台应用 pid + Cmd+C 取词成功」为锚，核对前台未变后用 Cmd+V 粘贴。
+    /// 无法做读回验证；同应用内切换输入框的误贴风险与手动 Cmd+V 相同。
+    @MainActor
+    func pasteToCapturedFrontmost(_ text: String, anchorPID: pid_t) async throws {
+        guard !text.isEmpty else { throw InsertError.insertionNotVerified }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == anchorPID else {
+            Logger.textInsertion.notice("降级粘贴失败: 前台应用已变化 anchorPid=\(anchorPID)")
+            throw InsertError.targetChanged
+        }
+        let restorePasteboard = try ClipboardPaste.paste(text)
+        // defer 覆盖取消路径：取消时也必须恢复剪贴板
+        defer { restorePasteboard() }
+        // 不可取消的等待：即使任务被取消也等满窗口，防止剪贴板在目标消费前被恢复
+        await NonCancellableWait.wait(nanoseconds: 400_000_000)
+        if Task.isCancelled {
+            Logger.textInsertion.notice("降级粘贴: 任务已取消，等待窗口结束后已恢复剪贴板 anchorPid=\(anchorPID)")
+        } else {
+            Logger.textInsertion.notice("降级粘贴完成: 无AX验证 anchorPid=\(anchorPID)")
+        }
     }
 
     /// Deletes the currently selected text and inserts new text via Unicode events.
@@ -399,4 +422,46 @@ actor TextInsertService {
 extension TextInsertService {
     /// Shared instance for convenience
     static let shared = TextInsertService()
+}
+
+
+enum NonCancellableWait {
+    /// 取消不中断的等待：Task.sleep 在任务取消时会立即抛出，
+    /// 而粘贴后的剪贴板消费窗口必须等满（恢复早于消费会损坏用户剪贴板）。
+    static func wait(nanoseconds: UInt64) async {
+        await withCheckedContinuation { continuation in
+            Task.detached(priority: .utility) {
+                usleep(useconds_t(nanoseconds / 1_000))
+                continuation.resume()
+            }
+        }
+    }
+}
+
+/// 剪贴板 + 合成 Cmd+V 的共享粘贴实现。
+/// 返回恢复剪贴板的闭包，调用方必须在读回验证或固定等待结束后调用，
+/// 避免目标应用延迟消费剪贴板时拿到旧内容。
+enum ClipboardPaste {
+    @MainActor
+    static func paste(_ text: String) throws -> @MainActor () -> Void {
+        guard AXIsProcessTrusted() else { throw TextInsertService.InsertError.accessibilityPermissionDenied }
+        let backup = PasteboardBackup.save()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            PasteboardBackup.restore(backup)
+            throw TextInsertService.InsertError.eventCreationFailed
+        }
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true), // kVK_ANSI_V
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+            PasteboardBackup.restore(backup)
+            throw TextInsertService.InsertError.eventCreationFailed
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return { PasteboardBackup.restore(backup) }
+    }
 }

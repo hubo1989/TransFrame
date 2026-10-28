@@ -754,6 +754,7 @@
 "textTranslation.error.serviceUnavailable" = "翻译服务不可用";
 "textTranslation.error.insertFailed" = "插入翻译文本失败";
 "textTranslation.error.insertFailed.copied" = "译文已复制到剪贴板。";
+"textTranslation.error.insertFailed.noTarget" = "未能定位可替换的文本控件。请确认目标应用在前台且保持文本选中后重试；若当时系统繁忙（界面卡顿），请稍后再试。";
 
 "textTranslation.recovery.emptyInput" = "请先选择一些文本";
 "textTranslation.recovery.translationFailed" = "请重试";

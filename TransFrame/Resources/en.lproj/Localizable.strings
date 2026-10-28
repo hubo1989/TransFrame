@@ -754,6 +754,7 @@
 "textTranslation.error.serviceUnavailable" = "Translation service is unavailable";
 "textTranslation.error.insertFailed" = "Failed to insert translated text";
 "textTranslation.error.insertFailed.copied" = "The translated text has been copied to the clipboard.";
+"textTranslation.error.insertFailed.noTarget" = "Could not locate a replaceable text control. Keep the target app frontmost with the text selected and try again; if the system was busy, retry shortly.";
 
 "textTranslation.recovery.emptyInput" = "Please select some text first";
 "textTranslation.recovery.translationFailed" = "Please try again";
