@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import os
 
 /// NSPasteboard 内容的可恢复备份，用于「临时写入剪贴板 → 粘贴 → 恢复」流程。
 struct PasteboardBackup: Sendable {
@@ -25,6 +26,9 @@ struct PasteboardBackup: Sendable {
             for type in item.types {
                 if let data = item.data(forType: type) {
                     itemData[type.rawValue] = data
+                } else {
+                    // 文件承诺/延迟渲染等类型取不到数据，恢复时会丢失，至少留痕
+                    Logger.general.notice("PasteboardBackup: 丢弃无法取数据的剪贴板类型 \(type.rawValue, privacy: .public)")
                 }
             }
             if !itemData.isEmpty {

@@ -81,6 +81,16 @@ final class TextInsertionSafetyTests: XCTestCase {
         XCTAssertEqual(target.pasteCount, 1)
     }
 
+    func testPasteFallbackBlockedWhenTargetRevalidationFails() async throws {
+        let target = InsertionTargetStub()
+        target.axNoOp = true
+        target.pasteRevalidate = false
+        let captured = try target.capture()
+        await assertRejected(target, captured: captured)
+        XCTAssertEqual(target.writeCount, 1)
+        XCTAssertEqual(target.pasteCount, 0)
+    }
+
     func testPasteNoOpFailsClosedWithoutRepeat() async throws {
         let target = InsertionTargetStub()
         target.axNoOp = true
@@ -165,6 +175,8 @@ private final class InsertionTargetStub: TextInsertionTarget {
     var axRejects = false
     /// 粘贴被接受但静默不生效
     var pasteNoOp = false
+    /// 模拟粘贴前目标复核失败（焦点转移）
+    var pasteRevalidate = true
 
     init(value: String = "Hello world", range: NSRange = NSRange(location: 0, length: 5)) {
         state = TextInsertionSnapshot(value: value, range: range)
@@ -175,6 +187,8 @@ private final class InsertionTargetStub: TextInsertionTarget {
     }
 
     func snapshot() throws -> TextInsertionSnapshot { state }
+
+    func revalidateForPaste() -> Bool { pasteRevalidate }
 
     func replaceSelectedText(_ text: String) throws {
         writeCount += 1

@@ -170,26 +170,11 @@ actor TextInsertService {
             Logger.textInsertion.notice("降级粘贴失败: 前台应用已变化 anchorPid=\(anchorPID)")
             throw InsertError.targetChanged
         }
-        let backup = PasteboardBackup.save()
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        guard pasteboard.setString(text, forType: .string) else {
-            PasteboardBackup.restore(backup)
-            throw InsertError.eventCreationFailed
-        }
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true), // kVK_ANSI_V
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
-            PasteboardBackup.restore(backup)
-            throw InsertError.eventCreationFailed
-        }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
-        // 给目标应用消费剪贴板的时间，再恢复
-        try await Task.sleep(nanoseconds: 400_000_000)
-        PasteboardBackup.restore(backup)
+        let restorePasteboard = try ClipboardPaste.paste(text)
+        // defer 覆盖取消路径：Task.sleep 被取消也必须恢复剪贴板
+        defer { restorePasteboard() }
+        // 给目标应用消费剪贴板的时间；此路径无 AX 可读回，无法验证消费完成（已知限制）
+        try? await Task.sleep(nanoseconds: 400_000_000)
         Logger.textInsertion.notice("降级粘贴完成: 无AX验证 anchorPid=\(anchorPID)")
     }
 
@@ -433,4 +418,33 @@ actor TextInsertService {
 extension TextInsertService {
     /// Shared instance for convenience
     static let shared = TextInsertService()
+}
+
+
+/// 剪贴板 + 合成 Cmd+V 的共享粘贴实现。
+/// 返回恢复剪贴板的闭包，调用方必须在读回验证或固定等待结束后调用，
+/// 避免目标应用延迟消费剪贴板时拿到旧内容。
+enum ClipboardPaste {
+    @MainActor
+    static func paste(_ text: String) throws -> @MainActor () -> Void {
+        guard AXIsProcessTrusted() else { throw TextInsertService.InsertError.accessibilityPermissionDenied }
+        let backup = PasteboardBackup.save()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            PasteboardBackup.restore(backup)
+            throw TextInsertService.InsertError.eventCreationFailed
+        }
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true), // kVK_ANSI_V
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+            PasteboardBackup.restore(backup)
+            throw TextInsertService.InsertError.eventCreationFailed
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return { PasteboardBackup.restore(backup) }
+    }
 }

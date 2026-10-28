@@ -24,6 +24,11 @@ protocol TextInsertionTarget: AnyObject {
     func replaceSelectedTextByPasting(_ text: String) async throws -> @MainActor () -> Void
 }
 
+extension TextInsertionTarget {
+    /// 粘贴兜底前的目标复核；默认通过，需要额外核验的实现自行覆盖。
+    func revalidateForPaste() -> Bool { true }
+}
+
 /// AX 引用仅在主线程使用；快照在捕获时确定，禁止翻译结束后重新选择目标。
 @MainActor
 final class CapturedTextInsertion {
@@ -85,7 +90,7 @@ final class CapturedTextInsertion {
 
         // AX 未生效才允许粘贴兜底；已有任何改写都 fail closed，绝不叠加重试。
         let afterAX = try? target.snapshot()
-        guard let after = afterAX, after.value == selection.value, after.range == selection.range else {
+        guard let after = afterAX, Self.valuesMatch(after.value, selection.value), after.range == selection.range else {
             Self.logger.notice("插入失败: AX后目标已被部分改写 nowLen=\(afterAX?.value.utf16.count ?? -1, privacy: .public)")
             throw axError ?? TextInsertService.InsertError.insertionNotVerified
         }
@@ -96,7 +101,7 @@ final class CapturedTextInsertion {
 
         // 第二路径：粘贴兜底。粘贴前再次确认目标未变，防止译文打进错误位置。
         try Task.checkCancellation()
-        guard target.isFocused, try target.snapshot() == selection else {
+        guard target.isFocused, target.revalidateForPaste(), try target.snapshot() == selection else {
             Self.logger.notice("插入失败: 粘贴前复核目标已变化 focus=\(self.target.isFocused)")
             throw TextInsertService.InsertError.targetChanged
         }
@@ -146,7 +151,7 @@ final class AXTextInsertionTarget: TextInsertionTarget {
         self.discoveredByWalking = discoveredByWalking
     }
 
-    static func capture() -> CapturedTextInsertion? {
+    static func capture() async -> CapturedTextInsertion? {
         guard AXIsProcessTrusted() else {
             logger.notice("capture失败: AX未受信任")
             return nil
@@ -181,7 +186,8 @@ final class AXTextInsertionTarget: TextInsertionTarget {
             }
             if attempt < 3 {
                 logger.notice("focus: 三层均失败 attempt=\(attempt, privacy: .public) front=\(front, privacy: .public)")
-                Thread.sleep(forTimeInterval: 0.15)
+                // 异步等待，避免阻塞主线程（取消时直接放弃本轮重试）
+                try? await Task.sleep(nanoseconds: 150_000_000)
             }
         }
         guard let element else {
@@ -272,28 +278,21 @@ final class AXTextInsertionTarget: TextInsertionTarget {
         Self.logger.notice("AX写入: set返回success textLen=\(text.utf16.count, privacy: .public)")
     }
 
-    /// 通过「剪贴板 + Cmd+V」替换当前选区。返回恢复剪贴板的闭包，
-    /// 调用方必须在读回验证结束后再调用，避免目标应用延迟消费剪贴板时拿到旧内容。
+    /// 通过「剪贴板 + Cmd+V」替换当前选区（共享实现见 ClipboardPaste）。
+    /// 返回恢复剪贴板的闭包，调用方必须在读回验证结束后再调用。
     func replaceSelectedTextByPasting(_ text: String) async throws -> @MainActor () -> Void {
-        guard AXIsProcessTrusted() else { throw TextInsertService.InsertError.accessibilityPermissionDenied }
-        let backup = PasteboardBackup.save()
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        guard pasteboard.setString(text, forType: .string) else {
-            PasteboardBackup.restore(backup)
-            throw TextInsertService.InsertError.eventCreationFailed
-        }
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true), // kVK_ANSI_V
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
-            PasteboardBackup.restore(backup)
-            throw TextInsertService.InsertError.eventCreationFailed
-        }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
-        return { PasteboardBackup.restore(backup) }
+        try ClipboardPaste.paste(text)
+    }
+
+    /// 遍历发现的目标无 AX 焦点可核验：粘贴前重新走一遍发现流程并要求命中同一元素，
+    /// 否则视为焦点已转移（防止译文贴进同应用的其他输入框）。
+    func revalidateForPaste() -> Bool {
+        guard discoveredByWalking else { return true }
+        guard let front = NSWorkspace.shared.frontmostApplication,
+              front.processIdentifier == processID,
+              let rediscovered = Self.discoverSoleTextElementWithSelection(
+                  AXUIElementCreateApplication(processID)) else { return false }
+        return CFEqual(rediscovered, element)
     }
 
     private func attribute(_ name: String) -> AnyObject? {
