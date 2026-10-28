@@ -4,8 +4,8 @@
 - 分支：hubo/ui-macos-spec-audit
 - 性质：只读审计 → 产出修复计划。本 spec 不改产品行为。
 - 基准：`MACOSX_DEPLOYMENT_TARGET = 26.0`（Liquid Glass 代），按当前代 HIG 判罪。
-- 产物：`docs/plans/2026-10-29-macos-ui-compliance-remediation-plan.md`（见同批提交）
-- 实机验证：未做（CUA 运行时被另一 Hermes 会话占用）。纯源码审计，报告开头已声明。
+- 产物：`docs/plans/2026-10-29-macos-ui-compliance-remediation-plan.md`（见同批提交；附完整 P0–P3 问题清单附录）
+- 实机验证：未做（CUA 运行时审批列表拒绝 TransFrame，`Computer Use was not approved to use TransFrame`）。纯源码审计，报告开头已声明。
 
 ## 1. 范围与输入
 
@@ -17,7 +17,7 @@
 
 按 macos-ui-compliance-scan skill 的 P0–P3 分级：
 
-- **P0 用户可见 bug**：不可见控件、硬编码文案漏翻、`ForEach(id: \.offset)` 可变列表、数据-视图错位。
+- **P0 用户可见 bug**：不可见控件（`Text("")` 8×12 空热区 ×3）、硬编码文案漏翻 ×14 处、`ForEach(id: \.offset)` 可变列表 ×1、数据-视图错位。
 - **P1 违反平台规范**：自称玻璃实为不透明填充（全项目 `glassEffect` 0 处）；手绘卡片/segmented/开关而不用 `Form`+`.formStyle(.grouped)` 与系统控件；设置窗口 iOS 式大标题、`.floating` 级别、不记窗口位置；菜单栏快捷键无 ⌘ 修饰；NSAlert 与 SwiftUI alert 混用。
 - **P2 不统一**：同类元素圆角/字号/风格各写各的；`.plain` buttonStyle 泛滥、缺 `role: .destructive`；四套本地化机制并存；`foregroundColor`（弃用）与 `foregroundStyle` 混用；同一反馈（toast/复制）各窗口自造。
 - **P3 细节**：文字直接着色当状态色；SF Symbol 语义混乱；空标题 Picker；可访问性缺失；DesignSystem 死代码。
