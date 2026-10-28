@@ -304,8 +304,25 @@ jobs:
             exit 1
           fi
 
+          # stapler downloads the ticket from Apple's CloudKit, which can drop
+          # the connection transiently (-1005) — retry before giving up.
+          staple_with_retry() {
+            local target="$1"
+            for attempt in 1 2 3 4 5; do
+              if xcrun stapler staple "$target"; then
+                return 0
+              fi
+              echo "staple attempt $attempt for $target failed, retrying in 10s..."
+              sleep 10
+            done
+            return 1
+          }
+
           echo "Stapling notarization ticket to app..."
-          xcrun stapler staple "$APP_PATH"
+          if ! staple_with_retry "$APP_PATH"; then
+            echo "##[error]stapler staple failed for app after 5 attempts"
+            exit 1
+          fi
 
           echo "Verifying notarization..."
           xcrun stapler validate "$APP_PATH"
@@ -339,7 +356,10 @@ jobs:
             --wait \
             --timeout 120m
 
-          xcrun stapler staple "$DMG_FILE"
+          if ! staple_with_retry "$DMG_FILE"; then
+            echo "##[error]stapler staple failed for DMG after 5 attempts"
+            exit 1
+          fi
           cp "$DMG_FILE" "$ARM64_DMG_FILE"
 
           rm -rf dmg_temp

@@ -37,3 +37,8 @@ jobs:
           # GLM 关闭思考输出（上游 action 默认格式）
           llm_extra_body: '{"thinking": {"type": "disabled"}}'
           language: Chinese
+          # z.ai 免费档并发上限很低：默认无限并发时全部审查项都会 rate_limited。
+          # 收敛到 2 串行化 LLM 调用；预算与 effort 与生产验证过的配置一致。
+          review_concurrency: 2
+          max_tokens_budget: '2000000'
+          effort: medium
