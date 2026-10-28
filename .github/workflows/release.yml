@@ -273,10 +273,11 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait \
-            --timeout 30m 2>&1 | tee "$SUBMIT_LOG"
+            --timeout 120m 2>&1 | tee "$SUBMIT_LOG"
 
-          # notarytool exits 0 even for status: Invalid — surface the rejection
-          # and Apple's issue list instead of failing later at stapler with 65.
+          # notarytool exits 0 even for status: Invalid or a wait timeout —
+          # surface the failure (and Apple's issue list) instead of failing
+          # later at stapler with exit 65 / "Record not found".
           if grep -q "status: Invalid" "$SUBMIT_LOG"; then
             SUBMIT_ID=$(grep -oE 'id: [0-9a-f-]{36}' "$SUBMIT_LOG" | head -1 | awk '{print $2}')
             echo "Notarization Invalid. Fetching Apple's issues for submission ${SUBMIT_ID:-<unknown>}..."
@@ -287,6 +288,19 @@ jobs:
                 --team-id "$APPLE_TEAM_ID" || true
             fi
             echo "##[error]Apple notarization rejected the submission"
+            exit 1
+          fi
+
+          if ! grep -q "status: Accepted" "$SUBMIT_LOG"; then
+            SUBMIT_ID=$(grep -oE 'id: [0-9a-f-]{36}' "$SUBMIT_LOG" | head -1 | awk '{print $2}')
+            echo "##[error]Notarization did not reach Accepted (timeout or unknown status). Submission: ${SUBMIT_ID:-<unknown>}"
+            if [ -n "$SUBMIT_ID" ]; then
+              echo "Polling the submission in case Apple finished after the wait window..."
+              xcrun notarytool info "$SUBMIT_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
             exit 1
           fi
 
@@ -323,7 +337,7 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait \
-            --timeout 30m
+            --timeout 120m
 
           xcrun stapler staple "$DMG_FILE"
           cp "$DMG_FILE" "$ARM64_DMG_FILE"
