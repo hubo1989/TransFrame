@@ -12,6 +12,8 @@ struct TextSelectionResult {
     let sourceApplication: String?
     /// The bundle identifier of the source application (if available)
     let sourceBundleIdentifier: String?
+    /// 触发时前台应用 pid，供无 AX 绑定时的降级粘贴锚定
+    let sourceProcessID: pid_t?
     /// 仅在 translate-and-insert 中绑定；普通取词翻译不需要 AX 选区。
     @MainActor var insertionTarget: CapturedTextInsertion?
 }
@@ -157,28 +159,34 @@ actor TextSelectionService {
         let sourceAppInfo = getActiveApplicationInfo()
         let insertionTarget = bindForInsertion ? await AXTextInsertionTarget.capture() : nil
 
+        // AX 已捕获选中文本时直接使用：部分应用（如 WKWebView 编辑器）不响应合成 Cmd+C，
+        // 且此路径完全不需要动剪贴板。Cmd+C 仅在无 AX 绑定的降级模式下使用。
+        if let insertionTarget {
+            return TextSelectionResult(
+                text: insertionTarget.selectedText,
+                sourceApplication: sourceAppInfo.name,
+                sourceBundleIdentifier: sourceAppInfo.bundleIdentifier,
+                sourceProcessID: sourceAppInfo.processIdentifier,
+                insertionTarget: insertionTarget
+            )
+        }
+
         // Save current clipboard content
-        let savedClipboard = try saveClipboardContent()
+        let savedClipboard = PasteboardBackup.save()
 
         // Ensure clipboard is restored even if we throw below
         defer {
-            if let saved = savedClipboard {
-                do {
-                    try restoreClipboardContent(saved)
-                } catch {
-                    logger.warning("Failed to restore clipboard: \(error.localizedDescription, privacy: .private(mask: .hash))")
-                }
-            }
+            PasteboardBackup.restore(savedClipboard)
         }
 
         // Clear clipboard to detect when new content is pasted
-        clearClipboard()
+        NSPasteboard.general.clearContents()
 
         // Simulate Cmd+C to copy selected text
         try simulateCopyShortcut()
 
         // Wait for clipboard to be updated with selected text
-        let capturedText = try await waitForClipboardUpdate(previousChangeCount: savedClipboard?.changeCount ?? -1)
+        let capturedText = try await waitForClipboardUpdate(previousChangeCount: savedClipboard.changeCount)
 
         // Validate we got some text
         guard !capturedText.isEmpty else {
@@ -187,11 +195,15 @@ actor TextSelectionService {
         let verifiedTarget = await MainActor.run {
             insertionTarget?.matching(clipboardText: capturedText)
         }
+        if bindForInsertion {
+            logger.notice("插入目标绑定: \(verifiedTarget != nil ? "成功" : "失败", privacy: .public)")
+        }
 
         return TextSelectionResult(
             text: capturedText,
             sourceApplication: sourceAppInfo.name,
             sourceBundleIdentifier: sourceAppInfo.bundleIdentifier,
+            sourceProcessID: sourceAppInfo.processIdentifier,
             insertionTarget: verifiedTarget
         )
     }
@@ -208,6 +220,7 @@ actor TextSelectionService {
     private struct ApplicationInfo {
         let name: String?
         let bundleIdentifier: String?
+        let processIdentifier: pid_t?
     }
 
     /// Gets information about the currently active application.
@@ -217,52 +230,9 @@ actor TextSelectionService {
 
         return ApplicationInfo(
             name: frontmostApp?.localizedName,
-            bundleIdentifier: frontmostApp?.bundleIdentifier
+            bundleIdentifier: frontmostApp?.bundleIdentifier,
+            processIdentifier: frontmostApp?.processIdentifier
         )
-    }
-
-    /// Represents saved clipboard content
-    private struct SavedClipboardContent: Sendable {
-        let string: String?
-        let items: [[String: Data]]
-        let changeCount: Int
-    }
-
-    /// Saves the current clipboard content for later restoration.
-    private func saveClipboardContent() throws -> SavedClipboardContent? {
-        let pasteboard = NSPasteboard.general
-        let changeCount = pasteboard.changeCount
-
-        guard let types = pasteboard.types, !types.isEmpty else {
-            return nil
-        }
-
-        let stringContent = pasteboard.string(forType: .string)
-
-        var items: [[String: Data]] = []
-        for item in pasteboard.pasteboardItems ?? [] {
-            var itemData: [String: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    itemData[type.rawValue] = data
-                }
-            }
-            if !itemData.isEmpty {
-                items.append(itemData)
-            }
-        }
-
-        return SavedClipboardContent(
-            string: stringContent,
-            items: items,
-            changeCount: changeCount
-        )
-    }
-
-    /// Clears the clipboard content.
-    private func clearClipboard() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
     }
 
     /// Simulates Cmd+C keyboard shortcut to copy selected text.
@@ -314,30 +284,6 @@ actor TextSelectionService {
         }
 
         throw CaptureError.noSelection
-    }
-
-    /// Restores the saved clipboard content.
-    private func restoreClipboardContent(_ saved: SavedClipboardContent) throws {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-
-        if saved.items.isEmpty {
-            if let stringContent = saved.string {
-                pasteboard.setString(stringContent, forType: .string)
-            }
-        } else {
-            for itemData in saved.items {
-                let item = NSPasteboardItem()
-                for (typeRawValue, data) in itemData {
-                    item.setData(data, forType: NSPasteboard.PasteboardType(rawValue: typeRawValue))
-                }
-                pasteboard.writeObjects([item])
-            }
-        }
-
-        guard pasteboard.changeCount != saved.changeCount else {
-            return
-        }
     }
 }
 

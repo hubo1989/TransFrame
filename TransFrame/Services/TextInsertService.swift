@@ -5,6 +5,7 @@
 //  Created for US-005: Add copy and insert buttons to translation popup
 //
 
+import AppKit
 import Foundation
 import CoreGraphics
 import ApplicationServices
@@ -154,9 +155,42 @@ actor TextInsertService {
 
     /// 只替换捕获时的 AX 目标。nil 表示无法核验，禁止回退键盘输入。
     @MainActor
-    func replaceSelection(with text: String, captured: CapturedTextInsertion?) throws {
+    func replaceSelection(with text: String, captured: CapturedTextInsertion?) async throws {
         guard let captured else { throw InsertError.targetUnavailable }
-        try captured.replace(with: text)
+        try await captured.replace(with: text)
+    }
+
+    /// 无 AX 绑定（如 Electron 无障碍未启用）时的降级插入：
+    /// 以「触发时前台应用 pid + Cmd+C 取词成功」为锚，核对前台未变后用 Cmd+V 粘贴。
+    /// 无法做读回验证；同应用内切换输入框的误贴风险与手动 Cmd+V 相同。
+    @MainActor
+    func pasteToCapturedFrontmost(_ text: String, anchorPID: pid_t) async throws {
+        guard !text.isEmpty else { throw InsertError.insertionNotVerified }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == anchorPID else {
+            Logger.textInsertion.notice("降级粘贴失败: 前台应用已变化 anchorPid=\(anchorPID)")
+            throw InsertError.targetChanged
+        }
+        let backup = PasteboardBackup.save()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            PasteboardBackup.restore(backup)
+            throw InsertError.eventCreationFailed
+        }
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true), // kVK_ANSI_V
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+            PasteboardBackup.restore(backup)
+            throw InsertError.eventCreationFailed
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        // 给目标应用消费剪贴板的时间，再恢复
+        try await Task.sleep(nanoseconds: 400_000_000)
+        PasteboardBackup.restore(backup)
+        Logger.textInsertion.notice("降级粘贴完成: 无AX验证 anchorPid=\(anchorPID)")
     }
 
     /// Deletes the currently selected text and inserts new text via Unicode events.

@@ -178,11 +178,13 @@ final class TextTranslationCoordinator {
         let textSelectionService = TextSelectionService.shared
         let selectedText: String
         let insertionTarget: CapturedTextInsertion?
+        let sourcePID: pid_t?
 
         do {
             let selectionResult = try await textSelectionService.captureSelectedText(bindForInsertion: true)
             insertionTarget = selectionResult.insertionTarget
             selectedText = selectionResult.text
+            sourcePID = selectionResult.sourceProcessID
             logger.info("Captured selected text: \(selectedText.count) characters")
         } catch let error as TextSelectionService.CaptureError {
             switch error {
@@ -241,7 +243,15 @@ final class TextTranslationCoordinator {
         showInsertionProgress(message: String(localized: "translateAndInsert.progress.inserting"))
 
         do {
-            try TextInsertService.shared.replaceSelection(with: translatedText, captured: insertionTarget)
+            if let insertionTarget {
+                try await TextInsertService.shared.replaceSelection(with: translatedText, captured: insertionTarget)
+            } else if let sourcePID {
+                // AX 无法绑定（如 Electron 无障碍未启用）：降级为前台锚定的粘贴插入
+                logger.info("No AX target bound, falling back to frontmost-anchored paste")
+                try await TextInsertService.shared.pasteToCapturedFrontmost(translatedText, anchorPID: sourcePID)
+            } else {
+                throw TextInsertService.InsertError.targetUnavailable
+            }
             logger.info("Successfully inserted translated text")
         } catch let error as TextInsertService.InsertError {
             logger.error("Text insertion failed: \(error.localizedDescription)")
@@ -250,6 +260,9 @@ final class TextTranslationCoordinator {
             alert.alertStyle = .warning
             alert.messageText = String(localized: "textTranslation.error.insertFailed")
             alert.informativeText = error.localizedDescription
+            if insertionTarget == nil && sourcePID == nil {
+                alert.informativeText += "\n\n" + String(localized: "textTranslation.error.insertFailed.noTarget")
+            }
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             if pasteboard.setString(translatedText, forType: .string) {
