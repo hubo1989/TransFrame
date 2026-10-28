@@ -10,6 +10,8 @@ import AppKit
 import os
 
 /// NSPasteboard 内容的可恢复备份，用于「临时写入剪贴板 → 粘贴 → 恢复」流程。
+/// NSPasteboard 本身线程安全（官方文档），因此不标注 MainActor；
+/// ClipboardPaste 的 @MainActor 仅为了与 AX 插入路径保持同域。
 struct PasteboardBackup: Sendable {
     let items: [[String: Data]]
     let string: String?

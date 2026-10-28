@@ -110,7 +110,8 @@ final class CapturedTextInsertion {
         defer { restorePasteboard() }
         // 粘贴生效可能有延迟，轮询读回直至确认。
         for poll in 1...10 {
-            try await Task.sleep(nanoseconds: 80_000_000)
+            // 不可取消等待：取消时也等满读回窗口，防止剪贴板在目标消费前被恢复
+            await NonCancellableWait.wait(nanoseconds: 80_000_000)
             guard let current = try? target.snapshot() else { continue }
             if Self.valuesMatch(current.value, expected) {
                 Self.logger.notice("插入成功: 粘贴兜底验证通过 poll=\(poll, privacy: .public)")

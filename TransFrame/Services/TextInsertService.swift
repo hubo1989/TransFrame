@@ -171,11 +171,15 @@ actor TextInsertService {
             throw InsertError.targetChanged
         }
         let restorePasteboard = try ClipboardPaste.paste(text)
-        // defer 覆盖取消路径：Task.sleep 被取消也必须恢复剪贴板
+        // defer 覆盖取消路径：取消时也必须恢复剪贴板
         defer { restorePasteboard() }
-        // 给目标应用消费剪贴板的时间；此路径无 AX 可读回，无法验证消费完成（已知限制）
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        Logger.textInsertion.notice("降级粘贴完成: 无AX验证 anchorPid=\(anchorPID)")
+        // 不可取消的等待：即使任务被取消也等满窗口，防止剪贴板在目标消费前被恢复
+        await NonCancellableWait.wait(nanoseconds: 400_000_000)
+        if Task.isCancelled {
+            Logger.textInsertion.notice("降级粘贴: 任务已取消，等待窗口结束后已恢复剪贴板 anchorPid=\(anchorPID)")
+        } else {
+            Logger.textInsertion.notice("降级粘贴完成: 无AX验证 anchorPid=\(anchorPID)")
+        }
     }
 
     /// Deletes the currently selected text and inserts new text via Unicode events.
@@ -420,6 +424,19 @@ extension TextInsertService {
     static let shared = TextInsertService()
 }
 
+
+enum NonCancellableWait {
+    /// 取消不中断的等待：Task.sleep 在任务取消时会立即抛出，
+    /// 而粘贴后的剪贴板消费窗口必须等满（恢复早于消费会损坏用户剪贴板）。
+    static func wait(nanoseconds: UInt64) async {
+        await withCheckedContinuation { continuation in
+            Task.detached(priority: .utility) {
+                usleep(useconds_t(nanoseconds / 1_000))
+                continuation.resume()
+            }
+        }
+    }
+}
 
 /// 剪贴板 + 合成 Cmd+V 的共享粘贴实现。
 /// 返回恢复剪贴板的闭包，调用方必须在读回验证或固定等待结束后调用，
