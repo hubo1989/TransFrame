@@ -54,9 +54,6 @@ final class HistoryWindowController: NSObject {
         window.title = NSLocalizedString("history.title", comment: "Translation History")
         window.contentView = hostingView
         window.setFrameAutosaveName("TransFrameHistoryWindow")
-        if !window.setFrameUsingName("TransFrameHistoryWindow") {
-            window.center()
-        }
         window.isReleasedWhenClosed = false
         window.delegate = self
 

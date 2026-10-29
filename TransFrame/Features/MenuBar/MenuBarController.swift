@@ -134,7 +134,7 @@ final class MenuBarController {
             titleKey: "menu.translation.history",
             comment: "Translation History",
             action: #selector(AppDelegate.openHistory),
-            keyEquivalent: "H",
+            keyEquivalent: "h",
             modifierMask: [.command, .shift],
             target: appDelegate,
             imageName: "clock.arrow.circlepath"

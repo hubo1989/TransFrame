@@ -215,7 +215,8 @@ struct MultiEngineSettingsSection: View {
                 .foregroundStyle(.secondary)
 
             // Engine order list
-            ForEach(Array(viewModel.settings.parallelEngines.enumerated()), id: \.element) { index, engine in
+            // 快捷切换允许同一引擎出现多次（主/备同引擎），用 offset 作稳定唯一 ID，避免 \.element 重复 ID
+            ForEach(Array(viewModel.settings.parallelEngines.enumerated()), id: \.offset) { index, engine in
                 HStack(spacing: 8) {
                     // Order number
                     Text("\(index + 1)")

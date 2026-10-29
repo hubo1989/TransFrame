@@ -47,7 +47,7 @@ struct LanguageSettingsContent: View {
                 }
             }
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
     }
 }
 

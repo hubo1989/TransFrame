@@ -31,11 +31,6 @@ extension View {
                     .stroke(Color(.separatorColor).opacity(0.5), lineWidth: 0.5)
             )
     }
-
-    /// Backward compatibility alias for grouped card style
-    func macos26LiquidGlass(cornerRadius: CGFloat = DesignSystem.Radii.card) -> some View {
-        macosGroupedCard(cornerRadius: cornerRadius)
-    }
 }
 
 /// Bridge to NSVisualEffectView for SwiftUI

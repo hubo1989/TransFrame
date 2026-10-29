@@ -13,7 +13,7 @@ struct AdvancedSettingsContent: View {
             Divider().opacity(0.1)
             TextSizeSlider(viewModel: viewModel)
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
 
         HStack {
             Spacer()

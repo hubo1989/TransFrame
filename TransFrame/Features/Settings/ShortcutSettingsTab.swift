@@ -45,7 +45,7 @@ struct ShortcutSettingsContent: View {
                 onReset: { viewModel.resetTranslateAndInsertShortcut() }
             )
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
     }
 }
 

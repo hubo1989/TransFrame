@@ -21,6 +21,9 @@ final class SettingsWindowController: NSObject {
     /// The event monitor for keyboard shortcuts
     private var keyEventMonitor: Any?
 
+    /// Observer for in-app language changes (refreshes the native window title)
+    private var languageObserver: NSObjectProtocol?
+
     // MARK: - Initialization
 
     private override init() {
@@ -77,11 +80,19 @@ final class SettingsWindowController: NSObject {
         ])
 
         window.setFrameAutosaveName("TransFrameSettingsWindow")
-        if !window.setFrameUsingName("TransFrameSettingsWindow") {
-            window.center()
-        }
         window.isReleasedWhenClosed = false
         window.delegate = self
+
+        // Follow in-app language switches so the native title stays localized
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: LanguageManager.languageDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.window?.title = LanguageManager.shared.localizedString("settings.title", comment: "Settings")
+            }
+        }
 
         // Set window behavior
         window.level = .normal
@@ -104,6 +115,10 @@ final class SettingsWindowController: NSObject {
     /// Closes the settings window if open.
     func closeSettings() {
         removeKeyEventMonitor()
+        if let languageObserver {
+            NotificationCenter.default.removeObserver(languageObserver)
+            self.languageObserver = nil
+        }
         window?.close()
         window = nil
         viewModel = nil

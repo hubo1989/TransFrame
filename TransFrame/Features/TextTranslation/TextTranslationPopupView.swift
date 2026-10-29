@@ -215,7 +215,7 @@ struct TextTranslationPopupContentView: View {
             }
             .buttonStyle(.bordered)
             .disabled(showCopySuccess)
-            .foregroundStyle(showCopySuccess ? Color.green : Color.primary)
+            .foregroundStyle(showCopySuccess ? Color.green : Color.accentColor)
         }
     }
 

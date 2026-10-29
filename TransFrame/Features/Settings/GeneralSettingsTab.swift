@@ -11,7 +11,7 @@ struct GeneralSettingsContent: View {
                 .font(.headline)
             PermissionRow(viewModel: viewModel)
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
 
         VStack(alignment: .leading, spacing: 20) {
             Label(localized("settings.save.location"), systemImage: "folder")
@@ -20,7 +20,7 @@ struct GeneralSettingsContent: View {
             Divider().opacity(0.1)
             AppLanguagePicker()
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
     }
 }
 
