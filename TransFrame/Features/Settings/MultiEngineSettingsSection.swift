@@ -343,7 +343,6 @@ struct MultiEngineSettingsSection: View {
 
                             LazyVGrid(columns: [
                                 GridItem(.flexible()),
-                                GridItem(.flexible()),
                                 GridItem(.flexible())
                             ], spacing: 8) {
                                 ForEach(enginesInCategory, id: \.self) { engine in

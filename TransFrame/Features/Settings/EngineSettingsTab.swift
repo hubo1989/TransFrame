@@ -35,12 +35,11 @@ struct VLMConfigurationSection: View {
             Text(localized("settings.vlm.title"))
                 .font(.headline)
 
-            // Provider selection row with fixed label width
-            HStack(alignment: .center, spacing: 12) {
+            // Provider selection row (full width segmented picker)
+            VStack(alignment: .leading, spacing: 8) {
                 Text(localized("settings.vlm.provider"))
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .frame(width: 84, alignment: .trailing)
 
                 Picker(localized("settings.vlm.provider"), selection: $viewModel.vlmProvider) {
                     ForEach(VLMProviderType.allCases) { provider in

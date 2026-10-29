@@ -19,7 +19,7 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
         } detail: {
             ScrollView {
                 VStack(spacing: 20) {
@@ -39,14 +39,14 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 24)
                 .padding(.top, 24)
                 .padding(.bottom, 36)
             }
             .navigationTitle(selectedTab.displayName)
             .background(Color(.windowBackgroundColor))
         }
-        .frame(minWidth: 720, idealWidth: 800, maxWidth: .infinity, minHeight: 550, idealHeight: 720, maxHeight: .infinity)
+        .frame(width: 800, height: 600)
         .background(Color(.windowBackgroundColor))
         .id(refreshID)
         .onReceive(
