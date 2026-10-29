@@ -71,7 +71,11 @@ struct VLMConfigurationSection: View {
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
-                            .frame(width: 280)
+                            .fixedSize()
+
+                            Text(viewModel.vlmEditingOpenAIMode.endpointHint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
