@@ -79,9 +79,10 @@ final class SettingsWindowController: NSObject {
             hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
 
-        window.setFrameAutosaveName("TransFrameSettingsWindow")
-        // setFrameAutosaveName 只在已保存过 frame 时恢复；首次启动无存档时需要居中
+        // 先居中作为默认位置；setFrameAutosaveName 返回 true 表示已恢复存档 frame（覆盖居中），
+        // 返回 false 表示无存档，保持居中。
         window.center()
+        _ = window.setFrameAutosaveName("TransFrameSettingsWindow")
         window.isReleasedWhenClosed = false
         window.delegate = self
 
@@ -181,6 +182,9 @@ extension SettingsWindowController: NSWindowDelegate {
 
             // Remove the language observer (close button path also lands here)
             removeLanguageObserver()
+
+            // 释放 autosave name，避免窗口重建时同名注册失败导致 frame 恢复失效
+            window?.setFrameAutosaveName("")
 
             // Clear references
             window = nil

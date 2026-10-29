@@ -10,9 +10,10 @@ enum DesignSystem {
         /// Cards, popovers, grouped panels (12pt)
         static let large: CGFloat = 12
 
-        // Compatibility aliases
-        static let control: CGFloat = 8
-        static let card: CGFloat = 12
+        // Legacy name aliases — values intentionally reduced to the new token scale
+        // (control 8→medium, card 12→large, window 16→explicit)
+        static let control: CGFloat = medium
+        static let card: CGFloat = large
         static let window: CGFloat = 16
     }
 }
