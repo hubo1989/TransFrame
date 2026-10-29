@@ -859,3 +859,5 @@ Conceda permissão em Configurações do Sistema > Privacidade e Segurança > Mo
 "pinned.tooltip.copyImage" = "Copiar imagem (⌘C)";
 "pinned.tooltip.close" = "Fechar imagem fixada (Esc / Delete)";
 "bilingual.close.help" = "Fechar (Esc)";
+
+"app.name" = "TransFrame";

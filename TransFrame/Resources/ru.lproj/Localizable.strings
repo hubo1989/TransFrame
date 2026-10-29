@@ -844,3 +844,5 @@
 "pinned.tooltip.copyImage" = "Копировать изображение (⌘C)";
 "pinned.tooltip.close" = "Закрыть закрепленное изображение (Esc / Delete)";
 "bilingual.close.help" = "Закрыть (Esc)";
+
+"app.name" = "TransFrame";

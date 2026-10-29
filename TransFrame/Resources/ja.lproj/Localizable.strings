@@ -844,3 +844,5 @@
 "pinned.tooltip.copyImage" = "画像をコピー (⌘C)";
 "pinned.tooltip.close" = "ピン留め画像を閉じる (Esc / Delete)";
 "bilingual.close.help" = "閉じる (Esc)";
+
+"app.name" = "TransFrame";
