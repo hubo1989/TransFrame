@@ -45,7 +45,10 @@ final class MenuBarController {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "TransFrame")
+            button.image = NSImage(
+                systemSymbolName: "camera.viewfinder",
+                accessibilityDescription: NSLocalizedString("app.name", value: "TransFrame", comment: "TransFrame")
+            )
             button.image?.isTemplate = true
         }
 
@@ -119,6 +122,7 @@ final class MenuBarController {
             comment: "Open Image for Editing...",
             action: #selector(AppDelegate.openImageForEditing),
             keyEquivalent: "o",
+            modifierMask: [.command],
             target: appDelegate,
             imageName: "photo.badge.plus"
         ))
@@ -131,6 +135,7 @@ final class MenuBarController {
             comment: "Translation History",
             action: #selector(AppDelegate.openHistory),
             keyEquivalent: "h",
+            modifierMask: [.command, .shift],
             target: appDelegate,
             imageName: "clock.arrow.circlepath"
         ))

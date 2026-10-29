@@ -366,7 +366,7 @@ private struct PinnedDocumentContent: View {
                 Button(action: onEdit) {
                     HStack(spacing: 4) {
                         Image(systemName: "pencil.and.outline")
-                        Text("编辑")
+                        Text(localized("pinned.edit"))
                     }
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.primary)
@@ -374,8 +374,8 @@ private struct PinnedDocumentContent: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                .customTooltip("在无边框编辑器中编辑 (E)")
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .customTooltip(localized("pinned.tooltip.editInEditor"))
 
                 Divider().frame(height: 12)
 
@@ -386,21 +386,21 @@ private struct PinnedDocumentContent: View {
                 }) {
                     Image(systemName: alwaysOnTopState ? "pin.fill" : "pin.slash")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(alwaysOnTopState ? .accentColor : .secondary)
+                        .foregroundStyle(alwaysOnTopState ? Color.accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
-                .customTooltip(alwaysOnTopState ? "当前：置顶 (点击取消置顶)" : "当前：普通窗口 (点击置顶)")
+                .customTooltip(alwaysOnTopState ? localized("pinned.tooltip.alwaysOnTop") : localized("pinned.tooltip.normalWindow"))
 
                 // Click-through toggle
                 Button(action: onToggleClickThrough) {
                     Image(systemName: "cursorarrow.slash")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
-                .customTooltip("鼠标穿透")
+                .customTooltip(localized("pinned.tooltip.clickThrough"))
 
                 // Copy to clipboard
                 Button(action: {
@@ -412,11 +412,11 @@ private struct PinnedDocumentContent: View {
                 }) {
                     Image(systemName: showCopiedToast ? "checkmark" : "doc.on.clipboard")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(showCopiedToast ? .green : .secondary)
+                        .foregroundStyle(showCopiedToast ? .green : .secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
-                .customTooltip("复制图片 (⌘C)")
+                .customTooltip(localized("pinned.tooltip.copyImage"))
 
                 Divider().frame(height: 12)
 
@@ -424,11 +424,11 @@ private struct PinnedDocumentContent: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.red.opacity(0.85))
+                        .foregroundStyle(.red.opacity(0.85))
                 }
                 .buttonStyle(.plain)
                 .padding(3)
-                .customTooltip("关闭钉图 (Esc / Delete)")
+                .customTooltip(localized("pinned.tooltip.close"))
             }
             .cursor(.arrow)
             .padding(.horizontal, 10)

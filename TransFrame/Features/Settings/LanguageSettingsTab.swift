@@ -47,7 +47,7 @@ struct LanguageSettingsContent: View {
                 }
             }
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
     }
 }
 
@@ -75,55 +75,21 @@ struct TargetLanguagePicker: View {
 
             Spacer()
 
-            Menu {
-                Button {
-                    viewModel.translationTargetLanguage = nil
-                } label: {
-                    HStack {
-                        Text(localized("translation.language.follow.system"))
-                        if viewModel.translationTargetLanguage == nil {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-
+            Picker(localized("translation.language.target"), selection: Binding(
+                get: { viewModel.translationTargetLanguage },
+                set: { viewModel.translationTargetLanguage = $0 }
+            )) {
+                Text(localized("translation.language.follow.system")).tag(Optional<TranslationLanguage>.none)
                 Divider()
-
                 ForEach(viewModel.availableTargetLanguages, id: \.rawValue) { language in
-                    Button {
-                        viewModel.translationTargetLanguage = language
-                    } label: {
-                        HStack {
-                            Text(language.localizedName)
-                            if viewModel.translationTargetLanguage == language {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
+                    Text(language.localizedName).tag(Optional(language))
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(targetLanguageDisplay)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(minWidth: 140)
         }
         .help(localized("translation.language.target.hint"))
-    }
-
-    private var targetLanguageDisplay: String {
-        if let targetLanguage = viewModel.translationTargetLanguage {
-            return targetLanguage.localizedName
-        }
-        return localized("translation.language.follow.system")
     }
 }
 
@@ -152,53 +118,19 @@ struct TranslateAndInsertTargetLanguagePicker: View {
 
             Spacer()
 
-            Menu {
-                Button {
-                    viewModel.translateAndInsertTargetLanguage = nil
-                } label: {
-                    HStack {
-                        Text(localized("translation.language.follow.system"))
-                        if viewModel.translateAndInsertTargetLanguage == nil {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-
+            Picker(localized("settings.translateAndInsert.language.target"), selection: Binding(
+                get: { viewModel.translateAndInsertTargetLanguage },
+                set: { viewModel.translateAndInsertTargetLanguage = $0 }
+            )) {
+                Text(localized("translation.language.follow.system")).tag(Optional<TranslationLanguage>.none)
                 Divider()
-
                 ForEach(viewModel.availableTargetLanguages, id: \.rawValue) { language in
-                    Button {
-                        viewModel.translateAndInsertTargetLanguage = language
-                    } label: {
-                        HStack {
-                            Text(language.localizedName)
-                            if viewModel.translateAndInsertTargetLanguage == language {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
+                    Text(language.localizedName).tag(Optional(language))
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(targetLanguageDisplay)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(minWidth: 140)
         }
-    }
-
-    private var targetLanguageDisplay: String {
-        if let targetLanguage = viewModel.translateAndInsertTargetLanguage {
-            return targetLanguage.localizedName
-        }
-        return localized("translation.language.follow.system")
     }
 }

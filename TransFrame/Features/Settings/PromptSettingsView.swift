@@ -13,10 +13,7 @@ struct PromptSettingsContent: View {
     @Bindable var viewModel: SettingsViewModel
 
     var body: some View {
-        ScrollView {
-            PromptSettingsView(viewModel: viewModel)
-                .padding()
-        }
+        PromptSettingsView(viewModel: viewModel)
     }
 }
 
@@ -125,9 +122,8 @@ struct PromptSettingsView: View {
                 }
             }
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .macosGroupedCard()
     }
 
     // MARK: - Scene Prompts Section
@@ -167,9 +163,8 @@ struct PromptSettingsView: View {
                 .padding(.vertical, 4)
             }
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .macosGroupedCard()
     }
 
     // MARK: - Default Prompt Section
@@ -191,13 +186,12 @@ struct PromptSettingsView: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(.textBackgroundColor))
-                    .cornerRadius(8)
+                    .cornerRadius(DesignSystem.Radii.control)
             }
             .frame(height: 150)
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .macosGroupedCard()
     }
 
     // MARK: - Actions

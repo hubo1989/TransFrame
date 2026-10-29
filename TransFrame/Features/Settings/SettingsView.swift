@@ -14,45 +14,36 @@ struct SettingsView: View {
                         Text(tab.displayName)
                     } icon: {
                         Image(systemName: tab.icon)
-                            .foregroundStyle(tab.color)
                     }
                 }
                 .padding(.vertical, 4)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
         } detail: {
-            VStack(spacing: 0) {
-                HStack {
-                    Text(selectedTab.displayName)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                    Spacer()
-                }
-                .padding(.horizontal, 30)
-                .padding(.top, 44)
-                .padding(.bottom, 20)
-
-                ScrollView {
-                    VStack(spacing: 24) {
-                        switch selectedTab {
-                        case .general:
-                            GeneralSettingsContent(viewModel: viewModel)
-                        case .engines:
-                            EngineSettingsContent(viewModel: viewModel)
-                        case .prompts:
-                            PromptSettingsContent(viewModel: viewModel)
-                        case .languages:
-                            LanguageSettingsContent(viewModel: viewModel)
-                        case .shortcuts:
-                            ShortcutSettingsContent(viewModel: viewModel)
-                        case .advanced:
-                            AdvancedSettingsContent(viewModel: viewModel)
-                        }
+            ScrollView {
+                VStack(spacing: 20) {
+                    switch selectedTab {
+                    case .general:
+                        GeneralSettingsContent(viewModel: viewModel)
+                    case .engines:
+                        EngineSettingsContent(viewModel: viewModel)
+                    case .prompts:
+                        PromptSettingsContent(viewModel: viewModel)
+                    case .languages:
+                        LanguageSettingsContent(viewModel: viewModel)
+                    case .shortcuts:
+                        ShortcutSettingsContent(viewModel: viewModel)
+                    case .advanced:
+                        AdvancedSettingsContent(viewModel: viewModel)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 40)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 36)
             }
+            .navigationTitle(selectedTab.displayName)
             .background(Color(.windowBackgroundColor))
         }
         .frame(width: 800, height: 600)

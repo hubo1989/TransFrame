@@ -53,12 +53,17 @@ final class HistoryWindowController: NSObject {
         )
         window.title = NSLocalizedString("history.title", comment: "Translation History")
         window.contentView = hostingView
+        // 先居中作为默认位置；setFrameAutosaveName 返回 true 表示已恢复存档 frame（覆盖居中），
+        // 返回 false 表示无存档（或名称被占用），保持居中。
+        // 旧窗口对象若仍占用同名 autosave name（isReleasedWhenClosed=false），
+        // 这里会返回 false 退化为居中，不会崩溃。
         window.center()
+        _ = window.setFrameAutosaveName("TransFrameHistoryWindow")
         window.isReleasedWhenClosed = false
         window.delegate = self
 
         // Set window behavior
-        window.level = .floating
+        window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // Set minimum size
@@ -92,6 +97,8 @@ final class HistoryWindowController: NSObject {
 extension HistoryWindowController: NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
         Task { @MainActor in
+            // 释放 autosave name，避免窗口复用/重建时同名注册失败导致 frame 恢复失效
+            window?.setFrameAutosaveName("")
             // Clear reference
             window = nil
         }

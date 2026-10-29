@@ -328,7 +328,7 @@ private struct ToolbarContentView: View {
                     } label: {
                         Image(systemName: "sparkles")
                             .font(.system(size: 12))
-                            .foregroundColor(state.isBeautifyEnabled ? .accentColor : .primary)
+                            .foregroundStyle(state.isBeautifyEnabled ? Color.accentColor : Color.primary)
                             .padding(5)
                             .background(state.isBeautifyEnabled ? Color.accentColor.opacity(0.2) : Color.clear)
                             .cornerRadius(4)
@@ -368,7 +368,7 @@ private struct ToolbarContentView: View {
                     onAction(.cancel)
                 } label: {
                     Image(systemName: "xmark")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding(5)
                         .padding(4)
                         .contentShape(Rectangle())
@@ -384,10 +384,10 @@ private struct ToolbarContentView: View {
                         Text("Copy")
                             .font(.system(size: 11, weight: .semibold))
                     }
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 5))
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
                     .padding(3)
                     .contentShape(Rectangle())
                 }
@@ -521,7 +521,7 @@ private struct ToolbarContentView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .contentShape(Rectangle())
@@ -544,7 +544,7 @@ private struct ToolbarContentView: View {
             // triggers the button — edge clicks included.
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .foregroundColor(state.activeTool == tool ? .accentColor : .primary)
+                .foregroundStyle(state.activeTool == tool ? Color.accentColor : Color.primary)
                 .padding(5)
                 .background(
                     state.activeTool == tool ? Color.accentColor.opacity(0.2) : Color.clear,

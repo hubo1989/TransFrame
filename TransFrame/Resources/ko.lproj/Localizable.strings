@@ -550,19 +550,6 @@
 "onboarding.permission.grant" = "권한 부여";
 
 /* 온보딩 - 구성 단계 */
-"onboarding.configuration.title" = "선택적 구성";
-"onboarding.configuration.message" = "로컬 OCR 및 번역 기능이 이미 활성화되어 있습니다. 외부 서비스를 선택적으로 구성하세요:";
-"onboarding.configuration.paddleocr" = "PaddleOCR 서버 주소";
-"onboarding.configuration.paddleocr.hint" = "비워두면 macOS Vision OCR 사용";
-"onboarding.configuration.mtran" = "MTranServer 주소";
-"onboarding.configuration.mtran.hint" = "비워두면 Apple 번역 사용";
-"onboarding.configuration.placeholder" = "http://localhost:8080";
-"onboarding.configuration.placeholder.address" = "localhost";
-"onboarding.configuration.test" = "번역 테스트";
-"onboarding.configuration.test.button" = "번역 테스트";
-"onboarding.configuration.testing" = "테스트 중...";
-"onboarding.test.success" = "번역 테스트 성공: \"%@\" → \"%@\"";
-"onboarding.test.failed" = "번역 테스트 실패: %@";
 
 /* 온보딩 - 완료 단계 */
 "onboarding.complete.title" = "설정 완료!";
@@ -575,21 +562,8 @@
 /* 온보딩 - 내비게이션 */
 "onboarding.back" = "뒤로";
 "onboarding.continue" = "계속";
-"onboarding.next" = "다음";
-"onboarding.skip" = "건너뛰기";
-"onboarding.complete" = "완료";
 
 /* 온보딩 - PaddleOCR */
-"onboarding.paddleocr.title" = "PaddleOCR (선택 사항)";
-"onboarding.paddleocr.description" = "더 나은 텍스트 인식 정확도를 위한 향상된 OCR 엔진, 특히 중국어에 적합합니다.";
-"onboarding.paddleocr.installed" = "설치됨";
-"onboarding.paddleocr.not.installed" = "설치되지 않음";
-"onboarding.paddleocr.install" = "설치";
-"onboarding.paddleocr.installing" = "설치 중...";
-"onboarding.paddleocr.install.hint" = "Python 3과 pip가 필요합니다. 다음을 실행하세요: pip3 install paddleocr paddlepaddle";
-"onboarding.paddleocr.copy.command" = "명령어 복사";
-"onboarding.paddleocr.refresh" = "상태 새로고침";
-"onboarding.paddleocr.version" = "버전: %@";
 
 /* 설정 - PaddleOCR */
 "settings.paddleocr.installed" = "설치됨";
@@ -635,12 +609,10 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
 "vlm.provider.ollama" = "Ollama";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "OpenAI GPT-4 Vision API";
 "vlm.provider.claude.description" = "Anthropic Claude Vision API";
-"vlm.provider.glmocr.description" = "Zhipu GLM-OCR 레이아웃 파싱 API";
 "vlm.provider.ollama.description" = "로컬 Ollama 서버";
 "vlm.provider.paddleocr.description" = "로컬 OCR 엔진 (무료, 오프라인)";
 
@@ -819,11 +791,146 @@
 "about.acknowledgements.upstream" = "기반";
 "about.acknowledgements.author.format" = "%@ 작성";
 "about.close" = "닫기";
-"settings.glmocr.mode" = "모드";
-"settings.glmocr.mode.cloud" = "클라우드";
-"settings.glmocr.mode.local" = "로컬";
-"settings.glmocr.local.apiKey.optional" = "로컬 MLX-VLM 서버에서는 API 키가 선택 사항입니다";
-"vlm.provider.glmocr.local.description" = "GLM-OCR용 로컬 MLX-VLM 서버";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "API 모드";
+"settings.vlm.preset.help" = "자주 사용하는 로컬 엔드포인트 프리셋 선택";
+"settings.vlm.saveConfig" = "설정 저장";
+"settings.vlm.saved" = "저장됨";
+"settings.vlm.unsavedChanges" = "(저장되지 않은 변경사항 있음)";
+"settings.model.select" = "모델 선택";
+"pinned.edit" = "편집";
+"pinned.tooltip.editInEditor" = "테두리 없는 편집기에서 편집 (E)";
+"pinned.tooltip.alwaysOnTop" = "현재: 항상 위 (클릭하여 해제)";
+"pinned.tooltip.normalWindow" = "현재: 일반 창 (클릭하여 고정)";
+"pinned.tooltip.clickThrough" = "마우스 통과";
+"pinned.tooltip.copyImage" = "이미지 복사 (⌘C)";
+"pinned.tooltip.close" = "고정된 이미지 닫기 (Esc / Delete)";
+"bilingual.close.help" = "닫기 (Esc)";
+
+"app.name" = "TransFrame";
+
+/* ===== Keys synced from en.lproj (PR #89 l10n parity) ===== */
+"error.image.upload.failed" = "이미지 업로드 실패: %@";
+"error.image.upload.failed.recovery" = "이미지 호스트 설정과 네트워크를 확인한 후 다시 시도하세요.";
+"error.pipeline.ocrFailed" = "텍스트 인식(VLM) 실패: %@";
+"error.pipeline.translateFailed" = "번역 실패: %@";
+"preview.tooltip.editText" = "텍스트 편집";
+"preview.tooltip.beautify" = "꾸미기(배경 및 그림자)";
+"tool.privacyRedaction" = "개인정보 가리기";
+"tool.calloutBubble" = "콜아웃 풍선";
+"keychain.error.authentication_required" = "자격 증명 접근이 잠겨 있습니다";
+"keychain.error.authentication_required.recovery" = "설정을 열고 자격 증명 접근을 잠금 해제하세요";
+"credential.auth.reason.startup" = "이 TransFrame 세션에서 저장된 API 키를 잠금 해제하세요.";
+"credential.auth.reason.settings" = "이 TransFrame 세션에서 저장된 API 키를 잠금 해제하세요.";
+"credential.auth.error.cancelled" = "자격 증명 접근이 잠금 해제되지 않았습니다.";
+"credential.auth.error.failed" = "인증에 실패했습니다. 다시 시도하세요.";
+"credential.auth.error.biometry_unavailable" = "Touch ID를 사용할 수 없습니다. macOS 암호를 사용하세요.";
+"credential.auth.error.passcode_not_set" = "macOS 로그인 암호를 설정하면 자격 증명을 잠금 해제할 수 있습니다.";
+"settings.credentials.title" = "자격 증명 접근";
+"settings.credentials.not_needed" = "저장된 API 키 없음";
+"settings.credentials.not_needed.hint" = "API 키를 저장하면 TransFrame이 잠금 해제를 요청합니다.";
+"settings.credentials.locked" = "자격 증명 접근이 잠겨 있습니다";
+"settings.credentials.locked.hint" = "앱을 시작할 때마다 Touch ID 또는 macOS 암호로 한 번 잠금 해제하세요.";
+"settings.credentials.authenticating" = "인증 중…";
+"settings.credentials.authenticating.hint" = "시스템 인증 프롬프트를 완료하세요.";
+"settings.credentials.unlocked" = "자격 증명 접근이 잠금 해제되었습니다";
+"settings.credentials.unlocked.hint" = "TransFrame을 종료할 때까지 저장된 API 키를 사용할 수 있습니다.";
+"settings.credentials.failed" = "자격 증명 접근 실패";
+"settings.credentials.unlock" = "잠금 해제";
+"history.filter.all" = "모두";
+"history.filter.starred" = "별표";
+"onboarding.permissions.timeout.hint" = "문제가 있나요? 지금은 건너뛰고 나중에 메뉴 막대 → 설정에서 구성하세요";
+"onboarding.permission.screen.recording.subtitle" = "OCR 텍스트 인식을 위해 화면 콘텐츠를 캡처하는 데 사용됩니다";
+"onboarding.permission.accessibility.subtitle" = "어떤 앱에서든 캡처 및 번역을 실행하는 전역 단축키 등록에 사용됩니다";
+"onboarding.complete.menubar.hint" = "TransFrame은 메뉴 막대에서 실행됩니다. 메뉴 막대 아이콘을 클릭하여 시작하세요.";
+"onboarding.complete.permissions.warning" = "일부 권한이 아직 부여되지 않았습니다. 메뉴 막대 → 설정에서 언제든 구성할 수 있습니다.";
+"onboarding.skip.permissions" = "지금은 건너뛰기";
+"vlm.provider.gemini" = "Gemini";
+"vlm.provider.local" = "로컬 모델";
+"vlm.provider.gemini.description" = "Google Gemini Vision API";
+"vlm.provider.local.description" = "Ollama, LM Studio, vLLM, LocalAI 등 로컬 모델 서버";
+"bilingualResult.pin" = "고정";
+"textTranslation.error.insertFailed.copied" = "번역된 텍스트가 클립보드에 복사되었습니다.";
+"textTranslation.error.insertFailed.noTarget" = "교체 가능한 텍스트 컨트롤을 찾지 못했습니다. 대상 앱을 최전면으로 유지하고 텍스트를 선택한 상태에서 다시 시도하세요.";
+"translateAndInsert.progress.capturing" = "텍스트 읽는 중…";
+"translateAndInsert.progress.translating" = "번역 중…";
+"translateAndInsert.progress.inserting" = "삽입 중…";
+"menu.pinned.title" = "고정된 창";
+"menu.pinned.reset_interactions" = "모든 고정 항목 상호작용 복원";
+"menu.pinned.show_all" = "모든 고정 항목을 앞으로 가져오기";
+"preview.color.custom" = "사용자 지정 색상";
+"preview.color.eyedropper" = "화면에서 색 선택";
+"preview.fill.color" = "채우기 색상";
+"smartMosaic.error.notConfigured" = "먼저 설정에서 VLM API 키를 구성하세요(스마트 모자이크는 VLM 설정을 공유합니다)";
+"smartMosaic.detecting" = "개인정보 영역 감지 중…";
+"smartMosaic.noneFound" = "민감한 정보가 감지되지 않았습니다";
+"smartMosaic.redacted" = "개인정보 영역 %d곳을 가렸습니다";
+"smartMosaic.error.failed" = "개인정보 감지 실패. 네트워크를 확인하고 다시 시도하세요.";
+"preview.tooltip.smartMosaic" = "스마트 모자이크";
+"preview.panel.ocrTab" = "텍스트 인식";
+"preview.panel.translateTab" = "번역";
+"preview.panel.rerun" = "다시 인식";
+"preview.panel.copyAll" = "모두 복사";
+"preview.panel.copySource" = "원문 복사";
+"preview.panel.copyTranslation" = "번역 복사";
+"preview.panel.close" = "닫기";
+"preview.panel.expandDrawer" = "결과 패널 펼치기";
+"preview.panel.recognizing" = "인식 중…";
+"preview.panel.copyLine" = "복사";
+"preview.panel.original" = "원문";
+"preview.panel.translation" = "번역";
+"preview.panel.noResults" = "아직 결과가 없습니다. 「텍스트 인식」을 클릭하여 시작하세요";
+"preview.panel.translating" = "번역 중…";
+"preview.panel.translate" = "번역";
+"mosaic.intensity.light" = "약하게";
+"mosaic.intensity.medium" = "중간";
+"mosaic.intensity.strong" = "강하게";
+"error.mtran.http.error" = "MTranServer 요청이 실패했습니다.";
+"error.mtran.http.error.recovery" = "네트워크와 서버 상태를 확인한 후 다시 시도하세요.";
+"error.mtran.invalid.request" = "MTranServer 요청이 잘못되었습니다.";
+"error.mtran.invalid.request.recovery" = "번역 설정을 확인한 후 다시 시도하세요.";
+"error.mtran.invalid.url" = "MTranServer URL이 잘못되었습니다.";
+"error.mtran.invalid.url.recovery" = "설정에서 서버 URL을 수정하세요.";
+"error.mtran.not.available" = "MTranServer를 사용할 수 없습니다.";
+"error.mtran.not.available.recovery" = "MTranServer를 시작한 후 다시 시도하세요.";
+"error.ocr.engine.not.available" = "OCR 엔진을 사용할 수 없습니다.";
+"error.ocr.engine.not.available.recovery" = "설정에서 사용 가능한 OCR 엔진을 선택하세요.";
+"error.ocr.invalid.image" = "이미지가 잘못되어 인식할 수 없습니다.";
+"error.ocr.invalid.image.recovery" = "올바른 이미지로 다시 시도하세요.";
+"error.ocr.no.languages" = "선택된 인식 언어가 없습니다.";
+"error.ocr.no.languages.recovery" = "설정에서 인식 언어를 선택하세요.";
+"error.ocr.no.text.found" = "이미지에서 텍스트를 찾지 못했습니다.";
+"error.ocr.no.text.found.recovery" = "텍스트가 포함된 영역을 캡처하여 다시 시도하세요.";
+"error.ocr.recognition.failed" = "텍스트 인식에 실패했습니다.";
+"error.ocr.recognition.failed.recovery" = "더 선명한 이미지로 다시 시도하세요.";
+"lang.arabic" = "아랍어";
+"lang.chinese" = "중국어";
+"lang.chinese.simplified" = "중국어(간체)";
+"lang.chinese.traditional" = "중국어(번체)";
+"lang.english" = "영어";
+"lang.french" = "프랑스어";
+"lang.german" = "독일어";
+"lang.hindi" = "힌디어";
+"lang.italian" = "이탈리아어";
+"lang.japanese" = "일본어";
+"lang.korean" = "한국어";
+"lang.portuguese" = "포르투갈어";
+"lang.russian" = "러시아어";
+"lang.spanish" = "스페인어";
+"lang.thai" = "태국어";
+"lang.vietnamese" = "베트남어";
+"preview.pin" = "고정";
+"translation.provider.recovery.connectionFailed" = "인터넷 연결을 확인한 후 다시 시도하세요.";
+"translation.provider.recovery.emptyInput" = "번역할 텍스트가 비어 있습니다.";
+"translation.provider.recovery.invalidConfiguration" = "번역 엔진 설정을 확인하세요.";
+"translation.provider.recovery.notAvailable" = "이 번역 엔진을 현재 사용할 수 없습니다. 엔진을 전환하거나 나중에 다시 시도하세요.";
+"translation.provider.recovery.rateLimited" = "요청이 너무 많습니다. 나중에 다시 시도하세요.";
+"translation.provider.recovery.timeout" = "번역 요청 시간이 초과되었습니다. 다시 시도하세요.";
+"translation.provider.recovery.translationFailed" = "번역에 실패했습니다. 다시 시도하세요.";
+"translation.provider.recovery.unsupportedLanguage" = "지원되지 않는 언어 쌍입니다. 다른 대상 언어를 선택하세요.";
+"translation.unknown" = "알 수 없음";

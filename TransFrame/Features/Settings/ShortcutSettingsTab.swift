@@ -45,7 +45,7 @@ struct ShortcutSettingsContent: View {
                 onReset: { viewModel.resetTranslateAndInsertShortcut() }
             )
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
     }
 }
 
@@ -68,7 +68,7 @@ struct ShortcutRecorder: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(Color.accentColor.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 Button {
                     onRecord()
@@ -77,7 +77,7 @@ struct ShortcutRecorder: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Color.secondary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }

@@ -120,9 +120,18 @@ enum OpenAIAPIMode: String, CaseIterable, Sendable, Codable, Identifiable {
     var displayName: String {
         switch self {
         case .chat:
-            return "Chat (/chat/completions)"
+            return "Chat"
         case .response:
-            return "Response (/responses)"
+            return "Response"
+        }
+    }
+
+    var endpointHint: String {
+        switch self {
+        case .chat:
+            return "(/chat/completions)"
+        case .response:
+            return "(/responses)"
         }
     }
 }

@@ -928,3 +928,22 @@
 "translation.provider.recovery.translationFailed" = "翻译失败，请重试。";
 "translation.provider.recovery.unsupportedLanguage" = "不支持该语言对，请更换目标语言。";
 "translation.unknown" = "未知";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "API 模式";
+"settings.vlm.preset.help" = "选择常用本地端点预设";
+"settings.vlm.saveConfig" = "保存配置";
+"settings.vlm.saved" = "已保存";
+"settings.vlm.unsavedChanges" = "（有未保存更改）";
+"settings.model.select" = "选择模型";
+"pinned.edit" = "编辑";
+"pinned.tooltip.editInEditor" = "在无边框编辑器中编辑 (E)";
+"pinned.tooltip.alwaysOnTop" = "当前：置顶 (点击取消置顶)";
+"pinned.tooltip.normalWindow" = "当前：普通窗口 (点击置顶)";
+"pinned.tooltip.clickThrough" = "鼠标穿透";
+"pinned.tooltip.copyImage" = "复制图片 (⌘C)";
+"pinned.tooltip.close" = "关闭钉图 (Esc / Delete)";
+"bilingual.close.help" = "关闭 (Esc)";
+
+"app.name" = "TransFrame";

@@ -13,20 +13,19 @@ struct AdvancedSettingsContent: View {
             Divider().opacity(0.1)
             TextSizeSlider(viewModel: viewModel)
         }
-        .macos26LiquidGlass()
+        .macosGroupedCard()
 
-        Button(role: .destructive) {
-            showResetConfirmation = true
-        } label: {
-            Text(localized("settings.reset.all"))
-                .font(.system(.callout, design: .rounded, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(.red.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radii.control))
+        HStack {
+            Spacer()
+            Button(role: .destructive) {
+                showResetConfirmation = true
+            } label: {
+                Text(localized("settings.reset.all"))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            Spacer()
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.red)
         .alert(
             localized("settings.reset.all"),
             isPresented: $showResetConfirmation
@@ -74,7 +73,7 @@ struct StrokeColorPicker: View {
                 }
             }
 
-            ColorPicker("", selection: $viewModel.strokeColor, supportsOpacity: false)
+            ColorPicker(localized("settings.stroke.color"), selection: $viewModel.strokeColor, supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 30)
         }

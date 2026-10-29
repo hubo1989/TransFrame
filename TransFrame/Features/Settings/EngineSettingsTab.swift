@@ -4,21 +4,19 @@ struct EngineSettingsContent: View {
     @Bindable var viewModel: SettingsViewModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Credential authorization (Keychain access)
-                CredentialAccessRow(viewModel: viewModel)
-                    .padding()
-                    .background(Color(.controlBackgroundColor))
-                    .cornerRadius(8)
+        VStack(alignment: .leading, spacing: 20) {
+            // Credential authorization (Keychain access)
+            CredentialAccessRow(viewModel: viewModel)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .macosGroupedCard()
 
-                // VLM Configuration (for image analysis)
-                VLMConfigurationSection(viewModel: viewModel)
+            // VLM Configuration (for image analysis)
+            VLMConfigurationSection(viewModel: viewModel)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .macosGroupedCard()
 
-                // Multi-Engine Translation Configuration
-                MultiEngineSettingsSection(viewModel: viewModel)
-            }
-            .padding()
+            // Multi-Engine Translation Configuration
+            MultiEngineSettingsSection(viewModel: viewModel)
         }
     }
 }
@@ -37,32 +35,19 @@ struct VLMConfigurationSection: View {
             Text(localized("settings.vlm.title"))
                 .font(.headline)
 
-            // Provider selection row with fixed label width
-            HStack(alignment: .center, spacing: 12) {
+            // Provider selection row (full width segmented picker)
+            VStack(alignment: .leading, spacing: 8) {
                 Text(localized("settings.vlm.provider"))
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .frame(width: 84, alignment: .trailing)
 
-                HStack(spacing: 2) {
+                Picker(localized("settings.vlm.provider"), selection: $viewModel.vlmProvider) {
                     ForEach(VLMProviderType.allCases) { provider in
-                        Button {
-                            viewModel.vlmProvider = provider
-                        } label: {
-                            Text(provider.localizedName)
-                                .font(.subheadline)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(viewModel.vlmProvider == provider ? Color.accentColor : Color.clear)
-                                .foregroundStyle(viewModel.vlmProvider == provider ? .white : .primary)
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
+                        Text(provider.localizedName).tag(provider)
                     }
                 }
-                .padding(3)
-                .background(Color(.separatorColor).opacity(0.15))
-                .cornerRadius(8)
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
 
             // PaddleOCR specific section
@@ -73,30 +58,23 @@ struct VLMConfigurationSection: View {
                     // OpenAI specific API mode selection
                     if viewModel.vlmProvider == .openai {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("API 模式")
+                            Text(localized("settings.vlm.apiMode"))
                                 .font(.body)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 84, alignment: .trailing)
 
-                            HStack(spacing: 2) {
+                            Picker(localized("settings.vlm.apiMode"), selection: $viewModel.vlmEditingOpenAIMode) {
                                 ForEach(OpenAIAPIMode.allCases) { mode in
-                                    Button {
-                                        viewModel.vlmEditingOpenAIMode = mode
-                                    } label: {
-                                        Text(mode.displayName)
-                                            .font(.subheadline)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 5)
-                                            .background(viewModel.vlmEditingOpenAIMode == mode ? Color.accentColor : Color.clear)
-                                            .foregroundStyle(viewModel.vlmEditingOpenAIMode == mode ? .white : .primary)
-                                            .cornerRadius(6)
-                                    }
-                                    .buttonStyle(.plain)
+                                    Text(mode.displayName).tag(mode)
                                 }
                             }
-                            .padding(3)
-                            .background(Color(.separatorColor).opacity(0.15))
-                            .cornerRadius(8)
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+
+                            Text(viewModel.vlmEditingOpenAIMode.endpointHint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -111,9 +89,11 @@ struct VLMConfigurationSection: View {
                             if showAPIKey {
                                 TextField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(width: 280)
                             } else {
                                 SecureField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(width: 280)
                             }
                             Button {
                                 showAPIKey.toggle()
@@ -122,11 +102,12 @@ struct VLMConfigurationSection: View {
                             }
                             .buttonStyle(.borderless)
                         }
-                        .frame(maxWidth: 320)
 
-                        Text("（可选，为空则免鉴权请求）")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if !viewModel.vlmProvider.typicallyRequiresAPIKey {
+                            Text(localized("settings.vlm.apiKey.optional"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     // Base URL
@@ -139,6 +120,7 @@ struct VLMConfigurationSection: View {
                         HStack(spacing: 6) {
                             TextField("", text: $viewModel.vlmEditingBaseURL)
                                 .textFieldStyle(.roundedBorder)
+                                .frame(width: 280)
 
                             if viewModel.vlmProvider == .ollama {
                                 Menu {
@@ -151,10 +133,9 @@ struct VLMConfigurationSection: View {
                                     Image(systemName: "list.bullet")
                                 }
                                 .menuStyle(.borderlessButton)
-                                .help("选择常用本地端点预设")
+                                .help(localized("settings.vlm.preset.help"))
                             }
                         }
-                        .frame(maxWidth: 320)
                     }
 
                     // Model Name
@@ -167,6 +148,7 @@ struct VLMConfigurationSection: View {
                         HStack(spacing: 6) {
                             TextField("", text: $viewModel.vlmEditingModelName)
                                 .textFieldStyle(.roundedBorder)
+                                .frame(width: 280)
 
                             if !availableVLMModels.isEmpty {
                                 Menu {
@@ -198,7 +180,6 @@ struct VLMConfigurationSection: View {
                             .buttonStyle(.bordered)
                             .disabled(isFetchingVLMModels)
                         }
-                        .frame(maxWidth: 320)
                     }
 
                     Text(viewModel.currentVLMProviderDescription)
@@ -215,7 +196,7 @@ struct VLMConfigurationSection: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "square.and.arrow.down")
-                                Text("保存配置")
+                                Text(localized("settings.vlm.saveConfig"))
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -241,12 +222,12 @@ struct VLMConfigurationSection: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
-                                Text("已保存")
+                                Text(localized("settings.vlm.saved"))
                                     .font(.caption)
                                     .foregroundStyle(.green)
                             }
                         } else if viewModel.hasUnsavedVLMChanges {
-                            Text("（有未保存更改）")
+                            Text(localized("settings.vlm.unsavedChanges"))
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
@@ -268,9 +249,6 @@ struct VLMConfigurationSection: View {
                 }
             }
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
         .alert(isPresented: $showErrorAlert) {
             Alert(
                 title: Text(localized("engine.config.fetchModels.failed")),
@@ -345,7 +323,7 @@ struct PaddleOCRStatusSection: View {
                     Text(localized("settings.paddleocr.mode"))
                         .foregroundStyle(.secondary)
                         .gridColumnAlignment(.trailing)
-                    Picker("", selection: $viewModel.paddleOCRMode) {
+                    Picker(localized("settings.paddleocr.mode"), selection: $viewModel.paddleOCRMode) {
                         ForEach(PaddleOCRMode.allCases, id: \.self) { mode in
                             VStack(alignment: .leading) {
                                 Text(mode.localizedName)
@@ -353,6 +331,7 @@ struct PaddleOCRStatusSection: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .frame(maxWidth: 300)
                 }
 
@@ -369,8 +348,9 @@ struct PaddleOCRStatusSection: View {
                     Text(localized("settings.paddleocr.useCloud"))
                         .foregroundStyle(.secondary)
                         .gridColumnAlignment(.trailing)
-                    Toggle("", isOn: $viewModel.paddleOCRUseCloud)
+                    Toggle(localized("settings.paddleocr.useCloud"), isOn: $viewModel.paddleOCRUseCloud)
                         .toggleStyle(.checkbox)
+                        .labelsHidden()
                 }
 
                 // Cloud API settings (only show when useCloud is true)
@@ -379,7 +359,7 @@ struct PaddleOCRStatusSection: View {
                         Text(localized("settings.paddleocr.cloudBaseURL"))
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
-                        TextField("", text: $viewModel.paddleOCRCloudBaseURL)
+                        TextField(localized("settings.paddleocr.cloudBaseURL"), text: $viewModel.paddleOCRCloudBaseURL)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 300)
                     }
@@ -388,7 +368,7 @@ struct PaddleOCRStatusSection: View {
                         Text(localized("settings.paddleocr.cloudAPIKey"))
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
-                        SecureField("", text: $viewModel.paddleOCRCloudAPIKey)
+                        SecureField(localized("settings.paddleocr.cloudAPIKey"), text: $viewModel.paddleOCRCloudAPIKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 300)
                     }
@@ -398,7 +378,7 @@ struct PaddleOCRStatusSection: View {
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
                         HStack {
-                            TextField("", text: $viewModel.paddleOCRCloudModelId)
+                            TextField(localized("settings.paddleocr.cloudModelId"), text: $viewModel.paddleOCRCloudModelId)
                                 .textFieldStyle(.roundedBorder)
 
                             if !availablePaddleModels.isEmpty {
@@ -409,9 +389,11 @@ struct PaddleOCRStatusSection: View {
                                         }
                                     }
                                 } label: {
-                                    Text("")
-                                        .frame(width: 8, height: 12)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
+                                .accessibilityLabel(localized("settings.model.select"))
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
                             }

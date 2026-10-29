@@ -550,19 +550,6 @@
 "onboarding.permission.grant" = "Concedi Permesso";
 
 /* Onboarding - Passo configurazione */
-"onboarding.configuration.title" = "Configurazione Opzionale";
-"onboarding.configuration.message" = "Le tue funzionalità OCR e traduzione locali sono già abilitate. Opzionalmente configura servizi esterni:";
-"onboarding.configuration.paddleocr" = "Indirizzo Server PaddleOCR";
-"onboarding.configuration.paddleocr.hint" = "Lascia vuoto per usare macOS Vision OCR";
-"onboarding.configuration.mtran" = "Indirizzo MTranServer";
-"onboarding.configuration.mtran.hint" = "Lascia vuoto per usare Traduzione Apple";
-"onboarding.configuration.placeholder" = "http://localhost:8080";
-"onboarding.configuration.placeholder.address" = "localhost";
-"onboarding.configuration.test" = "Test Traduzione";
-"onboarding.configuration.test.button" = "Test Traduzione";
-"onboarding.configuration.testing" = "Test in corso...";
-"onboarding.test.success" = "Test traduzione riuscito: \"%@\" → \"%@\"";
-"onboarding.test.failed" = "Test traduzione fallito: %@";
 
 /* Onboarding - Passo completamento */
 "onboarding.complete.title" = "Tutto Pronto!";
@@ -575,21 +562,8 @@
 /* Onboarding - Navigazione */
 "onboarding.back" = "Indietro";
 "onboarding.continue" = "Continua";
-"onboarding.next" = "Avanti";
-"onboarding.skip" = "Salta";
-"onboarding.complete" = "Completa";
 
 /* Onboarding - PaddleOCR */
-"onboarding.paddleocr.title" = "PaddleOCR (Opzionale)";
-"onboarding.paddleocr.description" = "Motore OCR avanzato per maggiore precisione nel riconoscimento testo, specialmente per il cinese.";
-"onboarding.paddleocr.installed" = "Installato";
-"onboarding.paddleocr.not.installed" = "Non Installato";
-"onboarding.paddleocr.install" = "Installa";
-"onboarding.paddleocr.installing" = "Installazione in corso...";
-"onboarding.paddleocr.install.hint" = "Richiede Python 3 e pip. Esegui: pip3 install paddleocr paddlepaddle";
-"onboarding.paddleocr.copy.command" = "Copia Comando";
-"onboarding.paddleocr.refresh" = "Aggiorna Stato";
-"onboarding.paddleocr.version" = "Versione: %@";
 
 /* Impostazioni - PaddleOCR */
 "settings.paddleocr.installed" = "Installato";
@@ -635,12 +609,10 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
 "vlm.provider.ollama" = "Ollama";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "API OpenAI GPT-4 Vision";
 "vlm.provider.claude.description" = "API Anthropic Claude Vision";
-"vlm.provider.glmocr.description" = "API di analisi del layout Zhipu GLM-OCR";
 "vlm.provider.ollama.description" = "Server Ollama locale";
 "vlm.provider.paddleocr.description" = "Motore OCR locale (gratuito, offline)";
 
@@ -820,11 +792,146 @@
 "about.acknowledgements.upstream" = "Basato su";
 "about.acknowledgements.author.format" = "di %@";
 "about.close" = "Chiudi";
-"settings.glmocr.mode" = "Modalità";
-"settings.glmocr.mode.cloud" = "Cloud";
-"settings.glmocr.mode.local" = "Locale";
-"settings.glmocr.local.apiKey.optional" = "La chiave API è opzionale per i server MLX-VLM locali";
-"vlm.provider.glmocr.local.description" = "Server MLX-VLM locale per GLM-OCR";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "Modalità API";
+"settings.vlm.preset.help" = "Scegli preimpostazione endpoint locale";
+"settings.vlm.saveConfig" = "Salva configurazione";
+"settings.vlm.saved" = "Salvato";
+"settings.vlm.unsavedChanges" = "(Modifiche non salvate)";
+"settings.model.select" = "Seleziona modello";
+"pinned.edit" = "Modifica";
+"pinned.tooltip.editInEditor" = "Modifica nell'editor senza bordi (E)";
+"pinned.tooltip.alwaysOnTop" = "Attuale: Sempre in primo piano (Fai clic per sbloccare)";
+"pinned.tooltip.normalWindow" = "Attuale: Finestra normale (Fai clic per fissare)";
+"pinned.tooltip.clickThrough" = "Passaggio mouse";
+"pinned.tooltip.copyImage" = "Copia immagine (⌘C)";
+"pinned.tooltip.close" = "Chiudi immagine fissata (Esc / Delete)";
+"bilingual.close.help" = "Chiudi (Esc)";
+
+"app.name" = "TransFrame";
+
+/* ===== Keys synced from en.lproj (PR #89 l10n parity) ===== */
+"error.image.upload.failed" = "Caricamento dell'immagine non riuscito: %@";
+"error.image.upload.failed.recovery" = "Controlla la configurazione dell'host immagini e la rete, poi riprova.";
+"error.pipeline.ocrFailed" = "Riconoscimento del testo (VLM) non riuscito: %@";
+"error.pipeline.translateFailed" = "Traduzione non riuscita: %@";
+"preview.tooltip.editText" = "Modifica testo";
+"preview.tooltip.beautify" = "Abbellisci (sfondo e ombra)";
+"tool.privacyRedaction" = "Oscuramento privacy";
+"tool.calloutBubble" = "Fumetto di annotazione";
+"keychain.error.authentication_required" = "L'accesso alle credenziali è bloccato";
+"keychain.error.authentication_required.recovery" = "Apri Impostazioni e sblocca l'accesso alle credenziali";
+"credential.auth.reason.startup" = "Sblocca le chiavi API salvate per questa sessione di TransFrame.";
+"credential.auth.reason.settings" = "Sblocca le chiavi API salvate per questa sessione di TransFrame.";
+"credential.auth.error.cancelled" = "L'accesso alle credenziali non è stato sbloccato.";
+"credential.auth.error.failed" = "Autenticazione non riuscita. Riprova.";
+"credential.auth.error.biometry_unavailable" = "Touch ID non disponibile. Usa la password di macOS.";
+"credential.auth.error.passcode_not_set" = "Imposta una password di accesso a macOS per sbloccare le credenziali.";
+"settings.credentials.title" = "Accesso alle credenziali";
+"settings.credentials.not_needed" = "Nessuna chiave API salvata";
+"settings.credentials.not_needed.hint" = "TransFrame chiederà di sbloccare le credenziali dopo il salvataggio delle chiavi API.";
+"settings.credentials.locked" = "L'accesso alle credenziali è bloccato";
+"settings.credentials.locked.hint" = "Sblocca una volta per avvio dell'app con Touch ID o la password di macOS.";
+"settings.credentials.authenticating" = "Autenticazione…";
+"settings.credentials.authenticating.hint" = "Completa la richiesta di autenticazione di sistema.";
+"settings.credentials.unlocked" = "L'accesso alle credenziali è sbloccato";
+"settings.credentials.unlocked.hint" = "Le chiavi API salvate restano disponibili finché TransFrame non viene chiuso.";
+"settings.credentials.failed" = "Accesso alle credenziali non riuscito";
+"settings.credentials.unlock" = "Sblocca";
+"history.filter.all" = "Tutte";
+"history.filter.starred" = "Preferite";
+"onboarding.permissions.timeout.hint" = "Problemi? Salta per ora e configura più tardi in Barra dei menu → Impostazioni";
+"onboarding.permission.screen.recording.subtitle" = "Per acquisire il contenuto dello schermo per il riconoscimento testo OCR";
+"onboarding.permission.accessibility.subtitle" = "Per registrare scorciatoie globali che attivino cattura e traduzione da qualsiasi app";
+"onboarding.complete.menubar.hint" = "TransFrame è nella barra dei menu. Fai clic sull'icona per iniziare.";
+"onboarding.complete.permissions.warning" = "Alcune autorizzazioni mancano. Puoi configurarle in Barra dei menu → Impostazioni quando vuoi.";
+"onboarding.skip.permissions" = "Salta per ora";
+"vlm.provider.gemini" = "Gemini";
+"vlm.provider.local" = "Modello locale";
+"vlm.provider.gemini.description" = "API Google Gemini Vision";
+"vlm.provider.local.description" = "Server di modelli locale (Ollama, LM Studio, vLLM, LocalAI, ecc.)";
+"bilingualResult.pin" = "Fissa";
+"textTranslation.error.insertFailed.copied" = "Il testo tradotto è stato copiato negli appunti.";
+"textTranslation.error.insertFailed.noTarget" = "Nessun campo di testo sostituibile trovato. Mantieni l'app di destinazione in primo piano con il testo selezionato e riprova.";
+"translateAndInsert.progress.capturing" = "Lettura del testo…";
+"translateAndInsert.progress.translating" = "Traduzione…";
+"translateAndInsert.progress.inserting" = "Inserimento…";
+"menu.pinned.title" = "Finestre fissate";
+"menu.pinned.reset_interactions" = "Ripristina tutte le interazioni dei fissati";
+"menu.pinned.show_all" = "Porta tutti i fissati in primo piano";
+"preview.color.custom" = "Colore personalizzato";
+"preview.color.eyedropper" = "Preleva colore dallo schermo";
+"preview.fill.color" = "Colore riempimento";
+"smartMosaic.error.notConfigured" = "Configura prima la chiave API VLM nelle Impostazioni (Smart Mosaic condivide la configurazione VLM)";
+"smartMosaic.detecting" = "Rilevamento delle aree private…";
+"smartMosaic.noneFound" = "Nessuna informazione sensibile rilevata";
+"smartMosaic.redacted" = "%d aree private oscurate";
+"smartMosaic.error.failed" = "Rilevamento privacy non riuscito. Controlla la rete e riprova.";
+"preview.tooltip.smartMosaic" = "Mosaico intelligente";
+"preview.panel.ocrTab" = "Riconoscimento testo";
+"preview.panel.translateTab" = "Traduzione";
+"preview.panel.rerun" = "Riconosci di nuovo";
+"preview.panel.copyAll" = "Copia tutto";
+"preview.panel.copySource" = "Copia originale";
+"preview.panel.copyTranslation" = "Copia traduzione";
+"preview.panel.close" = "Chiudi";
+"preview.panel.expandDrawer" = "Espandi pannello risultati";
+"preview.panel.recognizing" = "Riconoscimento…";
+"preview.panel.copyLine" = "Copia";
+"preview.panel.original" = "Originale";
+"preview.panel.translation" = "Traduzione";
+"preview.panel.noResults" = "Nessun risultato. Fai clic su Riconoscimento testo per iniziare";
+"preview.panel.translating" = "Traduzione…";
+"preview.panel.translate" = "Traduci";
+"mosaic.intensity.light" = "Leggero";
+"mosaic.intensity.medium" = "Medio";
+"mosaic.intensity.strong" = "Intenso";
+"error.mtran.http.error" = "Richiesta a MTranServer non riuscita.";
+"error.mtran.http.error.recovery" = "Controlla rete e stato del server, poi riprova.";
+"error.mtran.invalid.request" = "Richiesta MTranServer non valida.";
+"error.mtran.invalid.request.recovery" = "Controlla la configurazione di traduzione e riprova.";
+"error.mtran.invalid.url" = "URL MTranServer non valido.";
+"error.mtran.invalid.url.recovery" = "Correggi l'URL del server nelle Impostazioni.";
+"error.mtran.not.available" = "MTranServer non è disponibile.";
+"error.mtran.not.available.recovery" = "Avvia MTranServer e riprova.";
+"error.ocr.engine.not.available" = "Il motore OCR non è disponibile.";
+"error.ocr.engine.not.available.recovery" = "Seleziona un motore OCR disponibile nelle Impostazioni.";
+"error.ocr.invalid.image" = "L'immagine non è valida e non può essere riconosciuta.";
+"error.ocr.invalid.image.recovery" = "Usa un'immagine valida e riprova.";
+"error.ocr.no.languages" = "Nessuna lingua di riconoscimento selezionata.";
+"error.ocr.no.languages.recovery" = "Seleziona le lingue di riconoscimento nelle Impostazioni.";
+"error.ocr.no.text.found" = "Nessun testo trovato nell'immagine.";
+"error.ocr.no.text.found.recovery" = "Cattura un'area contenente testo e riprova.";
+"error.ocr.recognition.failed" = "Riconoscimento del testo non riuscito.";
+"error.ocr.recognition.failed.recovery" = "Riprova con un'immagine più nitida.";
+"lang.arabic" = "Arabo";
+"lang.chinese" = "Cinese";
+"lang.chinese.simplified" = "Cinese (semplificato)";
+"lang.chinese.traditional" = "Cinese (tradizionale)";
+"lang.english" = "Inglese";
+"lang.french" = "Francese";
+"lang.german" = "Tedesco";
+"lang.hindi" = "Hindi";
+"lang.italian" = "Italiano";
+"lang.japanese" = "Giapponese";
+"lang.korean" = "Coreano";
+"lang.portuguese" = "Portoghese";
+"lang.russian" = "Russo";
+"lang.spanish" = "Spagnolo";
+"lang.thai" = "Thai";
+"lang.vietnamese" = "Vietnamita";
+"preview.pin" = "Fissa";
+"translation.provider.recovery.connectionFailed" = "Controlla la connessione internet e riprova.";
+"translation.provider.recovery.emptyInput" = "Il testo da tradurre è vuoto.";
+"translation.provider.recovery.invalidConfiguration" = "Controlla la configurazione del motore di traduzione.";
+"translation.provider.recovery.notAvailable" = "Questo motore di traduzione non è disponibile. Cambia motore o riprova più tardi.";
+"translation.provider.recovery.rateLimited" = "Troppe richieste. Riprova più tardi.";
+"translation.provider.recovery.timeout" = "La richiesta di traduzione è scaduta. Riprova.";
+"translation.provider.recovery.translationFailed" = "Traduzione non riuscita. Riprova.";
+"translation.provider.recovery.unsupportedLanguage" = "Coppia di lingue non supportata. Scegli un'altra lingua di destinazione.";
+"translation.unknown" = "Sconosciuto";

@@ -25,21 +25,22 @@ struct MultiEngineSettingsSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Selection Mode (horizontal layout)
-            selectionModeSection
+        VStack(alignment: .leading, spacing: 20) {
+            // Translation Strategy Card (Selection Mode & Primary/Fallback Configuration)
+            VStack(alignment: .leading, spacing: 16) {
+                selectionModeSection
+                modeSpecificSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .macosGroupedCard()
 
-            // Mode-specific configuration
-            modeSpecificSection
-
-            Divider()
-
-            // Available Engines
-            enginesSection
+            // Available Engines Card
+            VStack(alignment: .leading, spacing: 16) {
+                enginesSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .macosGroupedCard()
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
         .onAppear {
             checkConfiguredEngines()
         }
@@ -53,31 +54,18 @@ struct MultiEngineSettingsSection: View {
             Text(localized("engine.config.title"))
                 .font(.headline)
 
-            // Horizontal button group
-            HStack(spacing: 4) {
+            // Segmented mode picker
+            Picker(localized("engine.config.title"), selection: Binding(
+                get: { viewModel.settings.engineSelectionMode },
+                set: { viewModel.settings.engineSelectionMode = $0 }
+            )) {
                 ForEach(EngineSelectionMode.allCases) { mode in
-                    Button {
-                        viewModel.settings.engineSelectionMode = mode
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: mode.iconName)
-                                .font(.caption)
-                            Text(mode.localizedName)
-                                .font(.subheadline)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(viewModel.settings.engineSelectionMode == mode ? Color.accentColor : Color.clear)
-                        .foregroundStyle(viewModel.settings.engineSelectionMode == mode ? .white : .primary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                    .help(mode.modeDescription)
+                    Label(mode.localizedName, systemImage: mode.iconName)
+                        .tag(mode)
                 }
             }
-            .padding(4)
-            .background(Color(.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
 
@@ -111,7 +99,7 @@ struct MultiEngineSettingsSection: View {
                     Text(localized("engine.config.primary"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("", selection: Binding(
+                    Picker(localized("engine.config.primary"), selection: Binding(
                         get: {
                             if let first = viewModel.settings.parallelEngines.first {
                                 // Check if it's a compatible engine
@@ -155,6 +143,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 140)
                 }
 
@@ -163,7 +152,7 @@ struct MultiEngineSettingsSection: View {
                     Text(localized("engine.config.fallback"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("", selection: Binding(
+                    Picker(localized("engine.config.fallback"), selection: Binding(
                         get: {
                             if viewModel.settings.parallelEngines.count > 1 {
                                 let second = viewModel.settings.parallelEngines[1]
@@ -206,6 +195,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 140)
                 }
             }
@@ -225,7 +215,12 @@ struct MultiEngineSettingsSection: View {
                 .foregroundStyle(.secondary)
 
             // Engine order list
-            ForEach(Array(viewModel.settings.parallelEngines.enumerated()), id: \.offset) { index, engine in
+            // 快捷切换允许同一引擎出现多次（主/备同引擎）：组合 ID 既保证唯一，
+            // 又让中间行删除后后续行身份不前移（避免删除动画/行内状态错位）
+            ForEach(
+                Array(viewModel.settings.parallelEngines.enumerated().map { (id: "\($0.offset)-\($0.element.rawValue)", offset: $0.offset, engine: $0.element) }),
+                id: \.id
+            ) { _, index, engine in
                 HStack(spacing: 8) {
                     // Order number
                     Text("\(index + 1)")
@@ -282,7 +277,7 @@ struct MultiEngineSettingsSection: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(.controlBackgroundColor))
-                .cornerRadius(6)
+                .cornerRadius(8)
             }
 
             // Add engine button if less than enabled engines
@@ -352,7 +347,6 @@ struct MultiEngineSettingsSection: View {
                                 .foregroundStyle(.secondary)
 
                             LazyVGrid(columns: [
-                                GridItem(.flexible()),
                                 GridItem(.flexible()),
                                 GridItem(.flexible())
                             ], spacing: 8) {
@@ -500,9 +494,9 @@ struct MultiEngineSettingsSection: View {
             }
             .padding(8)
             .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
             )
         }
@@ -527,9 +521,9 @@ struct MultiEngineSettingsSection: View {
             .padding(8)
             .frame(maxWidth: .infinity)
             .background(Color(.controlBackgroundColor))
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(style: SwiftUI.StrokeStyle(lineWidth: 1, dash: [4]))
                     .foregroundStyle(Color.gray.opacity(0.3))
             )
@@ -707,9 +701,9 @@ struct MultiEngineSettingsSection: View {
             }
             .padding(8)
             .background(config.isEnabled ? Color.accentColor.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(config.isEnabled ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
             )
         }
@@ -828,7 +822,7 @@ struct MultiEngineSettingsSection: View {
                     Spacer()
 
                     // Primary engine picker
-                    Picker("", selection: Binding(
+                    Picker(scene.localizedName, selection: Binding(
                         get: {
                             let engine = viewModel.settings.sceneBindings[scene]?.primaryEngine ?? .apple
                             if engine == .custom, let customConfig = viewModel.settings.engineConfigs[.custom],
@@ -870,6 +864,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 130)
                 }
             }

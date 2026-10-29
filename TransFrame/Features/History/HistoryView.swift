@@ -50,6 +50,7 @@ struct HistoryView: View {
 private struct SearchBar: View {
     @ObservedObject var store: HistoryStore
     @FocusState private var isFocused: Bool
+    @State private var showClearAlert = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -81,8 +82,8 @@ private struct SearchBar: View {
 
             // Clear all button
             if !store.entries.isEmpty {
-                Button {
-                    showClearConfirmation()
+                Button(role: .destructive) {
+                    showClearAlert = true
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(.secondary)
@@ -93,25 +94,16 @@ private struct SearchBar: View {
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    private func showClearConfirmation() {
-        let alert = NSAlert()
-        alert.messageText = NSLocalizedString(
-            "history.clear.alert.title",
-            comment: "Clear History"
-        )
-        alert.informativeText = NSLocalizedString(
-            "history.clear.alert.message",
-            comment: "Are you sure you want to clear all translation history?"
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("button.clear", comment: "Clear"))
-        alert.addButton(withTitle: NSLocalizedString("button.cancel", comment: "Cancel"))
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            store.clear()
+        .alert(
+            localized("history.clear.alert.title"),
+            isPresented: $showClearAlert
+        ) {
+            Button(localized("button.cancel"), role: .cancel) {}
+            Button(localized("button.clear"), role: .destructive) {
+                store.clear()
+            }
+        } message: {
+            Text(localized("history.clear.alert.message"))
         }
     }
 }
@@ -136,7 +128,7 @@ private struct CategoryFilterBar: View {
             } label: {
                 HStack(spacing: 3) {
                     Image(systemName: store.onlyFavorites ? "star.fill" : "star")
-                        .foregroundColor(store.onlyFavorites ? .yellow : .secondary)
+                        .foregroundStyle(store.onlyFavorites ? .yellow : .secondary)
                     Text(String(localized: "history.filter.starred"))
                         .font(.system(size: 11, weight: store.onlyFavorites ? .semibold : .regular))
                 }
@@ -165,7 +157,7 @@ private struct CategoryFilterBar: View {
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
             }
-            .foregroundColor(isSelected ? .white : .primary)
+            .foregroundStyle(isSelected ? .white : .primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
@@ -264,7 +256,7 @@ private struct HistoryEntryRow: View {
                 } label: {
                     Image(systemName: entry.isFavorite ? "star.fill" : "star")
                         .font(.caption)
-                        .foregroundColor(entry.isFavorite ? .yellow : .secondary.opacity(0.4))
+                        .foregroundStyle(entry.isFavorite ? .yellow : .secondary.opacity(0.4))
                 }
                 .buttonStyle(.plain)
 
