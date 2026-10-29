@@ -53,31 +53,18 @@ struct MultiEngineSettingsSection: View {
             Text(localized("engine.config.title"))
                 .font(.headline)
 
-            // Horizontal button group
-            HStack(spacing: 4) {
+            // Segmented mode picker
+            Picker(localized("engine.config.title"), selection: Binding(
+                get: { viewModel.settings.engineSelectionMode },
+                set: { viewModel.settings.engineSelectionMode = $0 }
+            )) {
                 ForEach(EngineSelectionMode.allCases) { mode in
-                    Button {
-                        viewModel.settings.engineSelectionMode = mode
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: mode.iconName)
-                                .font(.caption)
-                            Text(mode.localizedName)
-                                .font(.subheadline)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(viewModel.settings.engineSelectionMode == mode ? Color.accentColor : Color.clear)
-                        .foregroundStyle(viewModel.settings.engineSelectionMode == mode ? .white : .primary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                    .help(mode.modeDescription)
+                    Label(mode.localizedName, systemImage: mode.iconName)
+                        .tag(mode)
                 }
             }
-            .padding(4)
-            .background(Color(.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
 

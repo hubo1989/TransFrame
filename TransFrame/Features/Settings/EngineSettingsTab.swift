@@ -44,25 +44,13 @@ struct VLMConfigurationSection: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 84, alignment: .trailing)
 
-                HStack(spacing: 2) {
+                Picker(localized("settings.vlm.provider"), selection: $viewModel.vlmProvider) {
                     ForEach(VLMProviderType.allCases) { provider in
-                        Button {
-                            viewModel.vlmProvider = provider
-                        } label: {
-                            Text(provider.localizedName)
-                                .font(.subheadline)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(viewModel.vlmProvider == provider ? Color.accentColor : Color.clear)
-                                .foregroundStyle(viewModel.vlmProvider == provider ? .white : .primary)
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
+                        Text(provider.localizedName).tag(provider)
                     }
                 }
-                .padding(3)
-                .background(Color(.separatorColor).opacity(0.15))
-                .cornerRadius(8)
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
 
             // PaddleOCR specific section
@@ -78,25 +66,13 @@ struct VLMConfigurationSection: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 84, alignment: .trailing)
 
-                            HStack(spacing: 2) {
+                            Picker(localized("settings.vlm.apiMode"), selection: $viewModel.vlmEditingOpenAIMode) {
                                 ForEach(OpenAIAPIMode.allCases) { mode in
-                                    Button {
-                                        viewModel.vlmEditingOpenAIMode = mode
-                                    } label: {
-                                        Text(mode.displayName)
-                                            .font(.subheadline)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 5)
-                                            .background(viewModel.vlmEditingOpenAIMode == mode ? Color.accentColor : Color.clear)
-                                            .foregroundStyle(viewModel.vlmEditingOpenAIMode == mode ? .white : .primary)
-                                            .cornerRadius(6)
-                                    }
-                                    .buttonStyle(.plain)
+                                    Text(mode.displayName).tag(mode)
                                 }
                             }
-                            .padding(3)
-                            .background(Color(.separatorColor).opacity(0.15))
-                            .cornerRadius(8)
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
                         }
                     }
 

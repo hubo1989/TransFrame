@@ -119,6 +119,7 @@ final class MenuBarController {
             comment: "Open Image for Editing...",
             action: #selector(AppDelegate.openImageForEditing),
             keyEquivalent: "o",
+            modifierMask: [.command],
             target: appDelegate,
             imageName: "photo.badge.plus"
         ))
@@ -130,7 +131,8 @@ final class MenuBarController {
             titleKey: "menu.translation.history",
             comment: "Translation History",
             action: #selector(AppDelegate.openHistory),
-            keyEquivalent: "h",
+            keyEquivalent: "H",
+            modifierMask: [.command, .shift],
             target: appDelegate,
             imageName: "clock.arrow.circlepath"
         ))

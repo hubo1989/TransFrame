@@ -15,18 +15,17 @@ struct AdvancedSettingsContent: View {
         }
         .macos26LiquidGlass()
 
-        Button(role: .destructive) {
-            showResetConfirmation = true
-        } label: {
-            Text(localized("settings.reset.all"))
-                .font(.system(.callout, design: .rounded, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(.red.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radii.control))
+        HStack {
+            Spacer()
+            Button(role: .destructive) {
+                showResetConfirmation = true
+            } label: {
+                Text(localized("settings.reset.all"))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            Spacer()
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.red)
         .alert(
             localized("settings.reset.all"),
             isPresented: $showResetConfirmation

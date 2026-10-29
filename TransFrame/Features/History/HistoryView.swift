@@ -50,6 +50,7 @@ struct HistoryView: View {
 private struct SearchBar: View {
     @ObservedObject var store: HistoryStore
     @FocusState private var isFocused: Bool
+    @State private var showClearAlert = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -81,8 +82,8 @@ private struct SearchBar: View {
 
             // Clear all button
             if !store.entries.isEmpty {
-                Button {
-                    showClearConfirmation()
+                Button(role: .destructive) {
+                    showClearAlert = true
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(.secondary)
@@ -93,25 +94,16 @@ private struct SearchBar: View {
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    private func showClearConfirmation() {
-        let alert = NSAlert()
-        alert.messageText = NSLocalizedString(
-            "history.clear.alert.title",
-            comment: "Clear History"
-        )
-        alert.informativeText = NSLocalizedString(
-            "history.clear.alert.message",
-            comment: "Are you sure you want to clear all translation history?"
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("button.clear", comment: "Clear"))
-        alert.addButton(withTitle: NSLocalizedString("button.cancel", comment: "Cancel"))
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            store.clear()
+        .alert(
+            NSLocalizedString("history.clear.alert.title", comment: "Clear History"),
+            isPresented: $showClearAlert
+        ) {
+            Button(NSLocalizedString("button.cancel", comment: "Cancel"), role: .cancel) {}
+            Button(NSLocalizedString("button.clear", comment: "Clear"), role: .destructive) {
+                store.clear()
+            }
+        } message: {
+            Text(NSLocalizedString("history.clear.alert.message", comment: "Are you sure you want to clear all translation history?"))
         }
     }
 }

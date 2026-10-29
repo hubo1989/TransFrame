@@ -77,12 +77,15 @@ final class SettingsWindowController: NSObject {
             hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
 
-        window.center()
+        window.setFrameAutosaveName("TransFrameSettingsWindow")
+        if !window.setFrameUsingName("TransFrameSettingsWindow") {
+            window.center()
+        }
         window.isReleasedWhenClosed = false
         window.delegate = self
 
         // Set window behavior
-        window.level = .floating
+        window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // Store reference
