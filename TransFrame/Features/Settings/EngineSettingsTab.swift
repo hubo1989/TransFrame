@@ -4,21 +4,18 @@ struct EngineSettingsContent: View {
     @Bindable var viewModel: SettingsViewModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Credential authorization (Keychain access)
-                CredentialAccessRow(viewModel: viewModel)
-                    .padding()
-                    .background(Color(.controlBackgroundColor))
-                    .cornerRadius(8)
+        VStack(alignment: .leading, spacing: 20) {
+            // Credential authorization (Keychain access)
+            CredentialAccessRow(viewModel: viewModel)
+                .padding()
+                .background(Color(.controlBackgroundColor))
+                .cornerRadius(8)
 
-                // VLM Configuration (for image analysis)
-                VLMConfigurationSection(viewModel: viewModel)
+            // VLM Configuration (for image analysis)
+            VLMConfigurationSection(viewModel: viewModel)
 
-                // Multi-Engine Translation Configuration
-                MultiEngineSettingsSection(viewModel: viewModel)
-            }
-            .padding()
+            // Multi-Engine Translation Configuration
+            MultiEngineSettingsSection(viewModel: viewModel)
         }
     }
 }

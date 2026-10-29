@@ -53,12 +53,11 @@ final class SettingsWindowController: NSObject {
         // Create the window
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.title = NSLocalizedString("settings.title", comment: "Settings")
         window.backgroundColor = .windowBackgroundColor
         window.isOpaque = true
         window.hasShadow = true

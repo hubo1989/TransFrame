@@ -13,10 +13,7 @@ struct PromptSettingsContent: View {
     @Bindable var viewModel: SettingsViewModel
 
     var body: some View {
-        ScrollView {
-            PromptSettingsView(viewModel: viewModel)
-                .padding()
-        }
+        PromptSettingsView(viewModel: viewModel)
     }
 }
 
