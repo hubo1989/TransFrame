@@ -95,15 +95,15 @@ private struct SearchBar: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
         .alert(
-            NSLocalizedString("history.clear.alert.title", comment: "Clear History"),
+            localized("history.clear.alert.title"),
             isPresented: $showClearAlert
         ) {
-            Button(NSLocalizedString("button.cancel", comment: "Cancel"), role: .cancel) {}
-            Button(NSLocalizedString("button.clear", comment: "Clear"), role: .destructive) {
+            Button(localized("button.cancel"), role: .cancel) {}
+            Button(localized("button.clear"), role: .destructive) {
                 store.clear()
             }
         } message: {
-            Text(NSLocalizedString("history.clear.alert.message", comment: "Are you sure you want to clear all translation history?"))
+            Text(localized("history.clear.alert.message"))
         }
     }
 }

@@ -550,19 +550,6 @@
 "onboarding.permission.grant" = "권한 부여";
 
 /* 온보딩 - 구성 단계 */
-"onboarding.configuration.title" = "선택적 구성";
-"onboarding.configuration.message" = "로컬 OCR 및 번역 기능이 이미 활성화되어 있습니다. 외부 서비스를 선택적으로 구성하세요:";
-"onboarding.configuration.paddleocr" = "PaddleOCR 서버 주소";
-"onboarding.configuration.paddleocr.hint" = "비워두면 macOS Vision OCR 사용";
-"onboarding.configuration.mtran" = "MTranServer 주소";
-"onboarding.configuration.mtran.hint" = "비워두면 Apple 번역 사용";
-"onboarding.configuration.placeholder" = "http://localhost:8080";
-"onboarding.configuration.placeholder.address" = "localhost";
-"onboarding.configuration.test" = "번역 테스트";
-"onboarding.configuration.test.button" = "번역 테스트";
-"onboarding.configuration.testing" = "테스트 중...";
-"onboarding.test.success" = "번역 테스트 성공: \"%@\" → \"%@\"";
-"onboarding.test.failed" = "번역 테스트 실패: %@";
 
 /* 온보딩 - 완료 단계 */
 "onboarding.complete.title" = "설정 완료!";
@@ -575,21 +562,8 @@
 /* 온보딩 - 내비게이션 */
 "onboarding.back" = "뒤로";
 "onboarding.continue" = "계속";
-"onboarding.next" = "다음";
-"onboarding.skip" = "건너뛰기";
-"onboarding.complete" = "완료";
 
 /* 온보딩 - PaddleOCR */
-"onboarding.paddleocr.title" = "PaddleOCR (선택 사항)";
-"onboarding.paddleocr.description" = "더 나은 텍스트 인식 정확도를 위한 향상된 OCR 엔진, 특히 중국어에 적합합니다.";
-"onboarding.paddleocr.installed" = "설치됨";
-"onboarding.paddleocr.not.installed" = "설치되지 않음";
-"onboarding.paddleocr.install" = "설치";
-"onboarding.paddleocr.installing" = "설치 중...";
-"onboarding.paddleocr.install.hint" = "Python 3과 pip가 필요합니다. 다음을 실행하세요: pip3 install paddleocr paddlepaddle";
-"onboarding.paddleocr.copy.command" = "명령어 복사";
-"onboarding.paddleocr.refresh" = "상태 새로고침";
-"onboarding.paddleocr.version" = "버전: %@";
 
 /* 설정 - PaddleOCR */
 "settings.paddleocr.installed" = "설치됨";
@@ -635,12 +609,10 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
 "vlm.provider.ollama" = "Ollama";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "OpenAI GPT-4 Vision API";
 "vlm.provider.claude.description" = "Anthropic Claude Vision API";
-"vlm.provider.glmocr.description" = "Zhipu GLM-OCR 레이아웃 파싱 API";
 "vlm.provider.ollama.description" = "로컬 Ollama 서버";
 "vlm.provider.paddleocr.description" = "로컬 OCR 엔진 (무료, 오프라인)";
 
@@ -819,11 +791,6 @@
 "about.acknowledgements.upstream" = "기반";
 "about.acknowledgements.author.format" = "%@ 작성";
 "about.close" = "닫기";
-"settings.glmocr.mode" = "모드";
-"settings.glmocr.mode.cloud" = "클라우드";
-"settings.glmocr.mode.local" = "로컬";
-"settings.glmocr.local.apiKey.optional" = "로컬 MLX-VLM 서버에서는 API 키가 선택 사항입니다";
-"vlm.provider.glmocr.local.description" = "GLM-OCR용 로컬 MLX-VLM 서버";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";

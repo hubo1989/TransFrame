@@ -550,19 +550,6 @@
 "onboarding.permission.grant" = "権限を許可";
 
 /* オンボーディング - 設定ステップ */
-"onboarding.configuration.title" = "オプション設定";
-"onboarding.configuration.message" = "ローカル OCR と翻訳機能は既に有効です。外部サービスを設定することもできます：";
-"onboarding.configuration.paddleocr" = "PaddleOCR サーバーアドレス";
-"onboarding.configuration.paddleocr.hint" = "空欄の場合は macOS Vision OCR を使用";
-"onboarding.configuration.mtran" = "MTranServer アドレス";
-"onboarding.configuration.mtran.hint" = "空欄の場合は Apple 翻訳を使用";
-"onboarding.configuration.placeholder" = "http://localhost:8080";
-"onboarding.configuration.placeholder.address" = "localhost";
-"onboarding.configuration.test" = "翻訳をテスト";
-"onboarding.configuration.test.button" = "翻訳をテスト";
-"onboarding.configuration.testing" = "テスト中...";
-"onboarding.test.success" = "翻訳テスト成功：\"%@\" → \"%@\"";
-"onboarding.test.failed" = "翻訳テスト失敗：%@";
 
 /* オンボーディング - 完了ステップ */
 "onboarding.complete.title" = "セットアップ完了！";
@@ -575,21 +562,8 @@
 /* オンボーディング - ナビゲーション */
 "onboarding.back" = "戻る";
 "onboarding.continue" = "続行";
-"onboarding.next" = "次へ";
-"onboarding.skip" = "スキップ";
-"onboarding.complete" = "完了";
 
 /* オンボーディング - PaddleOCR */
-"onboarding.paddleocr.title" = "PaddleOCR（オプション）";
-"onboarding.paddleocr.description" = "強化された OCR エンジン、より高い文字認識精度、特に中国語に最適。";
-"onboarding.paddleocr.installed" = "インストール済み";
-"onboarding.paddleocr.not.installed" = "未インストール";
-"onboarding.paddleocr.install" = "インストール";
-"onboarding.paddleocr.installing" = "インストール中...";
-"onboarding.paddleocr.install.hint" = "Python 3 と pip が必要です。コマンド実行：pip3 install paddleocr paddlepaddle";
-"onboarding.paddleocr.copy.command" = "コマンドをコピー";
-"onboarding.paddleocr.refresh" = "ステータスを更新";
-"onboarding.paddleocr.version" = "バージョン：%@";
 
 /* 設定 - PaddleOCR */
 "settings.paddleocr.installed" = "インストール済み";
@@ -635,12 +609,10 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
 "vlm.provider.ollama" = "Ollama";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "OpenAI GPT-4 Vision API";
 "vlm.provider.claude.description" = "Anthropic Claude Vision API";
-"vlm.provider.glmocr.description" = "Zhipu GLM-OCR レイアウト解析 API";
 "vlm.provider.ollama.description" = "ローカル Ollama サーバー";
 "vlm.provider.paddleocr.description" = "ローカル OCR エンジン（無料、オフライン）";
 
@@ -819,11 +791,6 @@
 "about.acknowledgements.upstream" = "ベース";
 "about.acknowledgements.author.format" = "作者: %@";
 "about.close" = "閉じる";
-"settings.glmocr.mode" = "モード";
-"settings.glmocr.mode.cloud" = "クラウド";
-"settings.glmocr.mode.local" = "ローカル";
-"settings.glmocr.local.apiKey.optional" = "ローカル MLX-VLM サーバーでは API キーは不要です";
-"vlm.provider.glmocr.local.description" = "GLM-OCR 用ローカル MLX-VLM サーバー";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";

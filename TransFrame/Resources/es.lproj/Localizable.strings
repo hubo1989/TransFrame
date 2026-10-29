@@ -550,19 +550,6 @@
 "onboarding.permission.grant" = "Otorgar Permiso";
 
 /* Configuración Inicial - Paso de Configuración */
-"onboarding.configuration.title" = "Configuración Opcional";
-"onboarding.configuration.message" = "Sus funciones OCR y traducción local ya están habilitadas. Opcionalmente configure servicios externos:";
-"onboarding.configuration.paddleocr" = "Dirección del Servidor PaddleOCR";
-"onboarding.configuration.paddleocr.hint" = "Déjelo vacío para usar macOS Vision OCR";
-"onboarding.configuration.mtran" = "Dirección de MTranServer";
-"onboarding.configuration.mtran.hint" = "Déjelo vacío para usar Traducción de Apple";
-"onboarding.configuration.placeholder" = "http://localhost:8080";
-"onboarding.configuration.placeholder.address" = "localhost";
-"onboarding.configuration.test" = "Probar Traducción";
-"onboarding.configuration.test.button" = "Probar Traducción";
-"onboarding.configuration.testing" = "Probando...";
-"onboarding.test.success" = "Prueba de traducción exitosa: \"%@\" → \"%@\"";
-"onboarding.test.failed" = "Prueba de traducción fallida: %@";
 
 /* Configuración Inicial - Paso de Finalización */
 "onboarding.complete.title" = "¡Todo Listo!";
@@ -575,21 +562,8 @@
 /* Configuración Inicial - Navegación */
 "onboarding.back" = "Atrás";
 "onboarding.continue" = "Continuar";
-"onboarding.next" = "Siguiente";
-"onboarding.skip" = "Omitir";
-"onboarding.complete" = "Completar";
 
 /* Configuración Inicial - PaddleOCR */
-"onboarding.paddleocr.title" = "PaddleOCR (Opcional)";
-"onboarding.paddleocr.description" = "Motor OCR mejorado para mayor precisión en el reconocimiento de texto, especialmente para chino.";
-"onboarding.paddleocr.installed" = "Instalado";
-"onboarding.paddleocr.not.installed" = "No Instalado";
-"onboarding.paddleocr.install" = "Instalar";
-"onboarding.paddleocr.installing" = "Instalando...";
-"onboarding.paddleocr.install.hint" = "Requiere Python 3 y pip. Ejecute: pip3 install paddleocr paddlepaddle";
-"onboarding.paddleocr.copy.command" = "Copiar Comando";
-"onboarding.paddleocr.refresh" = "Actualizar Estado";
-"onboarding.paddleocr.version" = "Versión: %@";
 
 /* Configuración - PaddleOCR */
 "settings.paddleocr.installed" = "Instalado";
@@ -635,12 +609,10 @@
 
 "vlm.provider.openai" = "OpenAI";
 "vlm.provider.claude" = "Claude";
-"vlm.provider.glmocr" = "GLM OCR";
 "vlm.provider.ollama" = "Ollama";
 "vlm.provider.paddleocr" = "PaddleOCR";
 "vlm.provider.openai.description" = "API de OpenAI GPT-4 Vision";
 "vlm.provider.claude.description" = "API de Anthropic Claude Vision";
-"vlm.provider.glmocr.description" = "API de análisis de diseño Zhipu GLM-OCR";
 "vlm.provider.ollama.description" = "Servidor Ollama local";
 "vlm.provider.paddleocr.description" = "Motor OCR local (gratis, sin conexión)";
 
@@ -819,11 +791,6 @@
 "about.acknowledgements.upstream" = "Basado en";
 "about.acknowledgements.author.format" = "por %@";
 "about.close" = "Cerrar";
-"settings.glmocr.mode" = "Modo";
-"settings.glmocr.mode.cloud" = "Nube";
-"settings.glmocr.mode.local" = "Local";
-"settings.glmocr.local.apiKey.optional" = "La clave API es opcional para servidores MLX-VLM locales";
-"vlm.provider.glmocr.local.description" = "Servidor MLX-VLM local para GLM-OCR";
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";

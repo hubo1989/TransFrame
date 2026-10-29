@@ -54,6 +54,8 @@ final class HistoryWindowController: NSObject {
         window.title = NSLocalizedString("history.title", comment: "Translation History")
         window.contentView = hostingView
         window.setFrameAutosaveName("TransFrameHistoryWindow")
+        // setFrameAutosaveName 只在已保存过 frame 时恢复；首次启动无存档时需要居中
+        window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
 

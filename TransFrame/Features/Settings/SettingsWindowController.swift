@@ -80,19 +80,13 @@ final class SettingsWindowController: NSObject {
         ])
 
         window.setFrameAutosaveName("TransFrameSettingsWindow")
+        // setFrameAutosaveName 只在已保存过 frame 时恢复；首次启动无存档时需要居中
+        window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
 
         // Follow in-app language switches so the native title stays localized
-        languageObserver = NotificationCenter.default.addObserver(
-            forName: LanguageManager.languageDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.window?.title = LanguageManager.shared.localizedString("settings.title", comment: "Settings")
-            }
-        }
+        registerLanguageObserverIfNeeded()
 
         // Set window behavior
         window.level = .normal
@@ -115,13 +109,34 @@ final class SettingsWindowController: NSObject {
     /// Closes the settings window if open.
     func closeSettings() {
         removeKeyEventMonitor()
+        removeLanguageObserver()
+        window?.close()
+        window = nil
+        viewModel = nil
+    }
+
+    // MARK: - Language Observer
+
+    /// Registers the language-change observer once per settings window session.
+    private func registerLanguageObserverIfNeeded() {
+        guard languageObserver == nil else { return }
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: LanguageManager.languageDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.window?.title = LanguageManager.shared.localizedString("settings.title", comment: "Settings")
+            }
+        }
+    }
+
+    /// Removes the language-change observer (idempotent).
+    private func removeLanguageObserver() {
         if let languageObserver {
             NotificationCenter.default.removeObserver(languageObserver)
             self.languageObserver = nil
         }
-        window?.close()
-        window = nil
-        viewModel = nil
     }
 
     // MARK: - Key Event Monitoring
@@ -163,6 +178,9 @@ extension SettingsWindowController: NSWindowDelegate {
 
             // Remove the event monitor
             removeKeyEventMonitor()
+
+            // Remove the language observer (close button path also lands here)
+            removeLanguageObserver()
 
             // Clear references
             window = nil

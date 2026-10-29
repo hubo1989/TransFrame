@@ -91,13 +91,6 @@ struct TargetLanguagePicker: View {
         }
         .help(localized("translation.language.target.hint"))
     }
-
-    private var targetLanguageDisplay: String {
-        if let targetLanguage = viewModel.translationTargetLanguage {
-            return targetLanguage.localizedName
-        }
-        return localized("translation.language.follow.system")
-    }
 }
 
 // MARK: - Translate and Insert Language Pickers
@@ -139,12 +132,5 @@ struct TranslateAndInsertTargetLanguagePicker: View {
             .labelsHidden()
             .frame(minWidth: 140)
         }
-    }
-
-    private var targetLanguageDisplay: String {
-        if let targetLanguage = viewModel.translateAndInsertTargetLanguage {
-            return targetLanguage.localizedName
-        }
-        return localized("translation.language.follow.system")
     }
 }
