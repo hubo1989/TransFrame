@@ -38,6 +38,7 @@ struct SettingsView: View {
                         AdvancedSettingsContent(viewModel: viewModel)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 28)
                 .padding(.top, 24)
                 .padding(.bottom, 36)
@@ -45,7 +46,7 @@ struct SettingsView: View {
             .navigationTitle(selectedTab.displayName)
             .background(Color(.windowBackgroundColor))
         }
-        .frame(width: 800, height: 600)
+        .frame(minWidth: 720, idealWidth: 800, maxWidth: .infinity, minHeight: 550, idealHeight: 720, maxHeight: .infinity)
         .background(Color(.windowBackgroundColor))
         .id(refreshID)
         .onReceive(

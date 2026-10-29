@@ -7,12 +7,13 @@ struct EngineSettingsContent: View {
         VStack(alignment: .leading, spacing: 20) {
             // Credential authorization (Keychain access)
             CredentialAccessRow(viewModel: viewModel)
-                .padding()
-                .background(Color(.controlBackgroundColor))
-                .cornerRadius(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .macosGroupedCard()
 
             // VLM Configuration (for image analysis)
             VLMConfigurationSection(viewModel: viewModel)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .macosGroupedCard()
 
             // Multi-Engine Translation Configuration
             MultiEngineSettingsSection(viewModel: viewModel)
@@ -70,6 +71,7 @@ struct VLMConfigurationSection: View {
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
+                            .frame(width: 280)
                         }
                     }
 
@@ -84,9 +86,11 @@ struct VLMConfigurationSection: View {
                             if showAPIKey {
                                 TextField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(width: 280)
                             } else {
                                 SecureField("", text: $viewModel.vlmEditingAPIKey)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(width: 280)
                             }
                             Button {
                                 showAPIKey.toggle()
@@ -95,11 +99,12 @@ struct VLMConfigurationSection: View {
                             }
                             .buttonStyle(.borderless)
                         }
-                        .frame(maxWidth: 320)
 
-                        Text(localized("settings.vlm.apiKey.optional"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if !viewModel.vlmProvider.typicallyRequiresAPIKey {
+                            Text(localized("settings.vlm.apiKey.optional"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     // Base URL
@@ -112,6 +117,7 @@ struct VLMConfigurationSection: View {
                         HStack(spacing: 6) {
                             TextField("", text: $viewModel.vlmEditingBaseURL)
                                 .textFieldStyle(.roundedBorder)
+                                .frame(width: 280)
 
                             if viewModel.vlmProvider == .ollama {
                                 Menu {
@@ -127,7 +133,6 @@ struct VLMConfigurationSection: View {
                                 .help(localized("settings.vlm.preset.help"))
                             }
                         }
-                        .frame(maxWidth: 320)
                     }
 
                     // Model Name
@@ -140,6 +145,7 @@ struct VLMConfigurationSection: View {
                         HStack(spacing: 6) {
                             TextField("", text: $viewModel.vlmEditingModelName)
                                 .textFieldStyle(.roundedBorder)
+                                .frame(width: 280)
 
                             if !availableVLMModels.isEmpty {
                                 Menu {
@@ -171,7 +177,6 @@ struct VLMConfigurationSection: View {
                             .buttonStyle(.bordered)
                             .disabled(isFetchingVLMModels)
                         }
-                        .frame(maxWidth: 320)
                     }
 
                     Text(viewModel.currentVLMProviderDescription)
@@ -241,9 +246,6 @@ struct VLMConfigurationSection: View {
                 }
             }
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
         .alert(isPresented: $showErrorAlert) {
             Alert(
                 title: Text(localized("engine.config.fetchModels.failed")),

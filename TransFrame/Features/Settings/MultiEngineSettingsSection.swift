@@ -25,21 +25,22 @@ struct MultiEngineSettingsSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Selection Mode (horizontal layout)
-            selectionModeSection
+        VStack(alignment: .leading, spacing: 20) {
+            // Translation Strategy Card (Selection Mode & Primary/Fallback Configuration)
+            VStack(alignment: .leading, spacing: 16) {
+                selectionModeSection
+                modeSpecificSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .macosGroupedCard()
 
-            // Mode-specific configuration
-            modeSpecificSection
-
-            Divider()
-
-            // Available Engines
-            enginesSection
+            // Available Engines Card
+            VStack(alignment: .leading, spacing: 16) {
+                enginesSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .macosGroupedCard()
         }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
         .onAppear {
             checkConfiguredEngines()
         }
