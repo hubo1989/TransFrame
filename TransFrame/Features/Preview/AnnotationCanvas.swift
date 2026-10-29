@@ -244,7 +244,7 @@ struct AnnotationCanvas: View {
             let font = Font.system(size: max(10, annotation.style.fontSize * scale), weight: .medium)
             let text = Text(annotation.text)
                 .font(font)
-                .foregroundColor(annotation.style.color.color)
+                .foregroundStyle(annotation.style.color.color)
 
             context.draw(
                 context.resolve(text),
@@ -379,7 +379,7 @@ struct AnnotationCanvas: View {
             .font(annotation.style.fontName == ".AppleSystemUIFont"
                   ? .system(size: annotation.style.fontSize * scale)
                   : .custom(annotation.style.fontName, size: annotation.style.fontSize * scale))
-            .foregroundColor(annotation.style.color.color)
+            .foregroundStyle(annotation.style.color.color)
 
         context.draw(
             context.resolve(text),
@@ -588,7 +588,7 @@ struct AnnotationCanvas: View {
         // Draw number text
         let text = Text("\(annotation.number)")
             .font(.system(size: scaledRadius * 1.2, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
 
         context.draw(
             context.resolve(text),

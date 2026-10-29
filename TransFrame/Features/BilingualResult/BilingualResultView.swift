@@ -37,7 +37,7 @@ struct BilingualResultView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
                 .padding(.bottom, 12)
         }
@@ -166,7 +166,7 @@ struct BilingualResultView: View {
     private func successToast(message: String, icon: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .foregroundColor(.green)
+                .foregroundStyle(.green)
             Text(message)
         }
         .padding(.horizontal, 16)

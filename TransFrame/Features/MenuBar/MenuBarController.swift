@@ -45,7 +45,10 @@ final class MenuBarController {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "TransFrame")
+            button.image = NSImage(
+                systemSymbolName: "camera.viewfinder",
+                accessibilityDescription: NSLocalizedString("app.name", value: "TransFrame", comment: "TransFrame")
+            )
             button.image?.isTemplate = true
         }
 

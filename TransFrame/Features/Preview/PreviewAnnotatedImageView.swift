@@ -333,7 +333,7 @@ struct PreviewAnnotatedImageView: View {
 
         return TextEditor(text: $viewModel.textInputContent)
             .font(.system(size: displayFontSize))
-            .foregroundColor(textColor)
+            .foregroundStyle(textColor)
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
@@ -373,7 +373,7 @@ struct PreviewAnnotatedImageView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial)
-        .cornerRadius(6)
+        .cornerRadius(8)
         .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text("\(String(localized: "preview.active.tool")): \(tool.displayName)"))
@@ -388,7 +388,7 @@ struct PreviewAnnotatedImageView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial)
-        .cornerRadius(6)
+        .cornerRadius(8)
         .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text("preview.crop.mode.active"))
@@ -415,7 +415,7 @@ struct PreviewAnnotatedImageView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
-        .cornerRadius(10)
+        .cornerRadius(8)
     }
 }
 
@@ -447,7 +447,7 @@ struct PreviewCropOverlay: View {
 
                 ForEach(0..<4, id: \.self) { corner in
                     let position = cornerPosition(for: corner, in: scaledRect)
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.white)
                         .frame(width: 10, height: 10)
                         .position(position)
@@ -493,7 +493,7 @@ struct PreviewCropOverlay: View {
 
         return Text("\(width) × \(height)")
             .font(.system(size: 12, weight: .medium, design: .monospaced))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color.black.opacity(0.75))

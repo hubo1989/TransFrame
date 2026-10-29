@@ -120,7 +120,7 @@ struct PreviewResultsPanel: View {
             if viewModel.isPerformingOCR {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Self.skeletonWidths, id: \.self) { width in
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: 4)
                             .fill(Color.primary.opacity(0.08))
                             .frame(width: width, height: 12)
                     }
@@ -155,7 +155,7 @@ struct PreviewResultsPanel: View {
             if viewModel.isTranslating {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Self.skeletonWidths.dropLast(), id: \.self) { width in
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: 4)
                             .fill(Color.primary.opacity(0.08))
                             .frame(width: width, height: 12)
                     }
@@ -225,9 +225,9 @@ struct PreviewResultsPanel: View {
                 ? Color.accentColor.opacity(0.28)
                 : Color.primary.opacity(0.06)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: 4)
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
         )
         .customTooltip(language.localizedName)

@@ -66,7 +66,7 @@ struct PreviewContentView: View {
             .cursor(.arrow)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
             .padding(.bottom, 12)
         }
@@ -141,7 +141,7 @@ struct PreviewContentView: View {
             if let message = viewModel.copySuccessMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                     Text(message)
                 }
                 .padding(.horizontal, 16)
@@ -169,7 +169,7 @@ private struct SmartRedactionToast: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: isDetecting ? "camera.metering.unknown" : "checkmark.circle.fill")
-                .foregroundColor(isDetecting ? Color.secondary : Color.green)
+                .foregroundStyle(isDetecting ? Color.secondary : Color.green)
             if isDetecting {
                 ProgressView().controlSize(.mini)
             }

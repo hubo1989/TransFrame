@@ -271,7 +271,7 @@ struct MultiEngineSettingsSection: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(.controlBackgroundColor))
-                .cornerRadius(6)
+                .cornerRadius(8)
             }
 
             // Add engine button if less than enabled engines
@@ -489,9 +489,9 @@ struct MultiEngineSettingsSection: View {
             }
             .padding(8)
             .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
             )
         }
@@ -516,9 +516,9 @@ struct MultiEngineSettingsSection: View {
             .padding(8)
             .frame(maxWidth: .infinity)
             .background(Color(.controlBackgroundColor))
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(style: SwiftUI.StrokeStyle(lineWidth: 1, dash: [4]))
                     .foregroundStyle(Color.gray.opacity(0.3))
             )
@@ -696,9 +696,9 @@ struct MultiEngineSettingsSection: View {
             }
             .padding(8)
             .background(config.isEnabled ? Color.accentColor.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(config.isEnabled ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
             )
         }

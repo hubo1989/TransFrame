@@ -496,7 +496,7 @@ struct CustomTooltipModifier: ViewModifier {
                             RoundedRectangle(cornerRadius: 4)
                                 .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
                         )
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
                         .offset(y: placement == .top ? -28 : 28)
                         .transition(.opacity)
                         .fixedSize()

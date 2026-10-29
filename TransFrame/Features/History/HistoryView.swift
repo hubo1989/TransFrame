@@ -128,7 +128,7 @@ private struct CategoryFilterBar: View {
             } label: {
                 HStack(spacing: 3) {
                     Image(systemName: store.onlyFavorites ? "star.fill" : "star")
-                        .foregroundColor(store.onlyFavorites ? .yellow : .secondary)
+                        .foregroundStyle(store.onlyFavorites ? .yellow : .secondary)
                     Text(String(localized: "history.filter.starred"))
                         .font(.system(size: 11, weight: store.onlyFavorites ? .semibold : .regular))
                 }
@@ -157,7 +157,7 @@ private struct CategoryFilterBar: View {
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
             }
-            .foregroundColor(isSelected ? .white : .primary)
+            .foregroundStyle(isSelected ? .white : .primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
@@ -256,7 +256,7 @@ private struct HistoryEntryRow: View {
                 } label: {
                     Image(systemName: entry.isFavorite ? "star.fill" : "star")
                         .font(.caption)
-                        .foregroundColor(entry.isFavorite ? .yellow : .secondary.opacity(0.4))
+                        .foregroundStyle(entry.isFavorite ? .yellow : .secondary.opacity(0.4))
                 }
                 .buttonStyle(.plain)
 

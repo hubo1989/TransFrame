@@ -374,7 +374,7 @@ private struct PinnedDocumentContent: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 .customTooltip(localized("pinned.tooltip.editInEditor"))
 
                 Divider().frame(height: 12)
@@ -386,7 +386,7 @@ private struct PinnedDocumentContent: View {
                 }) {
                     Image(systemName: alwaysOnTopState ? "pin.fill" : "pin.slash")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(alwaysOnTopState ? .accentColor : .secondary)
+                        .foregroundStyle(alwaysOnTopState ? Color.accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
@@ -396,7 +396,7 @@ private struct PinnedDocumentContent: View {
                 Button(action: onToggleClickThrough) {
                     Image(systemName: "cursorarrow.slash")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
@@ -412,7 +412,7 @@ private struct PinnedDocumentContent: View {
                 }) {
                     Image(systemName: showCopiedToast ? "checkmark" : "doc.on.clipboard")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(showCopiedToast ? .green : .secondary)
+                        .foregroundStyle(showCopiedToast ? .green : .secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(3)
@@ -424,7 +424,7 @@ private struct PinnedDocumentContent: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.red.opacity(0.85))
+                        .foregroundStyle(.red.opacity(0.85))
                 }
                 .buttonStyle(.plain)
                 .padding(3)
