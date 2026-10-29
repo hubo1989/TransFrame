@@ -827,3 +827,20 @@
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "API 모드";
+"settings.vlm.preset.help" = "자주 사용하는 로컬 엔드포인트 프리셋 선택";
+"settings.vlm.saveConfig" = "설정 저장";
+"settings.vlm.saved" = "저장됨";
+"settings.vlm.unsavedChanges" = "(저장되지 않은 변경사항 있음)";
+"settings.model.select" = "모델 선택";
+"pinned.edit" = "편집";
+"pinned.tooltip.editInEditor" = "테두리 없는 편집기에서 편집 (E)";
+"pinned.tooltip.alwaysOnTop" = "현재: 항상 위 (클릭하여 해제)";
+"pinned.tooltip.normalWindow" = "현재: 일반 창 (클릭하여 고정)";
+"pinned.tooltip.clickThrough" = "마우스 통과";
+"pinned.tooltip.copyImage" = "이미지 복사 (⌘C)";
+"pinned.tooltip.close" = "고정된 이미지 닫기 (Esc / Delete)";
+"bilingual.close.help" = "닫기 (Esc)";

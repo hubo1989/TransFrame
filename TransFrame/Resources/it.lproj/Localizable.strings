@@ -828,3 +828,20 @@
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "Modalità API";
+"settings.vlm.preset.help" = "Scegli preimpostazione endpoint locale";
+"settings.vlm.saveConfig" = "Salva configurazione";
+"settings.vlm.saved" = "Salvato";
+"settings.vlm.unsavedChanges" = "(Modifiche non salvate)";
+"settings.model.select" = "Seleziona modello";
+"pinned.edit" = "Modifica";
+"pinned.tooltip.editInEditor" = "Modifica nell'editor senza bordi (E)";
+"pinned.tooltip.alwaysOnTop" = "Attuale: Sempre in primo piano (Fai clic per sbloccare)";
+"pinned.tooltip.normalWindow" = "Attuale: Finestra normale (Fai clic per fissare)";
+"pinned.tooltip.clickThrough" = "Passaggio mouse";
+"pinned.tooltip.copyImage" = "Copia immagine (⌘C)";
+"pinned.tooltip.close" = "Chiudi immagine fissata (Esc / Delete)";
+"bilingual.close.help" = "Chiudi (Esc)";

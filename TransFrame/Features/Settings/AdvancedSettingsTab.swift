@@ -74,7 +74,7 @@ struct StrokeColorPicker: View {
                 }
             }
 
-            ColorPicker("", selection: $viewModel.strokeColor, supportsOpacity: false)
+            ColorPicker(localized("settings.stroke.color"), selection: $viewModel.strokeColor, supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 30)
         }

@@ -51,7 +51,7 @@ struct BilingualResultView: View {
                     .padding(10)
             }
             .buttonStyle(.plain)
-            .help("Close (Esc)")
+            .help(localized("bilingual.close.help"))
         }
         .background(
             RoundedRectangle(cornerRadius: 12)

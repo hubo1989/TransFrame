@@ -827,3 +827,20 @@
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "APIモード";
+"settings.vlm.preset.help" = "ローカルエンドポイントのプリセットを選択";
+"settings.vlm.saveConfig" = "設定を保存";
+"settings.vlm.saved" = "保存済み";
+"settings.vlm.unsavedChanges" = "（未保存の変更あり）";
+"settings.model.select" = "モデルを選択";
+"pinned.edit" = "編集";
+"pinned.tooltip.editInEditor" = "枠なしエディタで編集 (E)";
+"pinned.tooltip.alwaysOnTop" = "現在：最前面表示（クリックで解除）";
+"pinned.tooltip.normalWindow" = "現在：通常ウィンドウ（クリックで最前面）";
+"pinned.tooltip.clickThrough" = "マウスクリック貫通";
+"pinned.tooltip.copyImage" = "画像をコピー (⌘C)";
+"pinned.tooltip.close" = "ピン留め画像を閉じる (Esc / Delete)";
+"bilingual.close.help" = "閉じる (Esc)";

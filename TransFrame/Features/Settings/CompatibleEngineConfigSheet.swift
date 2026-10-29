@@ -89,9 +89,11 @@ struct CompatibleEngineConfigSheet: View {
                                         }
                                     }
                                 } label: {
-                                    Text("")
-                                        .frame(width: 8, height: 12)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
+                                .accessibilityLabel(localized("settings.model.select"))
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
                             }

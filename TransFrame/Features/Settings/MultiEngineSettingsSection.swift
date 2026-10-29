@@ -111,7 +111,7 @@ struct MultiEngineSettingsSection: View {
                     Text(localized("engine.config.primary"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("", selection: Binding(
+                    Picker(localized("engine.config.primary"), selection: Binding(
                         get: {
                             if let first = viewModel.settings.parallelEngines.first {
                                 // Check if it's a compatible engine
@@ -155,6 +155,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 140)
                 }
 
@@ -163,7 +164,7 @@ struct MultiEngineSettingsSection: View {
                     Text(localized("engine.config.fallback"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker("", selection: Binding(
+                    Picker(localized("engine.config.fallback"), selection: Binding(
                         get: {
                             if viewModel.settings.parallelEngines.count > 1 {
                                 let second = viewModel.settings.parallelEngines[1]
@@ -206,6 +207,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 140)
                 }
             }
@@ -225,7 +227,7 @@ struct MultiEngineSettingsSection: View {
                 .foregroundStyle(.secondary)
 
             // Engine order list
-            ForEach(Array(viewModel.settings.parallelEngines.enumerated()), id: \.offset) { index, engine in
+            ForEach(Array(viewModel.settings.parallelEngines.enumerated()), id: \.element) { index, engine in
                 HStack(spacing: 8) {
                     // Order number
                     Text("\(index + 1)")
@@ -828,7 +830,7 @@ struct MultiEngineSettingsSection: View {
                     Spacer()
 
                     // Primary engine picker
-                    Picker("", selection: Binding(
+                    Picker(scene.localizedName, selection: Binding(
                         get: {
                             let engine = viewModel.settings.sceneBindings[scene]?.primaryEngine ?? .apple
                             if engine == .custom, let customConfig = viewModel.settings.engineConfigs[.custom],
@@ -870,6 +872,7 @@ struct MultiEngineSettingsSection: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .labelsHidden()
                     .frame(width: 130)
                 }
             }

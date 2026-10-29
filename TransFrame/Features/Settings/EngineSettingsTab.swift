@@ -73,7 +73,7 @@ struct VLMConfigurationSection: View {
                     // OpenAI specific API mode selection
                     if viewModel.vlmProvider == .openai {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("API 模式")
+                            Text(localized("settings.vlm.apiMode"))
                                 .font(.body)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 84, alignment: .trailing)
@@ -124,7 +124,7 @@ struct VLMConfigurationSection: View {
                         }
                         .frame(maxWidth: 320)
 
-                        Text("（可选，为空则免鉴权请求）")
+                        Text(localized("settings.vlm.apiKey.optional"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -151,7 +151,7 @@ struct VLMConfigurationSection: View {
                                     Image(systemName: "list.bullet")
                                 }
                                 .menuStyle(.borderlessButton)
-                                .help("选择常用本地端点预设")
+                                .help(localized("settings.vlm.preset.help"))
                             }
                         }
                         .frame(maxWidth: 320)
@@ -215,7 +215,7 @@ struct VLMConfigurationSection: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "square.and.arrow.down")
-                                Text("保存配置")
+                                Text(localized("settings.vlm.saveConfig"))
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -241,12 +241,12 @@ struct VLMConfigurationSection: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
-                                Text("已保存")
+                                Text(localized("settings.vlm.saved"))
                                     .font(.caption)
                                     .foregroundStyle(.green)
                             }
                         } else if viewModel.hasUnsavedVLMChanges {
-                            Text("（有未保存更改）")
+                            Text(localized("settings.vlm.unsavedChanges"))
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
@@ -345,7 +345,7 @@ struct PaddleOCRStatusSection: View {
                     Text(localized("settings.paddleocr.mode"))
                         .foregroundStyle(.secondary)
                         .gridColumnAlignment(.trailing)
-                    Picker("", selection: $viewModel.paddleOCRMode) {
+                    Picker(localized("settings.paddleocr.mode"), selection: $viewModel.paddleOCRMode) {
                         ForEach(PaddleOCRMode.allCases, id: \.self) { mode in
                             VStack(alignment: .leading) {
                                 Text(mode.localizedName)
@@ -353,6 +353,7 @@ struct PaddleOCRStatusSection: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .frame(maxWidth: 300)
                 }
 
@@ -369,8 +370,9 @@ struct PaddleOCRStatusSection: View {
                     Text(localized("settings.paddleocr.useCloud"))
                         .foregroundStyle(.secondary)
                         .gridColumnAlignment(.trailing)
-                    Toggle("", isOn: $viewModel.paddleOCRUseCloud)
+                    Toggle(localized("settings.paddleocr.useCloud"), isOn: $viewModel.paddleOCRUseCloud)
                         .toggleStyle(.checkbox)
+                        .labelsHidden()
                 }
 
                 // Cloud API settings (only show when useCloud is true)
@@ -379,7 +381,7 @@ struct PaddleOCRStatusSection: View {
                         Text(localized("settings.paddleocr.cloudBaseURL"))
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
-                        TextField("", text: $viewModel.paddleOCRCloudBaseURL)
+                        TextField(localized("settings.paddleocr.cloudBaseURL"), text: $viewModel.paddleOCRCloudBaseURL)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 300)
                     }
@@ -388,7 +390,7 @@ struct PaddleOCRStatusSection: View {
                         Text(localized("settings.paddleocr.cloudAPIKey"))
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
-                        SecureField("", text: $viewModel.paddleOCRCloudAPIKey)
+                        SecureField(localized("settings.paddleocr.cloudAPIKey"), text: $viewModel.paddleOCRCloudAPIKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 300)
                     }
@@ -398,7 +400,7 @@ struct PaddleOCRStatusSection: View {
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
                         HStack {
-                            TextField("", text: $viewModel.paddleOCRCloudModelId)
+                            TextField(localized("settings.paddleocr.cloudModelId"), text: $viewModel.paddleOCRCloudModelId)
                                 .textFieldStyle(.roundedBorder)
 
                             if !availablePaddleModels.isEmpty {
@@ -409,9 +411,11 @@ struct PaddleOCRStatusSection: View {
                                         }
                                     }
                                 } label: {
-                                    Text("")
-                                        .frame(width: 8, height: 12)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
+                                .accessibilityLabel(localized("settings.model.select"))
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
                             }

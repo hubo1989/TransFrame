@@ -222,7 +222,7 @@ struct AppLanguagePicker: View {
 
             Spacer()
 
-            Picker("", selection: $selectedLanguage) {
+            Picker(localized("settings.language"), selection: $selectedLanguage) {
                 ForEach(AppLanguage.allCases) { language in
                     Text(language.displayName)
                         .tag(language)

@@ -928,3 +928,20 @@
 "translation.provider.recovery.translationFailed" = "Translation failed. Retry.";
 "translation.provider.recovery.unsupportedLanguage" = "Unsupported language pair. Choose another target language.";
 "translation.unknown" = "Unknown";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "API Mode";
+"settings.vlm.preset.help" = "Choose common local endpoint preset";
+"settings.vlm.saveConfig" = "Save Configuration";
+"settings.vlm.saved" = "Saved";
+"settings.vlm.unsavedChanges" = "(Unsaved changes)";
+"settings.model.select" = "Select Model";
+"pinned.edit" = "Edit";
+"pinned.tooltip.editInEditor" = "Edit in borderless editor (E)";
+"pinned.tooltip.alwaysOnTop" = "Current: Always on top (Click to unpin)";
+"pinned.tooltip.normalWindow" = "Current: Normal window (Click to pin on top)";
+"pinned.tooltip.clickThrough" = "Click-through";
+"pinned.tooltip.copyImage" = "Copy image (⌘C)";
+"pinned.tooltip.close" = "Close pinned image (Esc / Delete)";
+"bilingual.close.help" = "Close (Esc)";

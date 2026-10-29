@@ -842,3 +842,20 @@ Conceda permissão em Configurações do Sistema > Privacidade e Segurança > Mo
 
 "engine.config.fetchModels" = "Fetch";
 "engine.config.fetchModels.failed" = "Failed to fetch models";
+
+
+/* UI Audit Compliance Keys */
+"settings.vlm.apiMode" = "Modo API";
+"settings.vlm.preset.help" = "Escolher predefinição de endpoint local";
+"settings.vlm.saveConfig" = "Salvar configuração";
+"settings.vlm.saved" = "Salvo";
+"settings.vlm.unsavedChanges" = "(Alterações não salvas)";
+"settings.model.select" = "Selecionar modelo";
+"pinned.edit" = "Editar";
+"pinned.tooltip.editInEditor" = "Editar no editor sem bordas (E)";
+"pinned.tooltip.alwaysOnTop" = "Atual: Sempre no topo (Clique para desafixar)";
+"pinned.tooltip.normalWindow" = "Atual: Janela normal (Clique para fixar no topo)";
+"pinned.tooltip.clickThrough" = "Clique através";
+"pinned.tooltip.copyImage" = "Copiar imagem (⌘C)";
+"pinned.tooltip.close" = "Fechar imagem fixada (Esc / Delete)";
+"bilingual.close.help" = "Fechar (Esc)";

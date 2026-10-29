@@ -267,7 +267,7 @@ final class TranslationPopoverView: NSView {
         buttonPath.fill()
 
         // Button text
-        let buttonText = "Copy"
+        let buttonText = localized("common.copy")
         let font = NSFont.systemFont(ofSize: 13, weight: .medium)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
