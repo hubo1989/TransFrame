@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "セルフホスト翻訳サーバー";
 
 /* 新しい翻訳エンジン */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "OpenAI API による GPT-4 翻訳";
+"translation.engine.openai" = "OpenAI 公式";
+"translation.engine.openai.description" = "OpenAI 互換エンドポイント（OpenAI / Ollama / カスタム）";
+
+"engine.preset.openai" = "OpenAI 公式";
+"engine.preset.ollama" = "Ollama ローカル";
+"engine.preset.custom" = "カスタム";
+"engine.config.preset.title" = "プリセット";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Anthropic API による Claude 翻訳";
 "translation.engine.gemini" = "Gemini";

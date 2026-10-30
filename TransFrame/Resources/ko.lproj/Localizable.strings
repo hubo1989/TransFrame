@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "자체 호스팅 번역 서버";
 
 /* 새 번역 엔진 */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "OpenAI API를 통한 GPT-4 번역";
+"translation.engine.openai" = "OpenAI 공식";
+"translation.engine.openai.description" = "OpenAI 호환 엔드포인트 (OpenAI / Ollama / 사용자 지정)";
+
+"engine.preset.openai" = "OpenAI 공식";
+"engine.preset.ollama" = "Ollama 로컬";
+"engine.preset.custom" = "사용자 지정";
+"engine.config.preset.title" = "프리셋";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Anthropic API를 통한 Claude 번역";
 "translation.engine.gemini" = "Gemini";

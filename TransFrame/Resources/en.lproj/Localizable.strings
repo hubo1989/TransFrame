@@ -335,8 +335,13 @@
 "translation.engine.mtran.description" = "Self-hosted translation server";
 
 /* New Translation Engines */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "GPT-4 translation via OpenAI API";
+"translation.engine.openai" = "OpenAI official";
+"translation.engine.openai.description" = "OpenAI-compatible endpoint (OpenAI / Ollama / custom)";
+
+"engine.preset.openai" = "OpenAI official";
+"engine.preset.ollama" = "Ollama local";
+"engine.preset.custom" = "Custom";
+"engine.config.preset.title" = "Preset";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Claude translation via Anthropic API";
 "translation.engine.gemini" = "Gemini";

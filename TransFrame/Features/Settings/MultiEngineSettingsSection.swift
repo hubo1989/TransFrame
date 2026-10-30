@@ -333,13 +333,14 @@ struct MultiEngineSettingsSection: View {
                 Spacer()
             }
 
-            // Group engines by category
+            // Group engines by category (inventory convergence: 8 cards,
+            // ollama configured via the OpenAI-compatible preset proxy)
             ForEach(EngineCategory.allCases, id: \.self) { category in
                 if category == .compatible {
                     // Special handling for compatible engines - dynamic cards
                     compatibleEnginesSection
                 } else {
-                    let enginesInCategory = TranslationEngineType.allCases.filter { $0.category == category }
+                    let enginesInCategory = TranslationEngineType.uiCards.filter { $0.category == category }
                     if !enginesInCategory.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(category.localizedName)
@@ -374,7 +375,14 @@ struct MultiEngineSettingsSection: View {
                         viewModel.settings.engineConfigs = configs
                         viewModel.settings.saveEngineConfigs()
                     }
-                )
+                ),
+                onOllamaProxySave: { ollamaConfig in
+                    // Ollama preset save from the OpenAI-compatible card
+                    var configs = viewModel.settings.engineConfigs
+                    configs[.ollama] = ollamaConfig
+                    viewModel.settings.engineConfigs = configs
+                    viewModel.settings.saveEngineConfigs()
+                }
             )
         }
         .sheet(item: $compatibleSheetState) { state in
@@ -667,6 +675,11 @@ struct MultiEngineSettingsSection: View {
         // Built-in engines (apple, mtranServer) and Ollama don't need API keys
         // For others, we check if they require API key (simplified check - in real use would check keychain)
         let isConfigured = configuredEngines.contains(engine)
+        // OpenAI-compatible card counts as configured if either the official
+        // endpoint or the Ollama preset proxy has credentials.
+        let effectiveIsConfigured = engine == .openai
+            ? (isConfigured || configuredEngines.contains(.ollama))
+            : isConfigured
 
         Button {
             editingConfig = config
@@ -681,12 +694,13 @@ struct MultiEngineSettingsSection: View {
                         .font(.subheadline)
                         .lineLimit(1)
 
-                    // Show status for all engines
+                    // Show status for all engines. OpenAI-compatible card
+                    // aggregates openai + ollama (preset proxy, PRD US-003).
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(isConfigured ? (config.isEnabled ? Color.green : Color.gray) : Color.orange)
+                            .fill(effectiveIsConfigured ? (config.isEnabled ? Color.green : Color.gray) : Color.orange)
                             .frame(width: 6, height: 6)
-                        Text(isConfigured ? localized("engine.status.configured") : localized("engine.status.unconfigured"))
+                        Text(effectiveIsConfigured ? localized("engine.status.configured") : localized("engine.status.unconfigured"))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

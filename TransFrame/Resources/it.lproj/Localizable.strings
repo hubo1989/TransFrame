@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "Server di traduzione self-hosted";
 
 /* Nuovi motori di traduzione */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "Traduzione GPT-4 tramite API OpenAI";
+"translation.engine.openai" = "OpenAI ufficiale";
+"translation.engine.openai.description" = "Endpoint compatibile OpenAI (OpenAI / Ollama / personalizzato)";
+
+"engine.preset.openai" = "OpenAI ufficiale";
+"engine.preset.ollama" = "Ollama locale";
+"engine.preset.custom" = "Personalizzato";
+"engine.config.preset.title" = "Preimpostazione";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Traduzione Claude tramite API Anthropic";
 "translation.engine.gemini" = "Gemini";

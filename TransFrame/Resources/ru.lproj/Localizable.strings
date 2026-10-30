@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "Самостоятельный сервер перевода";
 
 /* Новые движки перевода */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "Перевод через GPT-4 API OpenAI";
+"translation.engine.openai" = "OpenAI официальный";
+"translation.engine.openai.description" = "OpenAI-совместимый эндпоинт (OpenAI / Ollama / свой)";
+
+"engine.preset.openai" = "OpenAI официальный";
+"engine.preset.ollama" = "Ollama локальный";
+"engine.preset.custom" = "Свои настройки";
+"engine.config.preset.title" = "Пресет";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Перевод через Claude API Anthropic";
 "translation.engine.gemini" = "Gemini";

@@ -17,11 +17,16 @@ struct EngineConfigSheet: View {
     @State private var apiKey: String = ""
     @State private var appID: String = ""
     @State private var secretKey: String = ""
-    @State private var baseURL: String = ""
-    @State private var modelName: String = ""
+    @State var baseURL: String = ""
+    @State var modelName: String = ""
     @State private var isTesting = false
     @State private var testResult: String?
     @State private var testSuccess = false
+    /// OpenAI-compatible preset: OpenAI official / Ollama local / custom.
+    /// Only used when engine == .openai (inventory convergence, PRD US-003).
+    @State var openAIPreset: OpenAICompatiblePreset = .openAI
+    /// Receives the proxied save for the Ollama preset (owned by the parent).
+    var onOllamaProxySave: ((TranslationEngineConfig) -> Void)? = nil
     private let logger = Logger.settings
 
     @State private var availableModels: [String] = []
@@ -54,14 +59,19 @@ struct EngineConfigSheet: View {
             // Configuration Form
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Preset picker for the converged OpenAI-compatible card
+                    if engine == .openai {
+                        openAIPresetSection
+                    }
+
                     // Enable Toggle
                     Toggle(isOn: $config.isEnabled) {
                         Text(localized("engine.config.enabled"))
                     }
                     .toggleStyle(.switch)
 
-                    // API Key (if required)
-                    if engine.requiresAPIKey {
+                    // API Key (if required). Ollama preset doesn't need one.
+                    if engine.requiresAPIKey && !(engine == .openai && openAIPreset == .ollamaLocal) {
                         if engine == .baidu {
                             // Baidu requires AppID and Secret Key
                             baiduCredentialsSection
@@ -152,6 +162,27 @@ struct EngineConfigSheet: View {
     }
 
     // MARK: - View Components
+
+    /// Preset template section for the OpenAI-compatible card. Choosing the
+    /// Ollama preset pre-fills the local endpoint and proxies the save to
+    /// the .ollama engine config (provider behavior is keyed by engine type).
+    private var openAIPresetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(localized("engine.config.preset.title"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Picker(localized("engine.config.preset.title"), selection: $openAIPreset) {
+                ForEach(OpenAICompatiblePreset.allCases) { preset in
+                    Text(preset.localizedName).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: openAIPreset) { _, newValue in
+                newValue.apply(to: self)
+            }
+        }
+    }
 
     @ViewBuilder
     private var apiKeySection: some View {
@@ -351,9 +382,31 @@ struct EngineConfigSheet: View {
 
     // MARK: - Actions
 
+    /// Pure function: the .ollama config produced by the Ollama preset
+    /// proxy save (extracted so the mapping is testable without a view).
+    static func makeOllamaProxyConfig(
+        isEnabled: Bool,
+        baseURL: String,
+        modelName: String,
+        options: EngineOptions?
+    ) -> TranslationEngineConfig {
+        var ollamaConfig = TranslationEngineConfig(id: .ollama, isEnabled: isEnabled)
+        var resolved = options ?? EngineOptions.default(for: .ollama) ?? EngineOptions()
+        resolved.baseURL = baseURL.isEmpty ? TranslationEngineType.ollama.defaultBaseURL : baseURL
+        resolved.modelName = modelName.isEmpty ? TranslationEngineType.ollama.defaultModelName : modelName
+        ollamaConfig.options = resolved
+        return ollamaConfig
+    }
+
+    /// Testing hook: loadConfig without view lifecycle.
+    func loadConfigForTesting() { loadConfig() }
+
     private func loadConfig() {
         baseURL = config.options?.baseURL ?? engine.defaultBaseURL ?? ""
         modelName = config.options?.modelName ?? engine.defaultModelName ?? ""
+        if engine == .openai {
+            openAIPreset = .inferred(fromBaseURL: baseURL)
+        }
 
         // Load credentials from keychain
         Task {
@@ -367,6 +420,28 @@ struct EngineConfigSheet: View {
     }
 
     private func saveConfig() {
+        saveConfigBody(persistCredentials: true)
+    }
+
+    /// Testing hook: same path as the Save button without touching the keychain.
+    func saveConfigForTesting() {
+        saveConfigBody(persistCredentials: false)
+    }
+
+    private func saveConfigBody(persistCredentials: Bool) {
+        // Ollama preset: proxy the save into the .ollama engine config.
+        // Provider behavior (endpoint shape, no-API-key) is keyed by engine
+        // type, so a local-endpoint OpenAI config only works under .ollama.
+        if engine == .openai, openAIPreset == .ollamaLocal {
+            onOllamaProxySave?(Self.makeOllamaProxyConfig(
+                isEnabled: config.isEnabled,
+                baseURL: baseURL,
+                modelName: modelName,
+                options: config.options
+            ))
+            return
+        }
+
         // Update options
         var options = config.options ?? EngineOptions.default(for: engine) ?? EngineOptions()
         if !baseURL.isEmpty {
@@ -378,6 +453,7 @@ struct EngineConfigSheet: View {
         config.options = options
 
         // Save credentials to keychain
+        guard persistCredentials else { return }
         Task {
             do {
                 if engine == .baidu {
@@ -482,6 +558,54 @@ struct EngineConfigSheet: View {
             self.errorMessage = error.localizedDescription
             self.showErrorAlert = true
             self.isFetchingModels = false
+        }
+    }
+}
+
+// MARK: - OpenAI-Compatible Preset
+
+/// Preset templates for the converged OpenAI-compatible card (PRD US-003).
+enum OpenAICompatiblePreset: String, CaseIterable, Identifiable {
+    case openAI
+    case ollamaLocal
+    case custom
+
+    var id: String { rawValue }
+
+    var localizedName: String {
+        switch self {
+        case .openAI:
+            return NSLocalizedString("engine.preset.openai", comment: "OpenAI official")
+        case .ollamaLocal:
+            return NSLocalizedString("engine.preset.ollama", comment: "Ollama local")
+        case .custom:
+            return NSLocalizedString("engine.preset.custom", comment: "Custom")
+        }
+    }
+
+    /// Pre-fill the sheet's editable fields for this preset.
+    func apply(to sheet: EngineConfigSheet) {
+        switch self {
+        case .openAI:
+            sheet.baseURL = TranslationEngineType.openai.defaultBaseURL ?? ""
+            sheet.modelName = TranslationEngineType.openai.defaultModelName ?? ""
+        case .ollamaLocal:
+            sheet.baseURL = TranslationEngineType.ollama.defaultBaseURL ?? ""
+            sheet.modelName = TranslationEngineType.ollama.defaultModelName ?? ""
+        case .custom:
+            break // keep whatever the user typed
+        }
+    }
+
+    /// Best-effort preset detection when reopening the sheet.
+    static func inferred(fromBaseURL baseURL: String) -> OpenAICompatiblePreset {
+        switch baseURL {
+        case TranslationEngineType.openai.defaultBaseURL:
+            return .openAI
+        case TranslationEngineType.ollama.defaultBaseURL:
+            return .ollamaLocal
+        default:
+            return .custom
         }
     }
 }
