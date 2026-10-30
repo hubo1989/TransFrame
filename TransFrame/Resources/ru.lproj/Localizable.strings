@@ -327,7 +327,7 @@
 "translation.engine.mtran.description" = "Самостоятельный сервер перевода";
 
 /* Новые движки перевода */
-"translation.engine.openai" = "OpenAI официальный";
+"translation.engine.openai" = "Совместимо с OpenAI";
 "translation.engine.openai.description" = "OpenAI-совместимый эндпоинт (OpenAI / Ollama / свой)";
 
 "engine.preset.openai" = "OpenAI официальный";
@@ -433,6 +433,7 @@
 "multiengine.error.no_engines" = "Не настроено ни одного движка перевода";
 "multiengine.error.primary_unavailable" = "Основной движок %@ недоступен";
 "multiengine.error.no_results" = "Нет результатов перевода";
+"multiengine.error.chain_entry_unavailable" = "Элемент цепочки недоступен: %@";
 
 /* Ошибки реестра */
 "registry.error.already_registered" = "Поставщик уже зарегистрирован";

@@ -327,7 +327,7 @@
 "translation.engine.mtran.description" = "Selbst gehosteter Übersetzungsserver";
 
 /* Neue Übersetzungs-Engines */
-"translation.engine.openai" = "OpenAI-offiziell";
+"translation.engine.openai" = "OpenAI-kompatibel";
 "translation.engine.openai.description" = "OpenAI-kompatibler Endpunkt (OpenAI / Ollama / benutzerdefiniert)";
 
 "engine.preset.openai" = "OpenAI-offiziell";
@@ -433,6 +433,7 @@
 "multiengine.error.no_engines" = "Keine Übersetzungs-Engines konfiguriert";
 "multiengine.error.primary_unavailable" = "Primäre Engine %@ ist nicht verfügbar";
 "multiengine.error.no_results" = "Keine Übersetzungsergebnisse verfügbar";
+"multiengine.error.chain_entry_unavailable" = "Ketteneintrag nicht verfügbar: %@";
 
 /* Registrierungsfehler */
 "registry.error.already_registered" = "Anbieter bereits registriert";

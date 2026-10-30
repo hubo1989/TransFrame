@@ -327,7 +327,7 @@
 "translation.engine.mtran.description" = "Servidor de tradução auto-hospedado";
 
 /* New Translation Engines */
-"translation.engine.openai" = "OpenAI oficial";
+"translation.engine.openai" = "Compatível com OpenAI";
 "translation.engine.openai.description" = "Endpoint compatível com OpenAI (OpenAI / Ollama / personalizado)";
 
 "engine.preset.openai" = "OpenAI oficial";
@@ -433,6 +433,7 @@
 "multiengine.error.no_engines" = "Nenhum motor de tradução configurado";
 "multiengine.error.primary_unavailable" = "Motor primário %@ não está disponível";
 "multiengine.error.no_results" = "Nenhum resultado de tradução disponível";
+"multiengine.error.chain_entry_unavailable" = "Entrada da cadeia indisponível: %@";
 
 /* Registry Errors */
 "registry.error.already_registered" = "Provedor já registrado";

@@ -327,7 +327,7 @@
 "translation.engine.mtran.description" = "セルフホスト翻訳サーバー";
 
 /* 新しい翻訳エンジン */
-"translation.engine.openai" = "OpenAI 公式";
+"translation.engine.openai" = "OpenAI 互換";
 "translation.engine.openai.description" = "OpenAI 互換エンドポイント（OpenAI / Ollama / カスタム）";
 
 "engine.preset.openai" = "OpenAI 公式";
@@ -433,6 +433,7 @@
 "multiengine.error.no_engines" = "翻訳エンジンが設定されていません";
 "multiengine.error.primary_unavailable" = "プライマリエンジン %@ は利用できません";
 "multiengine.error.no_results" = "翻訳結果がありません";
+"multiengine.error.chain_entry_unavailable" = "チェーン項目が利用不可: %@";
 
 /* レジストリエラー */
 "registry.error.already_registered" = "プロバイダーは既に登録されています";

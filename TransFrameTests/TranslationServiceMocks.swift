@@ -190,6 +190,33 @@ actor MockTranslationServicing: TranslationServicing {
         return nextResult
     }
 
+    /// Real V2 recording: independent of the protocol default's legacy
+    // flattening, records the chain it was called with (PR #92 review).
+    private(set) var orderedRequests: [[EngineChainItem]] = []
+
+    func translateOrderedV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?,
+        chain: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        orderedRequests.append(chain)
+        if let nextError {
+            throw nextError
+        }
+        return TranslationResultBundle(
+            results: [EngineResult(
+                engine: chain.first?.resolvedEngine ?? .apple,
+                segments: nextResult,
+                latency: 0
+            )],
+            primaryEngine: chain.first?.resolvedEngine ?? .apple,
+            selectionMode: .primaryWithFallback,
+            scene: scene
+        )
+    }
+
     func requestCount() async -> Int {
         requests.count
     }

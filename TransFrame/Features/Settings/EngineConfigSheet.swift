@@ -78,8 +78,11 @@ struct EngineConfigSheet: View {
                     }
                     .toggleStyle(.switch)
 
-                    // API Key (if required). Ollama preset doesn't need one.
-                    if engine.requiresAPIKey && !(engine == .openai && openAIPreset == .ollamaLocal) {
+                    // API Key (if required). Ollama preset and keyless local
+                    // custom endpoints don't need one.
+                    if engine.requiresAPIKey
+                        && !(engine == .openai && openAIPreset == .ollamaLocal)
+                        && !(engine == .openai && openAIPreset == .custom && Self.isLocalEndpoint(baseURL)) {
                         if engine == .baidu {
                             // Baidu requires AppID and Secret Key
                             baiduCredentialsSection
@@ -394,7 +397,20 @@ struct EngineConfigSheet: View {
         }
     }
 
+    /// Whether the given base URL points at a local endpoint (localhost /
+    /// loopback / *.local) that may run keyless.
+    static func isLocalEndpoint(_ urlString: String) -> Bool {
+        guard let host = URL(string: urlString)?.host else { return false }
+        let lowered = host.lowercased()
+        return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].contains(lowered)
+            || lowered.hasSuffix(".local")
+    }
+
     private var canTest: Bool {
+        // Keyless local custom endpoints test without an API key
+        if engine == .openai, openAIPreset == .custom, Self.isLocalEndpoint(baseURL) {
+            return effectiveIsEnabled
+        }
         if !effectiveIsEnabled { return false }
         if effectiveEngine.requiresAPIKey {
             if effectiveEngine == .baidu {
@@ -406,6 +422,9 @@ struct EngineConfigSheet: View {
     }
 
     private var hasValidConfig: Bool {
+        if engine == .openai, openAIPreset == .custom, Self.isLocalEndpoint(baseURL) {
+            return true
+        }
         if effectiveEngine.requiresAPIKey {
             if effectiveEngine == .baidu {
                 return !appID.isEmpty && !secretKey.isEmpty
@@ -521,9 +540,10 @@ struct EngineConfigSheet: View {
         let targetEngine = effectiveEngine
 
         do {
-            // Save credentials temporarily for testing (Ollama preset never
-            // reaches here: effectiveEngine == .ollama requires no key)
-            if targetEngine.requiresAPIKey {
+            // Save credentials temporarily for testing (Ollama preset and
+            // keyless local custom endpoints never reach this branch)
+            if targetEngine.requiresAPIKey
+                && !(engine == .openai && openAIPreset == .custom && Self.isLocalEndpoint(baseURL)) {
                 hasModifiedCredentialsForTesting = true
                 if targetEngine == .baidu {
                     try await KeychainService.shared.saveCredentials(

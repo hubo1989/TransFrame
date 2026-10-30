@@ -335,7 +335,7 @@
 "translation.engine.mtran.description" = "自托管翻译服务器";
 
 /* 新增翻译引擎 */
-"translation.engine.openai" = "OpenAI 官方";
+"translation.engine.openai" = "OpenAI 兼容";
 "translation.engine.openai.description" = "OpenAI 兼容端点（OpenAI 官方 / Ollama 本地 / 自定义）";
 
 "engine.preset.openai" = "OpenAI 官方";
@@ -460,6 +460,7 @@
 "multiengine.error.no_engines" = "未配置翻译引擎";
 "multiengine.error.primary_unavailable" = "主引擎 %@ 不可用";
 "multiengine.error.no_results" = "无翻译结果";
+"multiengine.error.chain_entry_unavailable" = "引擎链条目不可用：%@";
 
 /* 注册表错误 */
 "registry.error.already_registered" = "提供者已注册";

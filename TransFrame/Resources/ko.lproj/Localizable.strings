@@ -327,7 +327,7 @@
 "translation.engine.mtran.description" = "자체 호스팅 번역 서버";
 
 /* 새 번역 엔진 */
-"translation.engine.openai" = "OpenAI 공식";
+"translation.engine.openai" = "OpenAI 호환";
 "translation.engine.openai.description" = "OpenAI 호환 엔드포인트 (OpenAI / Ollama / 사용자 지정)";
 
 "engine.preset.openai" = "OpenAI 공식";
@@ -433,6 +433,7 @@
 "multiengine.error.no_engines" = "구성된 번역 엔진이 없습니다";
 "multiengine.error.primary_unavailable" = "주 엔진 %@을(를) 사용할 수 없습니다";
 "multiengine.error.no_results" = "번역 결과가 없습니다";
+"multiengine.error.chain_entry_unavailable" = "체인 항목을 사용할 수 없음: %@";
 
 /* 레지스트리 오류 */
 "registry.error.already_registered" = "공급자가 이미 등록되었습니다";

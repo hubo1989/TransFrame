@@ -120,11 +120,9 @@ struct MultiEngineSettingsSection: View {
             }
 
             ForEach(
-                Array(viewModel.settings.engineChainV2.enumerated().map {
-                    (id: "\($0.offset)-\($0.element.id.uuidString)", offset: $0.offset, item: $0.element)
-                }),
-                id: \.id
-            ) { _, index, item in
+                Array(viewModel.settings.engineChainV2.enumerated()),
+                id: \.element.id
+            ) { index, item in
                 chainRowV2(
                     item: item,
                     index: index,
@@ -132,11 +130,9 @@ struct MultiEngineSettingsSection: View {
                     compatibleConfigs: compatibleConfigs
                 )
             }
-            .onMove { source, destination in
-                var chain = viewModel.settings.engineChainV2
-                chain.move(fromOffsets: source, toOffset: destination)
-                viewModel.settings.setEngineChainV2(chain)
-            }
+            // Reordering is explicit up/down controls: .onMove inside a
+            // VStack has no drag source, so it can never fire (PR #92 review).
+            // Row identity stays composite so moves/deletes don't shift rows.
 
             if viewModel.settings.engineChainV2.count < EngineSelectionLimits.orderedChainLimit {
                 Menu {
@@ -211,6 +207,26 @@ struct MultiEngineSettingsSection: View {
             }
             .buttonStyle(.plain)
             .disabled(viewModel.settings.engineChainV2.count <= 1)
+
+            Button {
+                moveChainEntry(at: index, offset: -1)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == 0)
+
+            Button {
+                moveChainEntry(at: index, offset: 1)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == viewModel.settings.engineChainV2.count - 1)
         }
         .padding(.vertical, 2)
     }
@@ -246,6 +262,14 @@ struct MultiEngineSettingsSection: View {
         var chain = viewModel.settings.engineChainV2
         guard chain.indices.contains(index), chain.count > 1 else { return }
         chain.remove(at: index)
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func moveChainEntry(at index: Int, offset: Int) {
+        var chain = viewModel.settings.engineChainV2
+        let target = index + offset
+        guard chain.indices.contains(index), chain.indices.contains(target) else { return }
+        chain.swapAt(index, target)
         viewModel.settings.setEngineChainV2(chain)
     }
 
@@ -540,7 +564,7 @@ struct MultiEngineSettingsSection: View {
                         viewModel.settings.saveEngineConfigs()
                     }
                 ),
-                ollamaProxyConfig: viewModel.settings.engineConfigs[.ollama],
+                ollamaProxyConfig: viewModel.settings.savedOllamaConfig(),
                 onOllamaProxySave: { ollamaConfig in
                     // Ollama preset save from the OpenAI-compatible card
                     var configs = viewModel.settings.engineConfigs
@@ -1072,10 +1096,11 @@ struct MultiEngineSettingsSection: View {
             var configured = Set<TranslationEngineType>()
             for engine in TranslationEngineType.allCases {
                 if engine == .ollama {
-                    // Ollama is only "configured" when a saved config exists
-                    // (preset proxy write); a fresh install must not aggregate
-                    // the OpenAI card as configured via a default entry.
-                    if viewModel.settings.engineConfigs[.ollama] != nil {
+                    // Ollama is only "configured" when the user actually saved a
+                    // preset config — loadEngineConfigs() prepopulates defaults
+                    // for every engine, so a dictionary hit means nothing.
+                    if let saved = viewModel.settings.savedOllamaConfig(),
+                       saved.isEnabled || saved.options?.baseURL != TranslationEngineType.ollama.defaultBaseURL {
                         configured.insert(engine)
                     }
                 } else if !engine.requiresAPIKey {

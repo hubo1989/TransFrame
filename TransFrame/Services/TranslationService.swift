@@ -719,6 +719,12 @@ actor TranslationService {
                     scene: scene
                 )
             } catch {
+                // Cancellation is not an engine failure: the user stopped the
+                // operation — rethrow immediately instead of grinding through
+                // the remaining chain (PR #92 review).
+                if error is CancellationError {
+                    throw error
+                }
                 failures.append(EngineResult.failed(
                     engine: item.resolvedEngine,
                     error: error,
@@ -728,9 +734,28 @@ actor TranslationService {
             }
         }
 
+        // Wrap per-entry errors with the engine identity: provider error
+        // descriptions are generic ("not available", "timed out") and the
+        // aggregated message must tell the user WHICH engine needs attention
+        // (PR #92 review).
         throw MultiEngineError.allEnginesFailed(
-            failures.compactMap { $0.error }
+            failures.map { result in
+                EngineFailedError(engine: result.engine, underlying: result.error)
+            }
         )
+    }
+
+    /// A chain entry failure carrying its engine identity for the
+    /// aggregated allEnginesFailed message (PR #92 review: bare provider
+    /// errors are generic and cannot attribute the failure).
+    struct EngineFailedError: LocalizedError, Sendable {
+        let engine: TranslationEngineType
+        let underlying: Error?
+
+        var errorDescription: String? {
+            let reason = underlying?.localizedDescription ?? "unknown error"
+            return "\(engine.localizedName): \(reason)"
+        }
     }
 
     /// Translate with one chain entry, resolving compatible instances by UUID.

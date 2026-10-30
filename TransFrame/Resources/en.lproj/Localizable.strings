@@ -335,7 +335,7 @@
 "translation.engine.mtran.description" = "Self-hosted translation server";
 
 /* New Translation Engines */
-"translation.engine.openai" = "OpenAI official";
+"translation.engine.openai" = "OpenAI-compatible";
 "translation.engine.openai.description" = "OpenAI-compatible endpoint (OpenAI / Ollama / custom)";
 
 "engine.preset.openai" = "OpenAI official";
@@ -460,6 +460,7 @@
 "multiengine.error.no_engines" = "No translation engines are configured";
 "multiengine.error.primary_unavailable" = "Primary engine %@ is not available";
 "multiengine.error.no_results" = "No translation results available";
+"multiengine.error.chain_entry_unavailable" = "Engine chain entry unavailable: %@";
 
 /* Registry Errors */
 "registry.error.already_registered" = "Provider is already registered";
