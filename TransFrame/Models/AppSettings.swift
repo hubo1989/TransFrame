@@ -1003,6 +1003,18 @@ final class AppSettings {
         UserDefaults.standard.set(compareData, forKey: Keys.compareEnginesV2)
     }
 
+    /// The user-saved .ollama config, or nil when only the prepopulated
+    /// default exists (loadEngineConfigs fills every engine with defaults, so
+    /// engineConfigs[.ollama] != nil does NOT mean the user configured it —
+    /// PR #92 review: the OpenAI card must not adopt default Ollama values).
+    nonisolated func savedOllamaConfig() -> TranslationEngineConfig? {
+        guard let data = UserDefaults.standard.data(forKey: Keys.engineConfigs),
+              let configs = try? JSONDecoder().decode([TranslationEngineConfig].self, from: data) else {
+            return nil
+        }
+        return configs.first { $0.id == .ollama }
+    }
+
     /// Load V2 settings; run the one-time legacy migration when absent.
     /// Idempotent: once V2 keys exist they are returned as-is.
     /// Testing hook: reads/writes the shared UserDefaults directly so tests

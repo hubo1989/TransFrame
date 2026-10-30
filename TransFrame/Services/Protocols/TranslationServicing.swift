@@ -46,11 +46,55 @@ protocol TranslationServicing: Sendable {
         parallelEngines: [TranslationEngineType],
         sceneBindings: [TranslationScene: SceneEngineBinding]
     ) async throws -> TranslationResultBundle
+
+    /// V2 ordered mode (Phase 3): sequential fallback chain.
+    func translateOrderedV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?,
+        chain: [EngineChainItem]
+    ) async throws -> TranslationResultBundle
 }
 
 // MARK: - Default Implementation
 
 extension TranslationServicing {
+    /// Default V2 ordered implementation: routes down to legacy translate so
+    /// existing mocks/tests keep working without knowing about V2 chains.
+    /// The real TranslationService overrides this with chain semantics.
+    func translateOrderedV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        chain: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        let bilingualSegments = try await translate(
+            segments: segments,
+            to: targetLanguage,
+            preferredEngine: chain.first?.resolvedEngine ?? .apple,
+            from: sourceLanguage,
+            scene: scene,
+            mode: .primaryWithFallback,
+            fallbackEnabled: true,
+            parallelEngines: chain.compactMap {
+                if case .builtin(let engine) = $0.kind { return engine } else { return nil }
+            },
+            sceneBindings: [:]
+        )
+        return TranslationResultBundle(
+            results: [EngineResult(
+                engine: chain.first?.resolvedEngine ?? .apple,
+                segments: bilingualSegments,
+                latency: 0
+            )],
+            primaryEngine: chain.first?.resolvedEngine ?? .apple,
+            selectionMode: .primaryWithFallback,
+            scene: scene
+        )
+    }
+
     func translateBundle(
         segments: [String],
         to targetLanguage: String,

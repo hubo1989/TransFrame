@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "자체 호스팅 번역 서버";
 
 /* 새 번역 엔진 */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "OpenAI API를 통한 GPT-4 번역";
+"translation.engine.openai" = "OpenAI 호환";
+"translation.engine.openai.description" = "OpenAI 호환 엔드포인트 (OpenAI / Ollama / 사용자 지정)";
+
+"engine.preset.openai" = "OpenAI 공식";
+"engine.preset.ollama" = "Ollama 로컬";
+"engine.preset.custom" = "사용자 지정";
+"engine.config.preset.title" = "프리셋";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Anthropic API를 통한 Claude 번역";
 "translation.engine.gemini" = "Gemini";
@@ -355,6 +360,10 @@
 
 "engine.mode.ordered" = "순차 폴백";
 "engine.mode.compare" = "병렬 비교";
+
+"engine.config.chain.title" = "폴백 체인";
+"engine.config.chain.add" = "체인에 추가";
+"engine.config.chain.entryDeleted" = "항목 삭제됨";
 
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
@@ -424,6 +433,7 @@
 "multiengine.error.no_engines" = "구성된 번역 엔진이 없습니다";
 "multiengine.error.primary_unavailable" = "주 엔진 %@을(를) 사용할 수 없습니다";
 "multiengine.error.no_results" = "번역 결과가 없습니다";
+"multiengine.error.chain_entry_unavailable" = "체인 항목을 사용할 수 없음: %@";
 
 /* 레지스트리 오류 */
 "registry.error.already_registered" = "공급자가 이미 등록되었습니다";

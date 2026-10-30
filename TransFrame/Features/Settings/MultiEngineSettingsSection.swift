@@ -57,7 +57,12 @@ struct MultiEngineSettingsSection: View {
             // Segmented mode picker
             Picker(localized("engine.config.title"), selection: Binding(
                 get: { viewModel.settings.engineSelectionMode },
-                set: { viewModel.settings.engineSelectionMode = $0 }
+                set: { newValue in
+                    viewModel.settings.engineSelectionMode = newValue
+                    // Keep the V2 mode in sync for the converged pipeline
+                    viewModel.settings.engineModeV2 =
+                        (newValue == .parallel) ? .compare : .ordered
+                }
             )) {
                 ForEach(EngineSelectionMode.allCases) { mode in
                     Label(mode.localizedName, systemImage: mode.iconName)
@@ -66,6 +71,13 @@ struct MultiEngineSettingsSection: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+
+            // V2 ordered chain editor (Phase 3): shown while legacy modes
+            // remain; becomes the only UI at Phase 6 teardown.
+            if viewModel.settings.engineModeV2 == .ordered {
+                Divider()
+                orderedChainSectionV2
+            }
         }
     }
 
@@ -83,6 +95,182 @@ struct MultiEngineSettingsSection: View {
         case .sceneBinding:
             sceneBindingSection
         }
+    }
+
+    // MARK: - V2 Ordered Chain Section (Phase 3)
+
+    /// Engine chain editor for the converged ordered mode: ordered list,
+    /// drag/move reordering, replace/remove per row, add from configured
+    /// cards or compatible instances. Reuses the quickSwitch row pattern
+    /// (composite IDs so row identity doesn't shift mid-delete).
+    @ViewBuilder
+    private var orderedChainSectionV2: some View {
+        let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
+        let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(localized("engine.config.chain.title"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(viewModel.settings.engineChainV2.count)/\(EngineSelectionLimits.orderedChainLimit)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(
+                Array(viewModel.settings.engineChainV2.enumerated()),
+                id: \.element.id
+            ) { index, item in
+                chainRowV2(
+                    item: item,
+                    index: index,
+                    enabledEngines: enabledEngines,
+                    compatibleConfigs: compatibleConfigs
+                )
+            }
+            // Reordering is explicit up/down controls: .onMove inside a
+            // VStack has no drag source, so it can never fire (PR #92 review).
+            // Row identity stays composite so moves/deletes don't shift rows.
+
+            if viewModel.settings.engineChainV2.count < EngineSelectionLimits.orderedChainLimit {
+                Menu {
+                    ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
+                        Button(config.id.localizedName) {
+                            appendChainEntry(.builtin(config.id))
+                        }
+                    }
+                    if !compatibleConfigs.isEmpty {
+                        Divider()
+                        ForEach(compatibleConfigs) { config in
+                            Button(config.displayName) {
+                                appendChainEntry(.compatible(config.id))
+                            }
+                        }
+                    }
+                } label: {
+                    Label(localized("engine.config.chain.add"), systemImage: "plus.circle")
+                        .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+    }
+
+    private func chainRowV2(
+        item: EngineChainItem,
+        index: Int,
+        enabledEngines: [TranslationEngineConfig],
+        compatibleConfigs: [CompatibleTranslationProvider.CompatibleConfig]
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.caption)
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(Color.accentColor)
+                .cornerRadius(9)
+
+            Text(chainItemDisplayName(item, compatibleConfigs: compatibleConfigs))
+                .font(.subheadline)
+
+            Spacer()
+
+            Menu {
+                ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
+                    Button(config.id.localizedName) {
+                        replaceChainEntry(at: index, with: .builtin(config.id))
+                    }
+                }
+                if !compatibleConfigs.isEmpty {
+                    Divider()
+                    ForEach(compatibleConfigs) { config in
+                        Button(config.displayName) {
+                            replaceChainEntry(at: index, with: .compatible(config.id))
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+
+            Button {
+                removeChainEntry(at: index)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.settings.engineChainV2.count <= 1)
+
+            Button {
+                moveChainEntry(at: index, offset: -1)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == 0)
+
+            Button {
+                moveChainEntry(at: index, offset: 1)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == viewModel.settings.engineChainV2.count - 1)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func chainItemDisplayName(
+        _ item: EngineChainItem,
+        compatibleConfigs: [CompatibleTranslationProvider.CompatibleConfig]
+    ) -> String {
+        switch item.kind {
+        case .builtin(let engine):
+            return engine.localizedName
+        case .compatible(let id):
+            let name = compatibleConfigs.first(where: { $0.id == id })?.displayName
+            return name ?? localized("engine.config.chain.entryDeleted")
+        }
+    }
+
+    private func appendChainEntry(_ kind: EngineChainItem.Kind) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.count < EngineSelectionLimits.orderedChainLimit else { return }
+        chain.append(EngineChainItem(kind: kind))
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func replaceChainEntry(at index: Int, with kind: EngineChainItem.Kind) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.indices.contains(index) else { return }
+        chain[index] = EngineChainItem(kind: kind)
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func removeChainEntry(at index: Int) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.indices.contains(index), chain.count > 1 else { return }
+        chain.remove(at: index)
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func moveChainEntry(at index: Int, offset: Int) {
+        var chain = viewModel.settings.engineChainV2
+        let target = index + offset
+        guard chain.indices.contains(index), chain.indices.contains(target) else { return }
+        chain.swapAt(index, target)
+        viewModel.settings.setEngineChainV2(chain)
     }
 
     // MARK: - Primary/Fallback Section
@@ -333,13 +521,14 @@ struct MultiEngineSettingsSection: View {
                 Spacer()
             }
 
-            // Group engines by category
+            // Group engines by category (inventory convergence: 8 cards,
+            // ollama configured via the OpenAI-compatible preset proxy)
             ForEach(EngineCategory.allCases, id: \.self) { category in
                 if category == .compatible {
                     // Special handling for compatible engines - dynamic cards
                     compatibleEnginesSection
                 } else {
-                    let enginesInCategory = TranslationEngineType.allCases.filter { $0.category == category }
+                    let enginesInCategory = TranslationEngineType.uiCards.filter { $0.category == category }
                     if !enginesInCategory.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(category.localizedName)
@@ -374,7 +563,15 @@ struct MultiEngineSettingsSection: View {
                         viewModel.settings.engineConfigs = configs
                         viewModel.settings.saveEngineConfigs()
                     }
-                )
+                ),
+                ollamaProxyConfig: viewModel.settings.savedOllamaConfig(),
+                onOllamaProxySave: { ollamaConfig in
+                    // Ollama preset save from the OpenAI-compatible card
+                    var configs = viewModel.settings.engineConfigs
+                    configs[.ollama] = ollamaConfig
+                    viewModel.settings.engineConfigs = configs
+                    viewModel.settings.saveEngineConfigs()
+                }
             )
         }
         .sheet(item: $compatibleSheetState) { state in
@@ -667,6 +864,11 @@ struct MultiEngineSettingsSection: View {
         // Built-in engines (apple, mtranServer) and Ollama don't need API keys
         // For others, we check if they require API key (simplified check - in real use would check keychain)
         let isConfigured = configuredEngines.contains(engine)
+        // OpenAI-compatible card counts as configured if either the official
+        // endpoint or the Ollama preset proxy has credentials.
+        let effectiveIsConfigured = engine == .openai
+            ? (isConfigured || configuredEngines.contains(.ollama))
+            : isConfigured
 
         Button {
             editingConfig = config
@@ -681,12 +883,13 @@ struct MultiEngineSettingsSection: View {
                         .font(.subheadline)
                         .lineLimit(1)
 
-                    // Show status for all engines
+                    // Show status for all engines. OpenAI-compatible card
+                    // aggregates openai + ollama (preset proxy, PRD US-003).
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(isConfigured ? (config.isEnabled ? Color.green : Color.gray) : Color.orange)
+                            .fill(effectiveIsConfigured ? (config.isEnabled ? Color.green : Color.gray) : Color.orange)
                             .frame(width: 6, height: 6)
-                        Text(isConfigured ? localized("engine.status.configured") : localized("engine.status.unconfigured"))
+                        Text(effectiveIsConfigured ? localized("engine.status.configured") : localized("engine.status.unconfigured"))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -892,7 +1095,15 @@ struct MultiEngineSettingsSection: View {
         Task {
             var configured = Set<TranslationEngineType>()
             for engine in TranslationEngineType.allCases {
-                if !engine.requiresAPIKey {
+                if engine == .ollama {
+                    // Ollama is only "configured" when the user actually saved a
+                    // preset config — loadEngineConfigs() prepopulates defaults
+                    // for every engine, so a dictionary hit means nothing.
+                    if let saved = viewModel.settings.savedOllamaConfig(),
+                       saved.isEnabled || saved.options?.baseURL != TranslationEngineType.ollama.defaultBaseURL {
+                        configured.insert(engine)
+                    }
+                } else if !engine.requiresAPIKey {
                     configured.insert(engine)
                 } else {
                     let hasCreds = await KeychainService.shared.hasCredentials(for: engine)

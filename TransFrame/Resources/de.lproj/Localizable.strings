@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "Selbst gehosteter Übersetzungsserver";
 
 /* Neue Übersetzungs-Engines */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "GPT-4-Übersetzung über die OpenAI-API";
+"translation.engine.openai" = "OpenAI-kompatibel";
+"translation.engine.openai.description" = "OpenAI-kompatibler Endpunkt (OpenAI / Ollama / benutzerdefiniert)";
+
+"engine.preset.openai" = "OpenAI-offiziell";
+"engine.preset.ollama" = "Ollama (lokal)";
+"engine.preset.custom" = "Benutzerdefiniert";
+"engine.config.preset.title" = "Voreinstellung";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Claude-Übersetzung über die Anthropic-API";
 "translation.engine.gemini" = "Gemini";
@@ -355,6 +360,10 @@
 
 "engine.mode.ordered" = "Sequentiell";
 "engine.mode.compare" = "Vergleich";
+
+"engine.config.chain.title" = "Fallback-Kette";
+"engine.config.chain.add" = "Zur Kette hinzufügen";
+"engine.config.chain.entryDeleted" = "Eintrag gelöscht";
 
 /* Engine-Auswahlmodi */
 "engine.selection.mode.title" = "Engine-Auswahlmodus";
@@ -424,6 +433,7 @@
 "multiengine.error.no_engines" = "Keine Übersetzungs-Engines konfiguriert";
 "multiengine.error.primary_unavailable" = "Primäre Engine %@ ist nicht verfügbar";
 "multiengine.error.no_results" = "Keine Übersetzungsergebnisse verfügbar";
+"multiengine.error.chain_entry_unavailable" = "Ketteneintrag nicht verfügbar: %@";
 
 /* Registrierungsfehler */
 "registry.error.already_registered" = "Anbieter bereits registriert";

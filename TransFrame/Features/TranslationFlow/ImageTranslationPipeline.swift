@@ -10,6 +10,9 @@ struct ImageTranslationPipelineConfig: Sendable, Equatable {
     let fallbackEnabled: Bool
     let parallelEngines: [TranslationEngineType]
     let sceneBindings: [TranslationScene: SceneEngineBinding]
+    /// V2 ordered chain: when non-nil and engineModeV2 == .ordered, the
+    /// render pipeline routes through translateOrderedV2 (Phase 3).
+    var orderedChainV2: [EngineChainItem]? = nil
 
     @MainActor
     static func fromAppSettings(scene: TranslationScene? = nil) -> ImageTranslationPipelineConfig {
@@ -35,7 +38,8 @@ struct ImageTranslationPipelineConfig: Sendable, Equatable {
             mode: settings.engineSelectionMode,
             fallbackEnabled: settings.translationFallbackEnabled,
             parallelEngines: settings.parallelEngines,
-            sceneBindings: settings.sceneBindings
+            sceneBindings: settings.sceneBindings,
+            orderedChainV2: settings.engineModeV2 == .ordered ? settings.engineChainV2 : nil
         )
     }
 }

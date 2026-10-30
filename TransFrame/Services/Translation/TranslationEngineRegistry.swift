@@ -135,6 +135,11 @@ actor TranslationEngineRegistry {
         logger.info("Unregistered provider for \(type.rawValue)")
     }
 
+    /// Saved compatible instance list (for chain resolution by UUID).
+    func compatibleConfigList() async -> [CompatibleTranslationProvider.CompatibleConfig] {
+        await compatibleConfigsProvider()
+    }
+
     /// Get the provider for an engine type
     func provider(for type: TranslationEngineType) -> (any TranslationProvider)? {
         return providers[type]?.provider

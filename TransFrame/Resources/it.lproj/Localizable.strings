@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "Server di traduzione self-hosted";
 
 /* Nuovi motori di traduzione */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "Traduzione GPT-4 tramite API OpenAI";
+"translation.engine.openai" = "Compatibile OpenAI";
+"translation.engine.openai.description" = "Endpoint compatibile OpenAI (OpenAI / Ollama / personalizzato)";
+
+"engine.preset.openai" = "OpenAI ufficiale";
+"engine.preset.ollama" = "Ollama locale";
+"engine.preset.custom" = "Personalizzato";
+"engine.config.preset.title" = "Preimpostazione";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Traduzione Claude tramite API Anthropic";
 "translation.engine.gemini" = "Gemini";
@@ -355,6 +360,10 @@
 
 "engine.mode.ordered" = "Sequenziale";
 "engine.mode.compare" = "Confronto";
+
+"engine.config.chain.title" = "Catena di fallback";
+"engine.config.chain.add" = "Aggiungi alla catena";
+"engine.config.chain.entryDeleted" = "Voce eliminata";
 
 /* Modalità di selezione motore */
 "engine.selection.mode.title" = "Modalità Selezione Motore";
@@ -424,6 +433,7 @@
 "multiengine.error.no_engines" = "Nessun motore di traduzione configurato";
 "multiengine.error.primary_unavailable" = "Il motore primario %@ non è disponibile";
 "multiengine.error.no_results" = "Nessun risultato di traduzione disponibile";
+"multiengine.error.chain_entry_unavailable" = "Voce della catena non disponibile: %@";
 
 /* Errori di registro */
 "registry.error.already_registered" = "Provider già registrato";

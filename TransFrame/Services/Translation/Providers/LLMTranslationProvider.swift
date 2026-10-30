@@ -57,6 +57,15 @@ actor LLMTranslationProvider: TranslationProvider, TranslationPromptConfigurable
             if engineType == .ollama {
                 return true
             }
+            // Local OpenAI-compatible endpoints (custom preset → localhost /
+            // *.local, e.g. LM Studio / vLLM) may run keyless; a keychain
+            // miss must not hard-disable them (PR #92 review).
+            if engineType == .openai,
+               let customURL = config.options?.baseURL,
+               let host = URL(string: customURL)?.host,
+               Self.isLocalhost(host) {
+                return true
+            }
             // Check for API key in keychain
             return await keychain.hasCredentials(for: engineType)
         }

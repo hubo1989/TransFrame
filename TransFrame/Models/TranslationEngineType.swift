@@ -151,6 +151,13 @@ enum TranslationEngineType: String, CaseIterable, Sendable, Codable, Identifiabl
         }
     }
 
+    /// Cards shown on the settings page (engine inventory convergence, PRD US-003).
+    /// `.ollama` is configured through the OpenAI-compatible card (preset proxy);
+    /// `.custom` is represented by the dynamic compatible-instances section.
+    static let uiCards: [TranslationEngineType] = [
+        .apple, .mtranServer, .openai, .claude, .gemini, .google, .deepl, .baidu,
+    ]
+
     /// Whether this engine requires an App ID (Baidu specific)
     var requiresAppID: Bool {
         switch self {

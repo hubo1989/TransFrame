@@ -327,8 +327,13 @@
 "translation.engine.mtran.description" = "Самостоятельный сервер перевода";
 
 /* Новые движки перевода */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "Перевод через GPT-4 API OpenAI";
+"translation.engine.openai" = "Совместимо с OpenAI";
+"translation.engine.openai.description" = "OpenAI-совместимый эндпоинт (OpenAI / Ollama / свой)";
+
+"engine.preset.openai" = "OpenAI официальный";
+"engine.preset.ollama" = "Ollama локальный";
+"engine.preset.custom" = "Свои настройки";
+"engine.config.preset.title" = "Пресет";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "Перевод через Claude API Anthropic";
 "translation.engine.gemini" = "Gemini";
@@ -355,6 +360,10 @@
 
 "engine.mode.ordered" = "Последовательно";
 "engine.mode.compare" = "Сравнение";
+
+"engine.config.chain.title" = "Цепочка резервных движков";
+"engine.config.chain.add" = "Добавить в цепочку";
+"engine.config.chain.entryDeleted" = "Элемент удалён";
 
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";
@@ -424,6 +433,7 @@
 "multiengine.error.no_engines" = "Не настроено ни одного движка перевода";
 "multiengine.error.primary_unavailable" = "Основной движок %@ недоступен";
 "multiengine.error.no_results" = "Нет результатов перевода";
+"multiengine.error.chain_entry_unavailable" = "Элемент цепочки недоступен: %@";
 
 /* Ошибки реестра */
 "registry.error.already_registered" = "Поставщик уже зарегистрирован";

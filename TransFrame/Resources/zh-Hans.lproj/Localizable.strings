@@ -335,8 +335,13 @@
 "translation.engine.mtran.description" = "自托管翻译服务器";
 
 /* 新增翻译引擎 */
-"translation.engine.openai" = "OpenAI";
-"translation.engine.openai.description" = "通过 OpenAI API 使用 GPT-4 翻译";
+"translation.engine.openai" = "OpenAI 兼容";
+"translation.engine.openai.description" = "OpenAI 兼容端点（OpenAI 官方 / Ollama 本地 / 自定义）";
+
+"engine.preset.openai" = "OpenAI 官方";
+"engine.preset.ollama" = "Ollama 本地";
+"engine.preset.custom" = "自定义";
+"engine.config.preset.title" = "预设模板";
 "translation.engine.claude" = "Claude";
 "translation.engine.claude.description" = "通过 Anthropic API 使用 Claude 翻译";
 "translation.engine.gemini" = "Gemini";
@@ -363,6 +368,10 @@
 
 "engine.mode.ordered" = "顺序退避";
 "engine.mode.compare" = "并行对比";
+
+"engine.config.chain.title" = "引擎链（按顺序退避）";
+"engine.config.chain.add" = "添加引擎";
+"engine.config.chain.entryDeleted" = "已失效";
 
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";
@@ -451,6 +460,7 @@
 "multiengine.error.no_engines" = "未配置翻译引擎";
 "multiengine.error.primary_unavailable" = "主引擎 %@ 不可用";
 "multiengine.error.no_results" = "无翻译结果";
+"multiengine.error.chain_entry_unavailable" = "引擎链条目不可用：%@";
 
 /* 注册表错误 */
 "registry.error.already_registered" = "提供者已注册";

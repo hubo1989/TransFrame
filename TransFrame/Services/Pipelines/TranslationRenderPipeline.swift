@@ -33,17 +33,30 @@ actor TranslationRenderPipeline {
                 // translated as one unit and gets one overlay anchor.
                 let groupedSegments = VisualLineGrouping.mergeLines(in: analysisResult.segments)
                 let texts = groupedSegments.map(\.text)
-                let translatedSegments = try await translationService.translate(
-                    segments: texts,
-                    to: config.targetLanguage,
-                    preferredEngine: config.preferredEngine,
-                    from: config.sourceLanguage,
-                    scene: config.scene,
-                    mode: config.mode,
-                    fallbackEnabled: config.fallbackEnabled,
-                    parallelEngines: config.parallelEngines,
-                    sceneBindings: config.sceneBindings
-                )
+                let translatedSegments: [BilingualSegment]
+                if let chain = config.orderedChainV2 {
+                    // V2 ordered mode (Phase 3): sequential fallback chain
+                    let bundle = try await translationService.translateOrderedV2(
+                        segments: texts,
+                        to: config.targetLanguage,
+                        from: config.sourceLanguage,
+                        scene: config.scene,
+                        chain: chain
+                    )
+                    translatedSegments = bundle.primaryResult
+                } else {
+                    translatedSegments = try await translationService.translate(
+                        segments: texts,
+                        to: config.targetLanguage,
+                        preferredEngine: config.preferredEngine,
+                        from: config.sourceLanguage,
+                        scene: config.scene,
+                        mode: config.mode,
+                        fallbackEnabled: config.fallbackEnabled,
+                        parallelEngines: config.parallelEngines,
+                        sceneBindings: config.sceneBindings
+                    )
+                }
 
                 guard translatedSegments.count == groupedSegments.count else {
                     throw PipelineError.translationFailed(

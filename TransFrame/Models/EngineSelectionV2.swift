@@ -34,6 +34,15 @@ struct EngineChainItem: Codable, Equatable, Sendable, Identifiable {
     static func compatible(_ instanceID: UUID) -> EngineChainItem {
         EngineChainItem(kind: .compatible(instanceID))
     }
+
+    /// The builtin engine this entry reports as (compatible instances
+    /// surface as .custom; UI labels use the instance display name).
+    var resolvedEngine: TranslationEngineType {
+        switch kind {
+        case .builtin(let engine): return engine
+        case .compatible: return .custom
+        }
+    }
 }
 
 /// Converged selection modes (replaces EngineSelectionMode's four cases).
