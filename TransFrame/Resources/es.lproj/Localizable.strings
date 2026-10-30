@@ -353,6 +353,9 @@
 /* Título de Configuración del Motor */
 "engine.config.title" = "Configuración del Motor de Traducción";
 
+"engine.mode.ordered" = "Secuencial";
+"engine.mode.compare" = "Comparación";
+
 /* Modos de Selección del Motor */
 "engine.selection.mode.title" = "Modo de Selección del Motor";
 "engine.selection.mode.primary_fallback" = "Principal/Respaldo";

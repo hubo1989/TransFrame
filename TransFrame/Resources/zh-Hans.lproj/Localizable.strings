@@ -361,6 +361,9 @@
 /* 引擎配置标题 */
 "engine.config.title" = "翻译引擎配置";
 
+"engine.mode.ordered" = "顺序退避";
+"engine.mode.compare" = "并行对比";
+
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";
 "engine.selection.mode.primary_fallback" = "主备";
