@@ -15,6 +15,11 @@ on:
           - patch
           - minor
           - major
+      prerelease:
+        description: 'Publish as a pre-release (excluded from appcast/latest channel)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -491,6 +496,7 @@ jobs:
         with:
           tag_name: ${{ steps.vars.outputs.tag_name }}
           target_commitish: ${{ github.sha }}
+          prerelease: ${{ inputs.prerelease }}
           files: |
             ${{ env.PROJECT_NAME }}-*.dmg
             appcast.xml
