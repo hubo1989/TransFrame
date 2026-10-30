@@ -28,10 +28,9 @@ struct MultiEngineSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Translation Strategy Card (Selection Mode & Primary/Fallback Configuration)
+            // Translation Strategy Card (Phase 6: two converged modes only)
             VStack(alignment: .leading, spacing: 16) {
                 selectionModeSection
-                modeSpecificSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .macosGroupedCard()
@@ -49,7 +48,7 @@ struct MultiEngineSettingsSection: View {
         }
     }
 
-    // MARK: - Selection Mode Section (Horizontal)
+    // MARK: - Selection Mode Section
 
     @ViewBuilder
     private var selectionModeSection: some View {
@@ -57,26 +56,18 @@ struct MultiEngineSettingsSection: View {
             Text(localized("engine.config.title"))
                 .font(.headline)
 
-            // Segmented mode picker
+            // Converged mode picker: ordered fallback chain / parallel compare
             Picker(localized("engine.config.title"), selection: Binding(
-                get: { viewModel.settings.engineSelectionMode },
-                set: { newValue in
-                    viewModel.settings.engineSelectionMode = newValue
-                    // Keep the V2 mode in sync for the converged pipeline
-                    viewModel.settings.engineModeV2 =
-                        (newValue == .parallel) ? .compare : .ordered
-                }
+                get: { viewModel.settings.engineModeV2 },
+                set: { viewModel.settings.engineModeV2 = $0 }
             )) {
-                ForEach(EngineSelectionMode.allCases) { mode in
-                    Label(mode.localizedName, systemImage: mode.iconName)
-                        .tag(mode)
+                ForEach(EngineModeV2.allCases) { mode in
+                    Text(mode.localizedName).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            // V2 ordered chain editor (Phase 3): shown while legacy modes
-            // remain; becomes the only UI at Phase 6 teardown.
             if viewModel.settings.engineModeV2 == .ordered {
                 Divider()
                 orderedChainSectionV2
@@ -84,33 +75,6 @@ struct MultiEngineSettingsSection: View {
                 Divider()
                 compareEnginesSectionV2
             }
-        }
-    }
-
-    // MARK: - Mode Specific Section
-
-    @ViewBuilder
-    private var modeSpecificSection: some View {
-        // V2 compare owns engine selection when active; the legacy parallel
-        // editor writes settings the new dispatch never reads (PR #93 review)
-        if viewModel.settings.engineModeV2 == .compare {
-            EmptyView()
-        } else {
-            innerModeSpecificSection
-        }
-    }
-
-    @ViewBuilder
-    private var innerModeSpecificSection: some View {
-        switch viewModel.settings.engineSelectionMode {
-        case .primaryWithFallback:
-            primaryFallbackSection
-        case .parallel:
-            parallelEnginesSection
-        case .quickSwitch:
-            quickSwitchSection
-        case .sceneBinding:
-            sceneBindingSection
         }
     }
 
@@ -375,243 +339,6 @@ struct MultiEngineSettingsSection: View {
             compare.append(EngineChainItem(kind: kind))
         }
         viewModel.settings.setCompareEnginesV2(compare)
-    }
-
-    // MARK: - Primary/Fallback Section
-
-    @ViewBuilder
-    private var primaryFallbackSection: some View {
-        let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
-        let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
-
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 24) {
-                // Primary Engine
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(localized("engine.config.primary"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker(localized("engine.config.primary"), selection: Binding(
-                        get: {
-                            if let first = viewModel.settings.parallelEngines.first {
-                                // Check if it's a compatible engine
-                                if first == .custom, let customConfig = viewModel.settings.engineConfigs[.custom],
-                                   let customNameStr = customConfig.customName,
-                                   let jsonData = customNameStr.data(using: .utf8),
-                                   let compatibleConfig = try? JSONDecoder().decode(CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) {
-                                    return "compatible:\(compatibleConfig.id)"
-                                }
-                                return first.rawValue
-                            }
-                            return TranslationEngineType.apple.rawValue
-                        },
-                        set: { (newValue: String) in
-                            let engine: TranslationEngineType
-                            if newValue.hasPrefix("compatible:") {
-                                // Set compatible config as custom engine
-                                let configId = String(newValue.dropFirst("compatible:".count))
-                                if let config = compatibleConfigs.first(where: { $0.id.uuidString == configId }) {
-                                    setCompatibleAsEngine(config: config)
-                                }
-                                return
-                            } else {
-                                engine = TranslationEngineType(rawValue: newValue) ?? .apple
-                            }
-                            if viewModel.settings.parallelEngines.isEmpty {
-                                viewModel.settings.parallelEngines = [engine]
-                            } else {
-                                viewModel.settings.parallelEngines[0] = engine
-                            }
-                            viewModel.settings.saveParallelEngines()
-                        }
-                    )) {
-                        // Standard engines
-                        ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                            Text(config.id.localizedName).tag(config.id.rawValue)
-                        }
-                        // Compatible engines
-                        ForEach(compatibleConfigs) { config in
-                            Text(config.displayName).tag("compatible:\(config.id)")
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .frame(width: 140)
-                }
-
-                // Fallback Engine
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(localized("engine.config.fallback"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker(localized("engine.config.fallback"), selection: Binding(
-                        get: {
-                            if viewModel.settings.parallelEngines.count > 1 {
-                                let second = viewModel.settings.parallelEngines[1]
-                                if second == .custom, let customConfig = viewModel.settings.engineConfigs[.custom],
-                                   let customNameStr = customConfig.customName,
-                                   let jsonData = customNameStr.data(using: .utf8),
-                                   let compatibleConfig = try? JSONDecoder().decode(CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) {
-                                    return "compatible:\(compatibleConfig.id)"
-                                }
-                                return second.rawValue
-                            }
-                            return (enabledEngines.first?.id ?? .apple).rawValue
-                        },
-                        set: { (newValue: String) in
-                            let engine: TranslationEngineType
-                            if newValue.hasPrefix("compatible:") {
-                                let configId = String(newValue.dropFirst("compatible:".count))
-                                if let config = compatibleConfigs.first(where: { $0.id.uuidString == configId }) {
-                                    setCompatibleAsEngine(config: config)
-                                }
-                                return
-                            } else {
-                                engine = TranslationEngineType(rawValue: newValue) ?? .apple
-                            }
-                            if viewModel.settings.parallelEngines.count > 1 {
-                                viewModel.settings.parallelEngines[1] = engine
-                            } else {
-                                viewModel.settings.parallelEngines.append(engine)
-                            }
-                            viewModel.settings.saveParallelEngines()
-                        }
-                    )) {
-                        // Standard engines
-                        ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                            Text(config.id.localizedName).tag(config.id.rawValue)
-                        }
-                        // Compatible engines
-                        ForEach(compatibleConfigs) { config in
-                            Text(config.displayName).tag("compatible:\(config.id)")
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .frame(width: 140)
-                }
-            }
-        }
-    }
-
-    // MARK: - Quick Switch Section
-
-    @ViewBuilder
-    private var quickSwitchSection: some View {
-        let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
-        let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
-
-        VStack(alignment: .leading, spacing: 8) {
-            Text(localized("engine.config.switch.order"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            // Engine order list
-            // 快捷切换允许同一引擎出现多次（主/备同引擎）：组合 ID 既保证唯一，
-            // 又让中间行删除后后续行身份不前移（避免删除动画/行内状态错位）
-            ForEach(
-                Array(viewModel.settings.parallelEngines.enumerated().map { (id: "\($0.offset)-\($0.element.rawValue)", offset: $0.offset, engine: $0.element) }),
-                id: \.id
-            ) { _, index, engine in
-                HStack(spacing: 8) {
-                    // Order number
-                    Text("\(index + 1)")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .frame(width: 18, height: 18)
-                        .background(Color.accentColor)
-                        .cornerRadius(9)
-
-                    // Engine name
-                    Text(engine.localizedName)
-                        .font(.subheadline)
-
-                    Spacer()
-
-                    // Replace button
-                    Menu {
-                        ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                            Button(config.id.localizedName) {
-                                viewModel.settings.parallelEngines[index] = config.id
-                                viewModel.settings.saveParallelEngines()
-                            }
-                        }
-                        if !compatibleConfigs.isEmpty {
-                            Divider()
-                            ForEach(compatibleConfigs) { config in
-                                Button(config.displayName) {
-                                    setCompatibleAsEngineAtIndex(config: config, index: index)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .help(localized("engine.config.replace"))
-
-                    // Remove button (if more than 1)
-                    if viewModel.settings.parallelEngines.count > 1 {
-                        Button {
-                            viewModel.settings.parallelEngines.remove(at: index)
-                            viewModel.settings.saveParallelEngines()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                        .buttonStyle(.plain)
-                        .help(localized("engine.config.remove"))
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color(.controlBackgroundColor))
-                .cornerRadius(8)
-            }
-
-            // Add engine button if less than enabled engines
-            if viewModel.settings.parallelEngines.count < enabledEngines.count + compatibleConfigs.count {
-                Menu {
-                    ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                        if !viewModel.settings.parallelEngines.contains(config.id) {
-                            Button {
-                                viewModel.settings.parallelEngines.append(config.id)
-                                viewModel.settings.saveParallelEngines()
-                            } label: {
-                                HStack {
-                                    Image(systemName: engineIcon(config.id))
-                                    Text(config.id.localizedName)
-                                }
-                            }
-                        }
-                    }
-                    if !compatibleConfigs.isEmpty {
-                        Divider()
-                        ForEach(compatibleConfigs) { config in
-                            Button {
-                                appendCompatibleAsEngine(config: config)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "gearshape.2")
-                                    Text(config.displayName)
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle")
-                        Text(localized("engine.config.add"))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-                }
-                .menuStyle(.borderlessButton)
-            }
-        }
     }
 
     // MARK: - Engines Section
@@ -893,16 +620,14 @@ struct MultiEngineSettingsSection: View {
                 }
 
                 await MainActor.run {
-                    var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
-                    if let jsonData = try? JSONEncoder().encode(config),
-                       let jsonString = String(data: jsonData, encoding: .utf8) {
-                        customConfig.customName = jsonString
-                        customConfig.isEnabled = true
-                        viewModel.settings.engineConfigs[.custom] = customConfig
-                        viewModel.settings.saveEngineConfigs()
-                        viewModel.settings.parallelEngines[index] = .custom
-                        viewModel.settings.saveParallelEngines()
+                    var chain = viewModel.settings.engineChainV2
+                    let entry = EngineChainItem.compatible(config.id)
+                    if chain.indices.contains(index) {
+                        chain[index] = entry
+                    } else {
+                        chain.append(entry)
                     }
+                    viewModel.settings.setEngineChainV2(chain)
                 }
             } catch {
                 Logger.settings.error("Failed to set compatible engine: \(error.localizedDescription)")
@@ -924,16 +649,10 @@ struct MultiEngineSettingsSection: View {
                 }
 
                 await MainActor.run {
-                    var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
-                    if let jsonData = try? JSONEncoder().encode(config),
-                       let jsonString = String(data: jsonData, encoding: .utf8) {
-                        customConfig.customName = jsonString
-                        customConfig.isEnabled = true
-                        viewModel.settings.engineConfigs[.custom] = customConfig
-                        viewModel.settings.saveEngineConfigs()
-                        viewModel.settings.parallelEngines.append(.custom)
-                        viewModel.settings.saveParallelEngines()
-                    }
+                    var chain = viewModel.settings.engineChainV2
+                    guard chain.count < EngineSelectionLimits.orderedChainLimit else { return }
+                    chain.append(EngineChainItem.compatible(config.id))
+                    viewModel.settings.setEngineChainV2(chain)
                 }
             } catch {
                 Logger.settings.error("Failed to append compatible engine: \(error.localizedDescription)")
@@ -956,24 +675,16 @@ struct MultiEngineSettingsSection: View {
                     return
                 }
 
-                // Update custom engine config with this compatible config
+                // Phase 6: "use as engine" puts the instance at the chain head
                 await MainActor.run {
-                    var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
-                    if let jsonData = try? JSONEncoder().encode(config),
-                       let jsonString = String(data: jsonData, encoding: .utf8) {
-                        customConfig.customName = jsonString
-                        customConfig.isEnabled = true
-                        viewModel.settings.engineConfigs[.custom] = customConfig
-                        viewModel.settings.saveEngineConfigs()
-
-                        // Set as primary engine
-                        if viewModel.settings.parallelEngines.isEmpty {
-                            viewModel.settings.parallelEngines = [.custom]
-                        } else {
-                            viewModel.settings.parallelEngines[0] = .custom
-                        }
-                        viewModel.settings.saveParallelEngines()
+                    var chain = viewModel.settings.engineChainV2
+                    let entry = EngineChainItem.compatible(config.id)
+                    if let firstIdx = chain.indices.first {
+                        chain[firstIdx] = entry
+                    } else {
+                        chain = [entry]
                     }
+                    viewModel.settings.setEngineChainV2(chain)
                 }
             } catch {
                 Logger.settings.error("Failed to set compatible engine: \(error.localizedDescription)")
@@ -1048,163 +759,30 @@ struct MultiEngineSettingsSection: View {
     // MARK: - Parallel Engines Section (Select which engines to run)
 
     @ViewBuilder
-    private var parallelEnginesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(localized("engine.config.parallel.select"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
-            let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
-
-            FlowLayout(spacing: 8) {
-                ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                    HStack(spacing: 4) {
-                        Image(systemName: engineIcon(config.id))
-                            .font(.caption)
-                        Text(config.id.localizedName)
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(viewModel.settings.parallelEngines.contains(config.id) ? Color.accentColor.opacity(0.2) : Color.clear)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(viewModel.settings.parallelEngines.contains(config.id) ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                    .onTapGesture {
-                        if viewModel.settings.parallelEngines.contains(config.id) {
-                            viewModel.settings.parallelEngines.removeAll { $0 == config.id }
-                        } else {
-                            viewModel.settings.parallelEngines.append(config.id)
-                        }
-                        viewModel.settings.saveParallelEngines()
-                    }
-                }
-                
-                // Compatible engines
-                ForEach(compatibleConfigs) { config in
-                    HStack(spacing: 4) {
-                        Image(systemName: "gearshape.2")
-                            .font(.caption)
-                        Text(config.displayName)
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(isCompatibleEngineSelected(config) ? Color.accentColor.opacity(0.2) : Color.clear)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(isCompatibleEngineSelected(config) ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                    .onTapGesture {
-                        toggleCompatibleEngineInParallel(config: config)
-                    }
-                }
-            }
-        }
-    }
 
     private func isCompatibleEngineSelected(_ config: CompatibleTranslationProvider.CompatibleConfig) -> Bool {
-        guard viewModel.settings.parallelEngines.contains(.custom),
-              let customConfig = viewModel.settings.engineConfigs[.custom],
-              let customNameStr = customConfig.customName,
-              let jsonData = customNameStr.data(using: .utf8),
-              let selectedConfig = try? JSONDecoder().decode(CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) else {
-            return false
-        }
-        return selectedConfig.id == config.id
+        // Phase 6: selection = the instance occupies the chain head
+        viewModel.settings.engineChainV2.first?.kind == .compatible(config.id)
     }
 
     private func toggleCompatibleEngineInParallel(config: CompatibleTranslationProvider.CompatibleConfig) {
+        // Phase 6: toggling puts/removes the instance at the chain head
         if isCompatibleEngineSelected(config) {
-            viewModel.settings.parallelEngines.removeAll { $0 == .custom }
-            viewModel.settings.saveParallelEngines()
-        } else {
-            // Set this compatible config as custom and add to parallel engines
-            var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
-            if let jsonData = try? JSONEncoder().encode(config),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                customConfig.customName = jsonString
-                customConfig.isEnabled = true
-                viewModel.settings.engineConfigs[.custom] = customConfig
-                viewModel.settings.saveEngineConfigs()
-                if !viewModel.settings.parallelEngines.contains(.custom) {
-                    viewModel.settings.parallelEngines.append(.custom)
-                    viewModel.settings.saveParallelEngines()
-                }
+            var chain = viewModel.settings.engineChainV2
+            if !chain.isEmpty {
+                chain.removeFirst()
+                viewModel.settings.setEngineChainV2(chain.isEmpty ? [.builtin(.apple)] : chain)
             }
+        } else {
+            var chain = viewModel.settings.engineChainV2
+            chain.insert(EngineChainItem.compatible(config.id), at: 0)
+            viewModel.settings.setEngineChainV2(chain)
         }
     }
 
     // MARK: - Scene Binding Section
 
     @ViewBuilder
-    private var sceneBindingSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
-            let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
-
-            ForEach(TranslationScene.allCases) { scene in
-                HStack {
-                    Image(systemName: scene.iconName)
-                        .frame(width: 20)
-                    Text(scene.localizedName)
-                        .frame(width: 100, alignment: .leading)
-
-                    Spacer()
-
-                    // Primary engine picker
-                    Picker(scene.localizedName, selection: Binding(
-                        get: {
-                            let engine = viewModel.settings.sceneBindings[scene]?.primaryEngine ?? .apple
-                            if engine == .custom, let customConfig = viewModel.settings.engineConfigs[.custom],
-                               let customNameStr = customConfig.customName,
-                               let jsonData = customNameStr.data(using: .utf8),
-                               let compatibleConfig = try? JSONDecoder().decode(CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) {
-                                return "compatible:\(compatibleConfig.id.uuidString)"
-                            }
-                            return engine.rawValue
-                        },
-                        set: { (newValue: String) in
-                            var binding = viewModel.settings.sceneBindings[scene] ?? .default(for: scene)
-                            if newValue.hasPrefix("compatible:") {
-                                let configId = String(newValue.dropFirst("compatible:".count))
-                                if let config = compatibleConfigs.first(where: { $0.id.uuidString == configId }) {
-                                    // Set compatible config as custom engine
-                                    var customConfig = viewModel.settings.engineConfigs[.custom] ?? .default(for: .custom)
-                                    if let jsonData = try? JSONEncoder().encode(config),
-                                       let jsonString = String(data: jsonData, encoding: .utf8) {
-                                        customConfig.customName = jsonString
-                                        customConfig.isEnabled = true
-                                        viewModel.settings.engineConfigs[.custom] = customConfig
-                                        viewModel.settings.saveEngineConfigs()
-                                        binding.primaryEngine = .custom
-                                    }
-                                }
-                            } else {
-                                binding.primaryEngine = TranslationEngineType(rawValue: newValue) ?? .apple
-                            }
-                            viewModel.settings.sceneBindings[scene] = binding
-                            viewModel.settings.saveSceneBindings()
-                        }
-                    )) {
-                        ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
-                            Text(config.id.localizedName).tag(config.id.rawValue)
-                        }
-                        ForEach(compatibleConfigs) { config in
-                            Text(config.displayName).tag("compatible:\(config.id.uuidString)")
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .frame(width: 130)
-                }
-            }
-        }
-    }
 
     // MARK: - Helpers
 

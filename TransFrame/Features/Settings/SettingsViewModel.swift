@@ -450,9 +450,9 @@ final class SettingsViewModel {
         }
     }
 
+    @available(*, deprecated, message: "Fallback is governed by the ordered chain length (V2)")
     var translationFallbackEnabled: Bool {
         get { settings.translationFallbackEnabled }
-        set { settings.translationFallbackEnabled = newValue; settings.save(newValue, forKey: AppSettings.Keys.translationFallbackEnabled) }
     }
 
     // MARK: - Validation Ranges

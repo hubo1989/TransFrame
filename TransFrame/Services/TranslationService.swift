@@ -63,270 +63,66 @@ actor TranslationService {
         parallelEngines: [TranslationEngineType] = [],
         sceneBindings: [TranslationScene: SceneEngineBinding] = [:]
     ) async throws -> TranslationResultBundle {
-        guard !segments.isEmpty else {
-            return TranslationResultBundle(
-                results: [],
-                primaryEngine: preferredEngine,
-                selectionMode: mode,
-                scene: scene
-            )
-        }
-
+        // Phase 6 teardown: the legacy four-mode dispatch is gone; the mode
+        // parameter maps onto V2 semantics. primaryWithFallback/quickSwitch/
+        // sceneBinding -> ordered chain; parallel -> compare set.
         switch mode {
-        case .primaryWithFallback:
-            // Use the user-configured second engine as fallback when available
-            let configuredFallback: TranslationEngineType? = {
-                guard fallbackEnabled else { return nil }
-                if parallelEngines.count > 1 {
-                    return parallelEngines[1]
+        case .primaryWithFallback, .quickSwitch, .sceneBinding:
+            var chain: [TranslationEngineType]
+            var useFallback: Bool
+            switch mode {
+            case .sceneBinding:
+                // Scene binding supplied its own primary/fallback pair
+                let binding = (scene.flatMap { sceneBindings[$0] })
+                    ?? SceneEngineBinding.default(for: scene ?? .screenshot)
+                chain = [binding.primaryEngine]
+                if binding.fallbackEnabled, let fallback = binding.fallbackEngine {
+                    chain.append(fallback)
                 }
-                return nil
-            }()
-            return try await translateWithFallback(
-                segments: segments,
-                to: targetLanguage,
-                from: sourceLanguage,
-                primaryEngine: preferredEngine,
-                fallbackEnabled: fallbackEnabled,
-                fallbackEngine: configuredFallback,
-                scene: scene
-            )
-
-        case .parallel:
-            let effectiveParallelEngines = await filterEnabledEngines(
-                parallelEngines.isEmpty ? [preferredEngine] : parallelEngines
-            )
-            return try await translateParallel(
-                segments: segments,
-                to: targetLanguage,
-                from: sourceLanguage,
-                engines: effectiveParallelEngines,
-                scene: scene
-            )
-
-        case .quickSwitch:
-            return try await translateForQuickSwitch(
-                segments: segments,
-                to: targetLanguage,
-                from: sourceLanguage,
-                primaryEngine: preferredEngine,
-                scene: scene
-            )
-
-        case .sceneBinding:
-            return try await translateByScene(
-                segments: segments,
-                to: targetLanguage,
-                from: sourceLanguage,
-                scene: scene ?? .screenshot,
-                bindings: sceneBindings,
-                preferredEngine: preferredEngine
-            )
-        }
-    }
-
-    // MARK: - Selection Mode Implementations
-
-    /// Primary with fallback mode
-    private func translateWithFallback(
-        segments: [String],
-        to targetLanguage: String,
-        from sourceLanguage: String?,
-        primaryEngine: TranslationEngineType,
-        fallbackEnabled: Bool,
-        fallbackEngine: TranslationEngineType? = nil,
-        scene: TranslationScene?
-    ) async throws -> TranslationResultBundle {
-        var errors: [Error] = []
-
-        // Try primary engine
-        do {
-            let result = try await translateWithEngine(
-                primaryEngine,
+                useFallback = binding.fallbackEnabled
+            case .quickSwitch:
+                // Legacy quickSwitch = primary without fallback
+                chain = [preferredEngine]
+                useFallback = false
+            default:
+                chain = parallelEngines.isEmpty ? [preferredEngine] : parallelEngines
+                useFallback = fallbackEnabled
+            }
+            if !useFallback { chain = Array(chain.prefix(1)) }
+            if !chain.contains(preferredEngine), mode != .sceneBinding {
+                chain.insert(preferredEngine, at: 0)
+            }
+            // Preserve the legacy implicit fallback: a single-engine chain
+            // gained a complementary fallback (apple<->mtranServer).
+            if useFallback, chain.count == 1 {
+                let only = chain[0]
+                let implicitFallback: TranslationEngineType
+                if let scene {
+                    implicitFallback = SceneEngineBinding.default(for: scene).fallbackEngine ?? (only == .apple ? .mtranServer : .apple)
+                } else {
+                    implicitFallback = only == .apple ? .mtranServer : .apple
+                }
+                chain.append(implicitFallback)
+            }
+            return try await translateOrderedV2(
                 segments: segments,
                 to: targetLanguage,
                 from: sourceLanguage,
                 scene: scene,
-                mode: .primaryWithFallback
+                chain: chain.map { .builtin($0) }
             )
-            return result
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            errors.append(error)
-            logger.warning("Primary engine \(primaryEngine.rawValue) failed: \(error.localizedDescription)")
+        case .parallel:
+            let engines = parallelEngines.isEmpty ? [preferredEngine] : parallelEngines
+            return try await translateCompareV2(
+                segments: segments,
+                to: targetLanguage,
+                from: sourceLanguage,
+                scene: scene,
+                engines: engines.map { .builtin($0) }
+            )
         }
-
-        try Task.checkCancellation()
-
-        // Try fallback if enabled
-        if fallbackEnabled {
-            let actualFallback: TranslationEngineType
-            if let engine = fallbackEngine {
-                actualFallback = engine
-            } else if let scene = scene {
-                actualFallback = SceneEngineBinding.default(for: scene).fallbackEngine ?? .mtranServer
-            } else {
-                actualFallback = primaryEngine == .apple ? .mtranServer : .apple
-            }
-
-            // Avoid retrying the same engine that just failed
-            guard actualFallback != primaryEngine else {
-                logger.warning("Fallback engine \(actualFallback.rawValue) equals primary, skipping")
-                throw MultiEngineError.allEnginesFailed(errors)
-            }
-
-            // Skip fallback if the engine is not explicitly enabled in user settings
-            let enabledFallbacks = await filterEnabledEngines([actualFallback])
-            guard !enabledFallbacks.isEmpty else {
-                logger.warning("Fallback engine \(actualFallback.rawValue) is not enabled, skipping")
-                throw MultiEngineError.allEnginesFailed(errors)
-            }
-
-            do {
-                let result = try await translateWithEngine(
-                    actualFallback,
-                    segments: segments,
-                    to: targetLanguage,
-                    from: sourceLanguage,
-                    scene: scene,
-                    mode: .primaryWithFallback
-                )
-                let failedPrimary = EngineResult.failed(engine: primaryEngine, error: errors[0])
-                let mergedResults = [failedPrimary] + result.results
-                logger.info("Fallback to \(actualFallback.rawValue) succeeded")
-                return TranslationResultBundle(
-                    results: mergedResults,
-                    primaryEngine: result.primaryEngine,
-                    selectionMode: .primaryWithFallback,
-                    scene: scene
-                )
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                errors.append(error)
-                logger.warning("Fallback engine \(actualFallback.rawValue) also failed: \(error.localizedDescription)")
-            }
-        }
-
-        throw MultiEngineError.allEnginesFailed(errors)
     }
 
-    /// Parallel mode - run multiple engines simultaneously
-    private func translateParallel(
-        segments: [String],
-        to targetLanguage: String,
-        from sourceLanguage: String?,
-        engines: [TranslationEngineType],
-        scene: TranslationScene?
-    ) async throws -> TranslationResultBundle {
-        let primaryEngine = engines.first ?? .apple
-
-        let results = await withTaskGroup(of: EngineResult.self, returning: [EngineResult].self) { group in
-            for engine in engines {
-                group.addTask {
-                    do {
-                        let start = Date()
-                        let provider = try await self.resolvedProvider(for: engine)
-
-                        let providerResults = try await self.translateWithResolvedPrompt(
-                            provider: provider,
-                            engine: engine,
-                            texts: segments,
-                            from: sourceLanguage,
-                            to: targetLanguage,
-                            scene: scene
-                        )
-                        let bilingualSegments = providerResults.map { BilingualSegment(from: $0) }
-
-                        // Treat empty results as failure
-                        guard !bilingualSegments.isEmpty else {
-                            return EngineResult.failed(
-                                engine: engine,
-                                error: TranslationProviderError.translationFailed(
-                                    "\(provider.name) returned no results"
-                                )
-                            )
-                        }
-
-                        return EngineResult(
-                            engine: engine,
-                            segments: bilingualSegments,
-                            latency: Date().timeIntervalSince(start)
-                        )
-                    } catch {
-                        return EngineResult.failed(engine: engine, error: error)
-                    }
-                }
-            }
-
-            var collectedResults: [EngineResult] = []
-            for await result in group {
-                collectedResults.append(result)
-            }
-            return collectedResults
-        }
-
-        // If all engines failed (no successful results), throw instead of silently returning empty results
-        let failedErrors = results.compactMap { $0.error }
-        let hasSuccess = results.contains { $0.isSuccess }
-        if !hasSuccess {
-            throw MultiEngineError.allEnginesFailed(failedErrors)
-        }
-
-        return TranslationResultBundle(
-            results: results,
-            primaryEngine: primaryEngine,
-            selectionMode: .parallel,
-            scene: scene
-        )
-    }
-
-    /// Quick switch mode - start with primary, others load on demand
-    private func translateForQuickSwitch(
-        segments: [String],
-        to targetLanguage: String,
-        from sourceLanguage: String?,
-        primaryEngine: TranslationEngineType,
-        scene: TranslationScene?
-    ) async throws -> TranslationResultBundle {
-        // For now, behaves like primary without fallback
-        // UI layer will handle switching to other engines
-        return try await translateWithEngine(
-            primaryEngine,
-            segments: segments,
-            to: targetLanguage,
-            from: sourceLanguage,
-            scene: scene,
-            mode: .quickSwitch
-        )
-    }
-
-    /// Scene binding mode - use engine configured for the scene
-    private func translateByScene(
-        segments: [String],
-        to targetLanguage: String,
-        from sourceLanguage: String?,
-        scene: TranslationScene,
-        bindings: [TranslationScene: SceneEngineBinding],
-        preferredEngine: TranslationEngineType
-    ) async throws -> TranslationResultBundle {
-        let binding = bindings[scene] ?? SceneEngineBinding.default(for: scene)
-
-        return try await translateWithFallback(
-            segments: segments,
-            to: targetLanguage,
-            from: sourceLanguage,
-            primaryEngine: binding.primaryEngine,
-            fallbackEnabled: binding.fallbackEnabled,
-            fallbackEngine: binding.fallbackEngine,
-            scene: scene
-        )
-    }
-
-    // MARK: - Helper Methods
-
-    /// Translate with a specific engine
     private func translateWithEngine(
         _ engine: TranslationEngineType,
         segments: [String],
@@ -650,13 +446,6 @@ actor TranslationService {
 
     /// Filters engine list to only include engines that are explicitly enabled in user settings.
     /// Apple is treated as always enabled (it's the default built-in engine).
-    private func filterEnabledEngines(_ engines: [TranslationEngineType]) async -> [TranslationEngineType] {
-        let configs = await engineConfigsProvider()
-        return engines.filter { engine in
-            engine == .apple || configs[engine]?.isEnabled == true
-        }
-    }
-
     private func resolvedProvider(
         for engine: TranslationEngineType,
         config overrideConfig: TranslationEngineConfig? = nil

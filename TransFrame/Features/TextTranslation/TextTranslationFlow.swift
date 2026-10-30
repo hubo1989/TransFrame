@@ -363,12 +363,12 @@ extension TextTranslationConfig {
         var config = TextTranslationConfig(
             targetLanguage: targetLanguage,
             sourceLanguage: sourceLanguage,
-            preferredEngine: resolvePreferredEngine(from: settings, scene: .textSelection),
+            preferredEngine: settings.engineChainV2.first?.resolvedEngine ?? .apple,
             scene: .textSelection,
-            mode: settings.engineSelectionMode,
-            fallbackEnabled: settings.translationFallbackEnabled,
-            parallelEngines: settings.parallelEngines,
-            sceneBindings: settings.sceneBindings
+            mode: .primaryWithFallback,
+            fallbackEnabled: true,
+            parallelEngines: [],
+            sceneBindings: [:]
         )
         config.v2Selection = (settings.engineModeV2, settings.engineModeV2 == .ordered
             ? settings.engineChainV2
@@ -384,7 +384,7 @@ extension TextTranslationConfig {
         let settings = AppSettings.shared
         let targetLanguage = settings.translateAndInsertTargetLanguage?.rawValue ?? "zh-Hans"
         let sourceLanguage: String? = settings.translateAndInsertSourceLanguage == .auto ? nil : settings.translateAndInsertSourceLanguage.rawValue
-        let preferredEngine = resolvePreferredEngine(from: settings, scene: .translateAndInsert)
+        let preferredEngine = settings.engineChainV2.first?.resolvedEngine ?? .apple
 
         #if DEBUG
         Logger.translation.debug(
@@ -397,31 +397,19 @@ extension TextTranslationConfig {
         )
         #endif
 
-        return TextTranslationConfig(
+        var config = TextTranslationConfig(
             targetLanguage: targetLanguage,
             sourceLanguage: sourceLanguage,
-            preferredEngine: preferredEngine,
+            preferredEngine: settings.engineChainV2.first?.resolvedEngine ?? .apple,
             scene: .translateAndInsert,
-            mode: settings.engineSelectionMode,
-            fallbackEnabled: settings.translationFallbackEnabled,
-            parallelEngines: settings.parallelEngines,
-            sceneBindings: settings.sceneBindings
+            mode: .primaryWithFallback,
+            fallbackEnabled: true,
+            parallelEngines: [],
+            sceneBindings: [:]
         )
-    }
-
-    @MainActor
-    private static func resolvePreferredEngine(
-        from settings: AppSettings,
-        scene: TranslationScene
-    ) -> TranslationEngineType {
-        switch settings.engineSelectionMode {
-        case .sceneBinding:
-            return settings.sceneBindings[scene]?.primaryEngine ?? SceneEngineBinding.default(for: scene).primaryEngine
-        case .parallel, .quickSwitch, .primaryWithFallback:
-            if let firstConfiguredEngine = settings.parallelEngines.first {
-                return firstConfiguredEngine
-            }
-            return settings.translationEngine
-        }
+        // Phase 6: translate-and-insert follows the ordered chain (compare
+        // makes no sense for a one-shot insertion target).
+        config.v2Selection = (.ordered, settings.engineChainV2)
+        return config
     }
 }

@@ -38,9 +38,12 @@
 - **PaddleOCR** - Optional external engine with better Chinese recognition
 
 ### Multi-Engine Translation
+Two converged modes: **ordered fallback chain** (up to 5 engines, try in order until one succeeds) and **parallel compare** (2–4 engines side by side with per-engine latency).
 - **Apple Translation** - Built-in system translation, works offline
 - **MTranServer** - Self-hosted translation server for high-quality translation
-- **VLM Vision Models** - OpenAI GPT-4 Vision / Claude / Ollama local models
+- **OpenAI-compatible** - OpenAI official / Ollama local / custom endpoints
+- **Claude / Gemini / Google / DeepL / Baidu** - Cloud translation APIs
+- Real availability probing: status dots reflect actual engine reachability
 
 ### Annotation Tools
 - Rectangle selection

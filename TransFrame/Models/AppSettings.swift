@@ -375,9 +375,8 @@ final class AppSettings {
         didSet { save(mtranServerURL, forKey: Keys.mtranServerURL) }
     }
 
-    var translationFallbackEnabled: Bool {
-        didSet { save(translationFallbackEnabled, forKey: Keys.translationFallbackEnabled) }
-    }
+    /// Legacy migration source (read-only; Phase 6 teardown)
+    private(set) var translationFallbackEnabled: Bool
 
     // MARK: - Translate and Insert Language Configuration
 
@@ -400,9 +399,8 @@ final class AppSettings {
     // MARK: - Multi-Engine Configuration
 
     /// Engine selection mode
-    var engineSelectionMode: EngineSelectionMode {
-        didSet { save(engineSelectionMode.rawValue, forKey: Keys.engineSelectionMode) }
-    }
+    /// Legacy migration source (read-only; Phase 6 teardown)
+    private(set) var engineSelectionMode: EngineSelectionMode
 
     /// Engine configurations (JSON encoded)
     /// Note: no didSet because @Observable does not reliably trigger
@@ -416,14 +414,12 @@ final class AppSettings {
     }
 
     /// Scene-to-engine bindings
-    var sceneBindings: [TranslationScene: SceneEngineBinding] {
-        didSet { saveSceneBindings() }
-    }
+    /// Legacy migration source (read-only; Phase 6 teardown)
+    private(set) var sceneBindings: [TranslationScene: SceneEngineBinding]
 
     /// Engines to run in parallel mode
-    var parallelEngines: [TranslationEngineType] {
-        didSet { saveParallelEngines() }
-    }
+    /// Legacy migration source (read-only; Phase 6 teardown)
+    private(set) var parallelEngines: [TranslationEngineType]
 
     /// Compatible provider configurations
     var compatibleProviderConfigs: [CompatibleTranslationProvider.CompatibleConfig] {
