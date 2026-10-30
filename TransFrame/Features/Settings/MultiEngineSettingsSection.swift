@@ -773,9 +773,7 @@ struct MultiEngineSettingsSection: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Parallel Engines Section (Select which engines to run)
-
-    @ViewBuilder
+    // MARK: - Compatible Engine Selection (V2)
 
     private func isCompatibleEngineSelected(_ config: CompatibleTranslationProvider.CompatibleConfig) -> Bool {
         // Phase 6: selection = the instance occupies the chain head
