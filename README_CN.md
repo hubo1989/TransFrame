@@ -34,9 +34,12 @@
 - **PaddleOCR** - 可选外部引擎，中文识别更准确
 
 ### 多引擎翻译
-- **Apple Translation** - 系统内置翻译，离线可用
-- **MTranServer** - 自建翻译服务器，高质量翻译
-- **VLM 视觉模型** - OpenAI GPT-4 Vision / Claude / Ollama 本地模型
+两种收敛模式：**顺序退避**（最多 5 个引擎按序尝试，失败自动降级）与**并行对比**（2–4 个引擎同时翻译，逐引擎延迟对比）。
+- **Apple 翻译** - 系统内置，离线可用
+- **MTranServer** - 自建翻译服务器
+- **OpenAI 兼容** - OpenAI 官方 / Ollama 本地 / 自定义端点
+- **Claude / Gemini / Google / DeepL / 百度** - 云翻译 API
+- 真实可用性探测：状态点反映引擎实际可达性
 
 ### 标注工具
 - 矩形框选

@@ -368,6 +368,15 @@
 "engine.config.compare.title" = "比較エンジン";
 "engine.config.compare.needTwo" = "比較には2つ以上のエンジンを選択してください";
 
+"engine.health.available" = "利用可能";
+"engine.health.misconfigured" = "設定エラー";
+"engine.health.unverified" = "未検証";
+"engine.health.checking" = "確認中…";
+"engine.health.mtran.unreachable" = "MTranServer エンドポイントに到達できません";
+"engine.health.instance.deleted" = "インスタンス削除済み";
+"engine.health.timeout" = "タイムアウト";
+"engine.health.refresh" = "再チェック";
+
 /* エンジン選択モード */
 "engine.selection.mode.title" = "エンジン選択モード";
 "engine.selection.mode.primary_fallback" = "プライマリ/フォールバック";

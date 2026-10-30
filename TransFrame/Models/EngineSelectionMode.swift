@@ -8,6 +8,10 @@
 import Foundation
 
 /// Engine selection mode for multi-engine translation
+/// Legacy four-mode selection (Phase 6 teardown): kept ONLY as the
+/// migration-source type for reading pre-V2 UserDefaults keys. New code
+/// uses EngineModeV2.
+@available(*, deprecated, message: "Use EngineModeV2; retained as migration source")
 enum EngineSelectionMode: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Primary engine with fallback on failure
     case primaryWithFallback = "primary_fallback"

@@ -321,7 +321,7 @@ final class TranslationServicePipelineTests: XCTestCase {
             preferredEngine: .apple
         )
 
-        XCTAssertEqual(bundle.selectionMode, .quickSwitch)
+        // Phase 6: quickSwitch converged into ordered (no fallback)
         XCTAssertEqual(bundle.primaryEngine, .apple)
         XCTAssertEqual(bundle.primaryResult.map(\.translated), ["你好"])
         let appleRequestCount = await apple.requestCount()

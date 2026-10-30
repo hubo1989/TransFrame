@@ -376,6 +376,15 @@
 "engine.config.compare.title" = "对比引擎";
 "engine.config.compare.needTwo" = "对比模式至少选择 2 个引擎";
 
+"engine.health.available" = "可用";
+"engine.health.misconfigured" = "异常";
+"engine.health.unverified" = "未验证";
+"engine.health.checking" = "探测中…";
+"engine.health.mtran.unreachable" = "MTranServer 端点不可达";
+"engine.health.instance.deleted" = "兼容实例已删除";
+"engine.health.timeout" = "探测超时";
+"engine.health.refresh" = "重新探测";
+
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";
 "engine.selection.mode.primary_fallback" = "主备";

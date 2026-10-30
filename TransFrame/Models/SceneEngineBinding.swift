@@ -8,6 +8,9 @@
 import Foundation
 
 /// Binding configuration between a translation scene and engines
+/// Legacy scene-to-engine binding (Phase 6 teardown): kept ONLY as the
+/// migration-source type. New code uses the ordered chain (EngineChainItem).
+@available(*, deprecated, message: "Use EngineChainItem; retained as migration source")
 struct SceneEngineBinding: Codable, Identifiable, Equatable, Sendable {
     /// Scene identifier (also serves as unique ID)
     let scene: TranslationScene

@@ -368,6 +368,15 @@
 "engine.config.compare.title" = "Motores de comparación";
 "engine.config.compare.needTwo" = "Selecciona al menos 2 motores para comparar";
 
+"engine.health.available" = "Disponible";
+"engine.health.misconfigured" = "Mal configurado";
+"engine.health.unverified" = "Sin verificar";
+"engine.health.checking" = "Comprobando…";
+"engine.health.mtran.unreachable" = "Endpoint de MTranServer inaccesible";
+"engine.health.instance.deleted" = "Instancia eliminada";
+"engine.health.timeout" = "Tiempo de espera agotado";
+"engine.health.refresh" = "Reintentar";
+
 /* Modos de Selección del Motor */
 "engine.selection.mode.title" = "Modo de Selección del Motor";
 "engine.selection.mode.primary_fallback" = "Principal/Respaldo";
