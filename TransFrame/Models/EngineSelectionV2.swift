@@ -12,7 +12,7 @@ import Foundation
 /// Builtin engines are referenced by type; compatible instances by their
 /// stable `CompatibleConfig.id` UUID.
 struct EngineChainItem: Codable, Equatable, Sendable, Identifiable {
-    enum Kind: Codable, Equatable, Sendable {
+    enum Kind: Codable, Equatable, Hashable, Sendable {
         case builtin(TranslationEngineType)
         case compatible(UUID)
     }

@@ -55,6 +55,81 @@ final class EngineSettingsMigrationTests: XCTestCase {
         XCTAssertEqual(result.mode, .compare)
     }
 
+    func testMissingParallelKeyHonorsLegacySingleEngine() {
+        // Codex P1: a missing parallelEngines key must not be treated as [.apple]
+        let result = AppSettings.migrateLegacyEngineSettings(
+            mode: .primaryWithFallback,
+            parallelEngines: nil,
+            sceneBindings: SceneEngineBinding.allDefaults,
+            fallbackEnabled: true,
+            legacySingleEngine: .mtranServer
+        )
+        XCTAssertEqual(kinds(result.chain), [.builtin(.mtranServer)])
+    }
+
+    func testCustomEngineResolvesToCompatibleUUID() throws {
+        // Codex P1: .custom must resolve to the selected compatible instance
+        let config = CompatibleTranslationProvider.CompatibleConfig(
+            displayName: "My Relay",
+            baseURL: "https://relay.example.com/v1",
+            modelName: "gpt-4o-mini"
+        )
+        let jsonData = try JSONEncoder().encode(config)
+        let customName = String(data: jsonData, encoding: .utf8)
+        let engineConfig = TranslationEngineConfig(id: .custom, isEnabled: true, options: nil, customName: customName)
+
+        let result = AppSettings.migrateLegacyEngineSettings(
+            mode: .quickSwitch,
+            parallelEngines: [.apple, .custom],
+            sceneBindings: SceneEngineBinding.allDefaults,
+            fallbackEnabled: true,
+            legacySingleEngine: .apple,
+            legacyCustomEngineConfig: engineConfig
+        )
+        XCTAssertEqual(result.chain.count, 2)
+        XCTAssertEqual(result.chain.last?.kind, .compatible(config.id))
+    }
+
+    func testCustomEngineWithoutParsableNameFallsBackToBuiltin() {
+        let engineConfig = TranslationEngineConfig(id: .custom, isEnabled: true, options: nil, customName: "not-json")
+        let result = AppSettings.migrateLegacyEngineSettings(
+            mode: .quickSwitch,
+            parallelEngines: [.apple, .custom],
+            sceneBindings: SceneEngineBinding.allDefaults,
+            fallbackEnabled: true,
+            legacySingleEngine: .apple,
+            legacyCustomEngineConfig: engineConfig
+        )
+        XCTAssertEqual(result.chain.count, 2)
+        XCTAssertEqual(result.chain.last?.kind, .builtin(.custom))
+    }
+
+    func testPrimaryWithFallbackDeduplicatesLegacyDuplicates() {
+        // OCR: dedupe must apply uniformly across mode branches
+        let result = AppSettings.migrateLegacyEngineSettings(
+            mode: .primaryWithFallback,
+            parallelEngines: [.apple, .apple, .mtranServer],
+            sceneBindings: SceneEngineBinding.allDefaults,
+            fallbackEnabled: true,
+            legacySingleEngine: .apple
+        )
+        XCTAssertEqual(kinds(result.chain), [.builtin(.apple), .builtin(.mtranServer)])
+    }
+
+    func testComparePaddingNeverDuplicatesAnEngine() {
+        // OCR: chain=[.apple] must pad with a DIFFERENT engine
+        let result = AppSettings.migrateLegacyEngineSettings(
+            mode: .primaryWithFallback,
+            parallelEngines: [.apple],
+            sceneBindings: SceneEngineBinding.allDefaults,
+            fallbackEnabled: true,
+            legacySingleEngine: .apple
+        )
+        let compareKinds = Set(kinds(result.compare))
+        XCTAssertEqual(result.compare.count, EngineSelectionLimits.compareEnginesMinimum)
+        XCTAssertEqual(compareKinds.count, result.compare.count)
+    }
+
     // MARK: - Ordered chain construction
 
     func testPrimaryWithFallbackTakesFirstTwoEngines() {
@@ -244,24 +319,50 @@ final class EngineSettingsMigrationTests: XCTestCase {
         defaults.removeObject(forKey: AppSettings.Keys.engineChainV2)
         defaults.removeObject(forKey: AppSettings.Keys.compareEnginesV2)
 
-        let legacyMode = EngineSelectionMode.primaryWithFallback
-        let legacyParallel: [TranslationEngineType] = [.apple, .mtranServer]
+        // Codex P2: seed a real legacy value so the survival assertion can fail
+        let seededParallel = "apple,mtran"
+        defaults.set(["apple", "mtran"], forKey: AppSettings.Keys.parallelEngines)
+        defer { defaults.removeObject(forKey: AppSettings.Keys.parallelEngines) }
 
         _ = AppSettings.loadOrMigrateEngineSelectionV2ForTesting(
-            legacyMode: legacyMode,
-            parallelEngines: legacyParallel,
+            legacyMode: .primaryWithFallback,
+            parallelEngines: [.apple, .mtranServer],
             sceneBindings: SceneEngineBinding.allDefaults,
             fallbackEnabled: true,
             legacySingleEngine: .apple
         )
 
-        // Legacy keys untouched by migration (read directly from defaults)
-        XCTAssertNotNil(defaults.string(forKey: AppSettings.Keys.engineSelectionMode) ?? legacyMode.rawValue)
+        // Legacy key retains its exact seeded value after migration
+        XCTAssertEqual(
+            defaults.stringArray(forKey: AppSettings.Keys.parallelEngines)?.joined(separator: ","),
+            seededParallel
+        )
         // V2 keys were written
         XCTAssertNotNil(defaults.data(forKey: AppSettings.Keys.engineChainV2))
 
         defaults.removeObject(forKey: AppSettings.Keys.engineModeV2)
         defaults.removeObject(forKey: AppSettings.Keys.engineChainV2)
         defaults.removeObject(forKey: AppSettings.Keys.compareEnginesV2)
+    }
+
+    @MainActor
+    func testSetterEnforcesStructuralInvariants() {
+        let settings = AppSettings.shared
+        let originalChain = settings.engineChainV2
+        let originalCompare = settings.compareEnginesV2
+        defer {
+            settings.setEngineChainV2(originalChain)
+            settings.setCompareEnginesV2(originalCompare)
+        }
+
+        // empty chain rejected
+        settings.setEngineChainV2([])
+        XCTAssertEqual(settings.engineChainV2, originalChain)
+        // under-minimum compare rejected
+        settings.setCompareEnginesV2([.builtin(.apple)])
+        XCTAssertEqual(settings.compareEnginesV2, originalCompare)
+        // valid writes apply
+        settings.setEngineChainV2([.builtin(.apple), .builtin(.mtranServer)])
+        XCTAssertEqual(settings.engineChainV2.map { $0.kind }, [.builtin(.apple), .builtin(.mtranServer)])
     }
 }
