@@ -12,6 +12,11 @@ struct EngineConfigSheet: View {
     let engine: TranslationEngineType
     @Binding var config: TranslationEngineConfig
 
+    /// The proxied .ollama configuration when the OpenAI-compatible card
+    /// runs the Ollama preset. Loaded on appear, saved via onOllamaProxySave;
+    /// the .openai binding stays untouched by the preset (Codex P2 fixes).
+    @State var ollamaProxyConfig: TranslationEngineConfig? = nil
+
     @Environment(\.dismiss) private var dismiss
     @State private var showAPIKey = false
     @State private var apiKey: String = ""
@@ -65,7 +70,10 @@ struct EngineConfigSheet: View {
                     }
 
                     // Enable Toggle
-                    Toggle(isOn: $config.isEnabled) {
+                    Toggle(isOn: Binding(
+                        get: { effectiveIsEnabled },
+                        set: { effectiveIsEnabled = $0 }
+                    )) {
                         Text(localized("engine.config.enabled"))
                     }
                     .toggleStyle(.switch)
@@ -158,6 +166,33 @@ struct EngineConfigSheet: View {
                 message: Text(errorMessage),
                 dismissButton: .default(Text(localized("button.ok")))
             )
+        }
+    }
+
+    // MARK: - Effective Engine (preset proxy)
+
+    /// Engine whose config the sheet actually edits under the active preset.
+    private var effectiveEngine: TranslationEngineType {
+        (engine == .openai && openAIPreset == .ollamaLocal) ? .ollama : engine
+    }
+
+    /// Effective enable state: Ollama preset routes to the proxy config so
+    /// the .openai binding is never left enabled behind the preset.
+    private var effectiveIsEnabled: Bool {
+        get {
+            if engine == .openai, openAIPreset == .ollamaLocal, let proxy = ollamaProxyConfig {
+                return proxy.isEnabled
+            }
+            return config.isEnabled
+        }
+        nonmutating set {
+            if engine == .openai, openAIPreset == .ollamaLocal {
+                var proxy = ollamaProxyConfig ?? .default(for: .ollama)
+                proxy.isEnabled = newValue
+                ollamaProxyConfig = proxy
+            } else {
+                config.isEnabled = newValue
+            }
         }
     }
 
@@ -360,9 +395,9 @@ struct EngineConfigSheet: View {
     }
 
     private var canTest: Bool {
-        if !config.isEnabled { return false }
-        if engine.requiresAPIKey {
-            if engine == .baidu {
+        if !effectiveIsEnabled { return false }
+        if effectiveEngine.requiresAPIKey {
+            if effectiveEngine == .baidu {
                 return !appID.isEmpty && !secretKey.isEmpty
             }
             return !apiKey.isEmpty
@@ -371,8 +406,8 @@ struct EngineConfigSheet: View {
     }
 
     private var hasValidConfig: Bool {
-        if engine.requiresAPIKey {
-            if engine == .baidu {
+        if effectiveEngine.requiresAPIKey {
+            if effectiveEngine == .baidu {
                 return !appID.isEmpty && !secretKey.isEmpty
             }
             return !apiKey.isEmpty
@@ -402,8 +437,12 @@ struct EngineConfigSheet: View {
     func loadConfigForTesting() { loadConfig() }
 
     private func loadConfig() {
-        baseURL = config.options?.baseURL ?? engine.defaultBaseURL ?? ""
-        modelName = config.options?.modelName ?? engine.defaultModelName ?? ""
+        // Ollama preset edits the proxied .ollama config (Codex P2): reopening
+        // must show the saved Ollama URL/model, not OpenAI defaults.
+        let source: TranslationEngineConfig =
+            (engine == .openai && ollamaProxyConfig != nil) ? ollamaProxyConfig! : config
+        baseURL = source.options?.baseURL ?? effectiveEngine.defaultBaseURL ?? ""
+        modelName = source.options?.modelName ?? effectiveEngine.defaultModelName ?? ""
         if engine == .openai {
             openAIPreset = .inferred(fromBaseURL: baseURL)
         }
@@ -432,12 +471,14 @@ struct EngineConfigSheet: View {
         // Ollama preset: proxy the save into the .ollama engine config.
         // Provider behavior (endpoint shape, no-API-key) is keyed by engine
         // type, so a local-endpoint OpenAI config only works under .ollama.
+        // Uses the proxy enable state — the .openai binding is never touched
+        // under the preset (Codex P2: no phantom-enabled OpenAI entry).
         if engine == .openai, openAIPreset == .ollamaLocal {
             onOllamaProxySave?(Self.makeOllamaProxyConfig(
-                isEnabled: config.isEnabled,
+                isEnabled: effectiveIsEnabled,
                 baseURL: baseURL,
                 modelName: modelName,
-                options: config.options
+                options: ollamaProxyConfig?.options
             ))
             return
         }
@@ -477,21 +518,23 @@ struct EngineConfigSheet: View {
     private func testConnection() async {
         isTesting = true
         testResult = nil
+        let targetEngine = effectiveEngine
 
         do {
-            // Save credentials temporarily for testing
-            if engine.requiresAPIKey {
+            // Save credentials temporarily for testing (Ollama preset never
+            // reaches here: effectiveEngine == .ollama requires no key)
+            if targetEngine.requiresAPIKey {
                 hasModifiedCredentialsForTesting = true
-                if engine == .baidu {
+                if targetEngine == .baidu {
                     try await KeychainService.shared.saveCredentials(
                         apiKey: secretKey,
-                        for: engine,
+                        for: targetEngine,
                         additionalData: ["appID": appID, "secretKey": secretKey]
                     )
                 } else {
                     try await KeychainService.shared.saveCredentials(
                         apiKey: apiKey,
-                        for: engine
+                        for: targetEngine
                     )
                 }
             }
@@ -500,12 +543,14 @@ struct EngineConfigSheet: View {
             // Empty form fields mean "keep the saved value" (same contract as
             // saveConfig), so the probe must not hit a different URL than the
             // one that will actually be persisted.
-            var testConfig = config
-            var options = config.options ?? EngineOptions.default(for: engine) ?? EngineOptions()
+            let sourceConfig: TranslationEngineConfig =
+                (targetEngine == .ollama && engine == .openai) ? (ollamaProxyConfig ?? config) : config
+            var testConfig = sourceConfig
+            var options = sourceConfig.options ?? EngineOptions.default(for: targetEngine) ?? EngineOptions()
             if !baseURL.isEmpty { options.baseURL = baseURL }
             if !modelName.isEmpty { options.modelName = modelName }
             testConfig.options = options
-            try await TranslationService.shared.verifyConnection(for: engine, config: testConfig)
+            try await TranslationService.shared.verifyConnection(for: targetEngine, config: testConfig)
 
             await MainActor.run {
                 testSuccess = true

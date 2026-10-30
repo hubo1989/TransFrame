@@ -376,6 +376,7 @@ struct MultiEngineSettingsSection: View {
                         viewModel.settings.saveEngineConfigs()
                     }
                 ),
+                ollamaProxyConfig: viewModel.settings.engineConfigs[.ollama],
                 onOllamaProxySave: { ollamaConfig in
                     // Ollama preset save from the OpenAI-compatible card
                     var configs = viewModel.settings.engineConfigs
@@ -906,7 +907,14 @@ struct MultiEngineSettingsSection: View {
         Task {
             var configured = Set<TranslationEngineType>()
             for engine in TranslationEngineType.allCases {
-                if !engine.requiresAPIKey {
+                if engine == .ollama {
+                    // Ollama is only "configured" when a saved config exists
+                    // (preset proxy write); a fresh install must not aggregate
+                    // the OpenAI card as configured via a default entry.
+                    if viewModel.settings.engineConfigs[.ollama] != nil {
+                        configured.insert(engine)
+                    }
+                } else if !engine.requiresAPIKey {
                     configured.insert(engine)
                 } else {
                     let hasCreds = await KeychainService.shared.hasCredentials(for: engine)
