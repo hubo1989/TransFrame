@@ -353,6 +353,9 @@
 /* エンジン設定タイトル */
 "engine.config.title" = "翻訳エンジン設定";
 
+"engine.mode.ordered" = "順次フォールバック";
+"engine.mode.compare" = "並行比較";
+
 /* エンジン選択モード */
 "engine.selection.mode.title" = "エンジン選択モード";
 "engine.selection.mode.primary_fallback" = "プライマリ/フォールバック";

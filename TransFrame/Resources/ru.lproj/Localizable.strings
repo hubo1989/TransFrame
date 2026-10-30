@@ -353,6 +353,9 @@
 /* Заголовок конфигурации движка */
 "engine.config.title" = "Конфигурация движка перевода";
 
+"engine.mode.ordered" = "Последовательно";
+"engine.mode.compare" = "Сравнение";
+
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";
 "engine.selection.mode.primary_fallback" = "Основной/резервный";

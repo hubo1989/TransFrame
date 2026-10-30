@@ -353,6 +353,9 @@
 /* 엔진 구성 제목 */
 "engine.config.title" = "번역 엔진 구성";
 
+"engine.mode.ordered" = "순차 폴백";
+"engine.mode.compare" = "병렬 비교";
+
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
 "engine.selection.mode.primary_fallback" = "주/보조";

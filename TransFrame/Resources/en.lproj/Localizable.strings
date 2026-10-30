@@ -361,6 +361,9 @@
 /* Engine Configuration Title */
 "engine.config.title" = "Translation Engine Configuration";
 
+"engine.mode.ordered" = "Ordered";
+"engine.mode.compare" = "Compare";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Engine Selection Mode";
 "engine.selection.mode.primary_fallback" = "Primary/Fallback";

@@ -94,6 +94,10 @@ final class AppSettings {
         static let sceneBindings = prefix + "sceneBindings"
         static let parallelEngines = prefix + "parallelEngines"
         static let compatibleProviderConfigs = prefix + "compatibleProviderConfigs"
+        // Engine Selection V2 (converged modes; legacy keys above are kept as migration source)
+        static let engineModeV2 = prefix + "engineModeV2"
+        static let engineChainV2 = prefix + "engineChainV2"
+        static let compareEnginesV2 = prefix + "compareEnginesV2"
         // PaddleOCR Configuration
         static let paddleOCRMode = prefix + "paddleOCRMode"
         static let paddleOCRUseCloud = prefix + "paddleOCRUseCloud"
@@ -426,6 +430,21 @@ final class AppSettings {
         didSet { saveCompatibleConfigs() }
     }
 
+    // MARK: - Engine Selection V2
+
+    /// Converged engine mode: ordered fallback chain or parallel compare
+    var engineModeV2: EngineModeV2 {
+        didSet { save(engineModeV2.rawValue, forKey: Keys.engineModeV2) }
+    }
+
+    /// Ordered fallback chain (1...5 entries). No didSet: @Observable does
+    /// not reliably fire it for value-type mutations; call saveEngineChainV2()
+    /// explicitly after modifying.
+    private(set) var engineChainV2: [EngineChainItem]
+
+    /// Compare engine set (2...4 entries). Same persistence caveat as above.
+    private(set) var compareEnginesV2: [EngineChainItem]
+
     // MARK: - PaddleOCR Configuration
 
     /// PaddleOCR mode: fast (ocr command) or precise (doc_parser VL-1.5)
@@ -586,6 +605,35 @@ final class AppSettings {
         sceneBindings = Self.loadSceneBindings()
         parallelEngines = Self.loadParallelEngines()
 
+        // Engine Selection V2: load or migrate from legacy settings.
+        // Read legacy values as locals — self is not fully initialized here yet.
+        let legacyMode = defaults.string(forKey: Keys.engineSelectionMode)
+            .flatMap { EngineSelectionMode(rawValue: $0) } ?? .primaryWithFallback
+        // Preserve the missing-key vs explicitly-[.apple] distinction (Codex P1):
+        // loadParallelEngines() coerces an absent key to [.apple], which would
+        // permanently migrate a legacy single-engine user's non-Apple choice
+        // as Apple.
+        let legacyParallelRaw = UserDefaults.standard.array(forKey: Keys.parallelEngines) as? [String]
+        let legacyParallel = legacyParallelRaw.map { raw in
+            let engines = raw.compactMap { TranslationEngineType(rawValue: $0) }
+            return engines.isEmpty ? [.apple] : engines
+        }
+        let legacySceneBindings = Self.loadSceneBindings()
+        let legacyFallback = defaults.object(forKey: Keys.translationFallbackEnabled) as? Bool ?? true
+        let legacySingle = defaults.string(forKey: Keys.translationEngine)
+            .flatMap { TranslationEngineType(rawValue: $0) } ?? .apple
+        let v2 = Self.loadOrMigrateEngineSelectionV2Nonisolated(
+            legacyMode: legacyMode,
+            parallelEngines: legacyParallel,
+            sceneBindings: legacySceneBindings,
+            fallbackEnabled: legacyFallback,
+            legacySingleEngine: legacySingle,
+            legacyCustomEngineConfig: Self.loadEngineConfigs()[.custom]
+        )
+        engineModeV2 = v2.mode
+        engineChainV2 = v2.chain
+        compareEnginesV2 = v2.compare
+
         // Load PaddleOCR configuration
         paddleOCRMode = defaults.string(forKey: Keys.paddleOCRMode)
             .flatMap { PaddleOCRMode(rawValue: $0) } ?? .fast
@@ -691,6 +739,10 @@ final class AppSettings {
         sceneBindings = SceneEngineBinding.allDefaults
         parallelEngines = [.apple]
         compatibleProviderConfigs = []
+        engineModeV2 = .ordered
+        engineChainV2 = [.builtin(.apple)]
+        compareEnginesV2 = [.builtin(.apple), .builtin(.apple)]
+        persistEngineSelectionV2()
     }
 
     // MARK: - Notifications
@@ -916,6 +968,192 @@ final class AppSettings {
         if let data = try? JSONEncoder().encode(compatibleProviderConfigs) {
             UserDefaults.standard.set(data, forKey: Keys.compatibleProviderConfigs)
         }
+    }
+
+    // MARK: - Engine Selection V2 Persistence
+
+    /// Replace the ordered chain and persist. Enforces structural limits:
+    /// non-empty (empty input keeps current value), clamped to the upper bound.
+    func setEngineChainV2(_ items: [EngineChainItem]) {
+        guard !items.isEmpty else { return }
+        engineChainV2 = Array(items.prefix(EngineSelectionLimits.orderedChainLimit))
+        persistEngineSelectionV2()
+    }
+
+    /// Replace the compare set and persist. Enforces structural limits:
+    /// fewer than `compareEnginesMinimum` entries keeps the current value
+    /// (a 1-engine compare set violates the mode's contract), clamped to
+    /// the upper bound.
+    func setCompareEnginesV2(_ items: [EngineChainItem]) {
+        guard items.count >= EngineSelectionLimits.compareEnginesMinimum else { return }
+        compareEnginesV2 = Array(items.prefix(EngineSelectionLimits.compareEnginesLimit))
+        persistEngineSelectionV2()
+    }
+
+    private func persistEngineSelectionV2() {
+        // Encode everything first: a partial write (mode persisted, chain
+        // missing) would make the next launch re-run migration and clobber
+        // user-modified V2 settings.
+        guard let chainData = try? JSONEncoder().encode(engineChainV2),
+              let compareData = try? JSONEncoder().encode(compareEnginesV2) else {
+            return
+        }
+        UserDefaults.standard.set(engineModeV2.rawValue, forKey: Keys.engineModeV2)
+        UserDefaults.standard.set(chainData, forKey: Keys.engineChainV2)
+        UserDefaults.standard.set(compareData, forKey: Keys.compareEnginesV2)
+    }
+
+    /// Load V2 settings; run the one-time legacy migration when absent.
+    /// Idempotent: once V2 keys exist they are returned as-is.
+    /// Testing hook: reads/writes the shared UserDefaults directly so tests
+    /// can verify idempotency without constructing AppSettings.
+    nonisolated static func loadOrMigrateEngineSelectionV2ForTesting(
+        legacyMode: EngineSelectionMode,
+        parallelEngines: [TranslationEngineType]?,
+        sceneBindings: [TranslationScene: SceneEngineBinding],
+        fallbackEnabled: Bool,
+        legacySingleEngine: TranslationEngineType,
+        legacyCustomEngineConfig: TranslationEngineConfig? = nil
+    ) -> (mode: EngineModeV2, chain: [EngineChainItem], compare: [EngineChainItem]) {
+        loadOrMigrateEngineSelectionV2Nonisolated(
+            legacyMode: legacyMode,
+            parallelEngines: parallelEngines,
+            sceneBindings: sceneBindings,
+            fallbackEnabled: fallbackEnabled,
+            legacySingleEngine: legacySingleEngine,
+            legacyCustomEngineConfig: legacyCustomEngineConfig
+        )
+    }
+
+    private nonisolated static func loadOrMigrateEngineSelectionV2Nonisolated(
+        legacyMode: EngineSelectionMode,
+        parallelEngines: [TranslationEngineType]?,
+        sceneBindings: [TranslationScene: SceneEngineBinding],
+        fallbackEnabled: Bool,
+        legacySingleEngine: TranslationEngineType,
+        legacyCustomEngineConfig: TranslationEngineConfig? = nil
+    ) -> (mode: EngineModeV2, chain: [EngineChainItem], compare: [EngineChainItem]) {
+        let defaults = UserDefaults.standard
+
+        // Fresh V2 data wins; never re-derive from legacy keys. Validate
+        // content, not just decodability: an empty chain would leave ordered
+        // mode with nothing to run; a missing/short compare falls back to
+        // defaults without discarding the chain.
+        if let modeRaw = defaults.string(forKey: Keys.engineModeV2),
+           let mode = EngineModeV2(rawValue: modeRaw),
+           let chainData = defaults.data(forKey: Keys.engineChainV2),
+           let decodedChain = try? JSONDecoder().decode([EngineChainItem].self, from: chainData),
+           !decodedChain.isEmpty {
+            let chain = Array(decodedChain.prefix(EngineSelectionLimits.orderedChainLimit))
+            let compare = defaults.data(forKey: Keys.compareEnginesV2)
+                .flatMap { try? JSONDecoder().decode([EngineChainItem].self, from: $0) }
+                .map { Array($0.prefix(EngineSelectionLimits.compareEnginesLimit)) }
+                ?? Self.defaultCompareSet()
+            return (mode, chain, compare)
+        }
+
+        let migrated = migrateLegacyEngineSettings(
+            mode: legacyMode,
+            parallelEngines: parallelEngines,
+            sceneBindings: sceneBindings,
+            fallbackEnabled: fallbackEnabled,
+            legacySingleEngine: legacySingleEngine,
+            legacyCustomEngineConfig: legacyCustomEngineConfig
+        )
+
+        // Encode everything before persisting (see persistEngineSelectionV2).
+        if let chainData = try? JSONEncoder().encode(migrated.chain),
+           let compareData = try? JSONEncoder().encode(migrated.compare) {
+            defaults.set(migrated.mode.rawValue, forKey: Keys.engineModeV2)
+            defaults.set(chainData, forKey: Keys.engineChainV2)
+            defaults.set(compareData, forKey: Keys.compareEnginesV2)
+        }
+
+        return migrated
+    }
+
+    /// Pure legacy -> V2 mapping. Static and side-effect free so tests can
+    /// exercise every branch directly.
+    nonisolated static func migrateLegacyEngineSettings(
+        mode: EngineSelectionMode,
+        parallelEngines: [TranslationEngineType]?,
+        sceneBindings: [TranslationScene: SceneEngineBinding],
+        fallbackEnabled: Bool,
+        legacySingleEngine: TranslationEngineType,
+        legacyCustomEngineConfig: TranslationEngineConfig? = nil
+    ) -> (mode: EngineModeV2, chain: [EngineChainItem], compare: [EngineChainItem]) {
+        let newMode: EngineModeV2 = (mode == .parallel) ? .compare : .ordered
+
+        // Normalize legacy engine lists: dedupe preserving order (a repeated
+        // engine in a fallback chain just re-runs the same failure), and
+        // resolve .custom to the selected compatible instance's UUID via the
+        // customName JSON hack (Codex P1: dropping this loses the user's
+        // active compatible engine).
+        func normalize(_ engines: [TranslationEngineType]) -> [EngineChainItem] {
+            var seen = Set<TranslationEngineType>()
+            return engines.filter { seen.insert($0).inserted }.map { engine in
+                if engine == .custom,
+                   let customName = legacyCustomEngineConfig?.customName,
+                   let jsonData = customName.data(using: .utf8),
+                   let parsed = try? JSONDecoder().decode(
+                       CompatibleTranslationProvider.CompatibleConfig.self, from: jsonData) {
+                    return .compatible(parsed.id)
+                }
+                return .builtin(engine)
+            }
+        }
+
+        let parallel = parallelEngines ?? []
+
+        var chain: [EngineChainItem]
+        switch mode {
+        case .primaryWithFallback:
+            chain = Array(normalize(parallel).prefix(2))
+        case .quickSwitch:
+            chain = normalize(parallel)
+        case .sceneBinding:
+            let binding = sceneBindings[.screenshot] ?? SceneEngineBinding.default(for: .screenshot)
+            var engines = [binding.primaryEngine]
+            if binding.fallbackEnabled, let fallback = binding.fallbackEngine {
+                engines.append(fallback)
+            }
+            chain = normalize(engines)
+        case .parallel:
+            chain = normalize(parallel)
+        }
+
+        if !fallbackEnabled {
+            chain = Array(chain.prefix(1))
+        }
+        // nil parallelEngines means the legacy key never existed: honor the
+        // legacy single-engine choice instead of the loadParallelEngines()
+        // default of [.apple].
+        if chain.isEmpty {
+            chain = normalize([legacySingleEngine])
+        }
+        chain = Array(chain.prefix(EngineSelectionLimits.orderedChainLimit))
+
+        var compare: [EngineChainItem]
+        if mode == .parallel, parallel.count >= 2 {
+            compare = Array(normalize(parallel).prefix(EngineSelectionLimits.compareEnginesLimit))
+        } else {
+            // Seed from the migrated chain, padding to the 2-engine minimum
+            // with engines not already in the set (a duplicate would run the
+            // same engine twice and produce identical results).
+            var seeds = chain.prefix(EngineSelectionLimits.compareEnginesMinimum).map { $0.kind }
+            while seeds.count < EngineSelectionLimits.compareEnginesMinimum {
+                let used = Set(seeds)
+                guard let filler = TranslationEngineType.allCases.first(where: { !used.contains(.builtin($0)) }) else { break }
+                seeds.append(.builtin(filler))
+            }
+            compare = seeds.map { EngineChainItem(kind: $0) }
+        }
+
+        return (newMode, chain, compare)
+    }
+
+    private nonisolated static func defaultCompareSet() -> [EngineChainItem] {
+        [.builtin(.apple), .builtin(.mtranServer)]
     }
 
     private static func loadCompatibleConfigs() -> [CompatibleTranslationProvider.CompatibleConfig] {

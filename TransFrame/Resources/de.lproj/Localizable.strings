@@ -353,6 +353,9 @@
 /* Engine-Konfigurationstitel */
 "engine.config.title" = "Übersetzungs-Engine-Konfiguration";
 
+"engine.mode.ordered" = "Sequentiell";
+"engine.mode.compare" = "Vergleich";
+
 /* Engine-Auswahlmodi */
 "engine.selection.mode.title" = "Engine-Auswahlmodus";
 "engine.selection.mode.primary_fallback" = "Primär/Fallback";

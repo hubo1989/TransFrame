@@ -22,6 +22,9 @@ protocol TextInsertionTarget: AnyObject {
     /// 粘贴兜底：以剪贴板 + Cmd+V 替换当前选区。
     /// 返回恢复剪贴板的闭包，调用方必须在读回验证结束后调用。
     func replaceSelectedTextByPasting(_ text: String) async throws -> @MainActor () -> Void
+    /// 粘贴兜底前的目标复核。必须作为协议要求，否则经 `any TextInsertionTarget`
+    /// 调用时会静态派发到扩展默认实现，实现类的覆盖永远不生效。
+    func revalidateForPaste() -> Bool
 }
 
 extension TextInsertionTarget {
