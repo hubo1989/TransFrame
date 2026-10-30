@@ -373,6 +373,9 @@
 "engine.config.chain.add" = "添加引擎";
 "engine.config.chain.entryDeleted" = "已失效";
 
+"engine.config.compare.title" = "对比引擎";
+"engine.config.compare.needTwo" = "对比模式至少选择 2 个引擎";
+
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";
 "engine.selection.mode.primary_fallback" = "主备";

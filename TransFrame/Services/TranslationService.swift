@@ -818,6 +818,88 @@ actor TranslationService {
         await registry.compatibleConfigList()
     }
 
+    // MARK: - V2 Compare Mode (Phase 4)
+
+    /// Parallel compare: run 2-4 entries concurrently, return one
+    /// EngineResult per entry (success or failure) in selection order.
+    /// At least one success → successful bundle; all failed → aggregated
+    /// error with engine identity. Cancellation propagates immediately.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        guard !segments.isEmpty else {
+            return TranslationResultBundle(
+                results: [],
+                primaryEngine: engines.first.map(\.resolvedEngine) ?? .apple,
+                selectionMode: .parallel,
+                scene: scene
+            )
+        }
+
+        // Defensive: empty selection runs Apple alone rather than failing
+        let effectiveEngines = engines.isEmpty ? [.builtin(.apple)] : engines
+
+        // Correlate results with chain items by entry id: the same engine
+        // may legitimately appear twice (e.g. two compatible instances).
+        // Cancellation is recorded as a failed result and rethrown after the
+        // group drains (task-group children cannot throw here).
+        let results = await withTaskGroup(
+            of: (UUID, EngineResult).self,
+            returning: [UUID: EngineResult].self
+        ) { group in
+            for item in effectiveEngines {
+                group.addTask {
+                    do {
+                        let bundle = try await self.translateWithChainItem(
+                            item,
+                            segments: segments,
+                            to: targetLanguage,
+                            from: sourceLanguage,
+                            scene: scene
+                        )
+                        let result = bundle.results.first ?? EngineResult.failed(
+                            engine: item.resolvedEngine,
+                            error: TranslationProviderError.translationFailed("no result")
+                        )
+                        return (item.id, result)
+                    } catch {
+                        return (item.id, EngineResult.failed(
+                            engine: item.resolvedEngine,
+                            error: error
+                        ))
+                    }
+                }
+            }
+            var collected: [UUID: EngineResult] = [:]
+            for await pair in group {
+                collected[pair.0] = pair.1
+            }
+            return collected
+        }
+
+        try Task.checkCancellation()
+
+        let orderedResults = effectiveEngines.compactMap { results[$0.id] }
+
+        guard orderedResults.contains(where: { $0.isSuccess }) else {
+            throw MultiEngineError.allEnginesFailed(
+                orderedResults.map { EngineFailedError(engine: $0.engine, underlying: $0.error) }
+            )
+        }
+
+        let primary = orderedResults.first(where: \.isSuccess) ?? orderedResults[0]
+        return TranslationResultBundle(
+            results: orderedResults,
+            primaryEngine: primary.engine,
+            selectionMode: .parallel,
+            scene: scene
+        )
+    }
+
     // MARK: - Legacy API (Backward Compatible)
 
     /// Translates segments using the preferred engine with automatic fallback

@@ -217,6 +217,31 @@ actor MockTranslationServicing: TranslationServicing {
         )
     }
 
+    private(set) var compareRequests: [[EngineChainItem]] = []
+
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        compareRequests.append(engines)
+        if let nextError {
+            throw nextError
+        }
+        return TranslationResultBundle(
+            results: [EngineResult(
+                engine: engines.first?.resolvedEngine ?? .apple,
+                segments: nextResult,
+                latency: 0
+            )],
+            primaryEngine: engines.first?.resolvedEngine ?? .apple,
+            selectionMode: .parallel,
+            scene: scene
+        )
+    }
+
     func requestCount() async -> Int {
         requests.count
     }

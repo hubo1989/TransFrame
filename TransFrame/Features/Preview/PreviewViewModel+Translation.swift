@@ -55,13 +55,23 @@ extension PreviewViewModel {
 
             let config = ImageTranslationPipelineConfig.fromAppSettings(scene: nil)
             do {
-                let segments = try await pipeline.translate(
+                let bundle = try await pipeline.translateBundle(
                     analysisResult: filtered,
                     config: config,
                     context: context
                 )
                 guard generation == self.analysisGeneration else { return }
-                bilingualSegments = segments
+                let successResults = bundle.results.filter { $0.isSuccess }
+                if successResults.count > 1, config.compareEnginesV2 != nil {
+                    // Compare mode: keep per-engine results; show primary first
+                    compareResults = successResults
+                    selectedCompareEngineId = successResults.first?.id
+                    bilingualSegments = successResults.first?.segments ?? []
+                } else {
+                    compareResults = []
+                    selectedCompareEngineId = nil
+                    bilingualSegments = bundle.primaryResult
+                }
             } catch {
                 guard generation == self.analysisGeneration else { return }
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

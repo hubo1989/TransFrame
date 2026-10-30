@@ -168,8 +168,11 @@ struct PreviewResultsPanel: View {
             } else if viewModel.hasTranslationResults {
                 VStack(alignment: .leading, spacing: 8) {
                     targetLanguagePicker
+                    if !viewModel.compareResults.isEmpty {
+                        compareEngineChips
+                    }
                     SelectableTextBlock(
-                        attributedText: ResultsTextBuilder.translationText(segments: viewModel.bilingualSegments),
+                        attributedText: ResultsTextBuilder.translationText(segments: viewModel.displaySegments),
                         onLineCopied: flashCopy
                     )
                 }
@@ -192,6 +195,46 @@ struct PreviewResultsPanel: View {
     }
 
     /// 国旗横排一键切换目标语言，避免下拉二次点击；切换后重跑翻译。
+    /// Compare mode (Phase 4): switch between cached per-engine results;
+    /// switching never re-translates.
+    private var compareEngineChips: some View {
+        HStack(spacing: 6) {
+            ForEach(viewModel.compareResults) { result in
+                Button {
+                    viewModel.selectedCompareEngineId = result.id
+                } label: {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(result.isSuccess ? Color.green : Color.orange)
+                            .frame(width: 5, height: 5)
+                        Text(result.engine.localizedName)
+                            .font(.caption2)
+                        Text(String(format: "%.1fs", result.latency))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        viewModel.selectedCompareEngineId == result.id
+                            ? Color.accentColor.opacity(0.2)
+                            : Color.clear
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(
+                                viewModel.selectedCompareEngineId == result.id
+                                    ? Color.accentColor : Color.clear,
+                                lineWidth: 1
+                            )
+                    )
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var targetLanguagePicker: some View {
         HStack(spacing: 4) {
             ForEach(Self.targetLanguages, id: \.self) { language in
@@ -242,7 +285,7 @@ struct PreviewResultsPanel: View {
         case .ocr:
             return viewModel.combinedOCRText
         case .translate:
-            return viewModel.bilingualSegments.map(\.translated).joined(separator: "\n")
+            return viewModel.displaySegments.map(\.translated).joined(separator: "\n")
         }
     }
 
@@ -269,11 +312,11 @@ struct PreviewResultsPanel: View {
             )
             panelCopyButton(
                 title: String(localized: "preview.panel.copyTranslation"),
-                text: viewModel.bilingualSegments.map(\.translated).joined(separator: "\n")
+                text: viewModel.displaySegments.map(\.translated).joined(separator: "\n")
             )
             panelCopyButton(
                 title: String(localized: "preview.panel.copyAll"),
-                text: ResultsTextBuilder.translationText(segments: viewModel.bilingualSegments).string
+                text: ResultsTextBuilder.translationText(segments: viewModel.displaySegments).string
             )
         }
     }

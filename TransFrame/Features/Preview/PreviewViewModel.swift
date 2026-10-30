@@ -95,6 +95,20 @@ final class PreviewViewModel {
     var bilingualSegments: [BilingualSegment] = []
     var isTranslating: Bool = false
 
+    // Compare mode (Phase 4): per-engine results for switchable display.
+    // Switching engines only changes displaySegments — no re-translation.
+    var compareResults: [EngineResult] = []
+    var selectedCompareEngineId: UUID?
+
+    /// Segments currently displayed (primary result or user-selected engine)
+    var displaySegments: [BilingualSegment] {
+        if let selectedId = selectedCompareEngineId,
+           let chosen = compareResults.first(where: { $0.id == selectedId }) {
+            return chosen.segments
+        }
+        return bilingualSegments
+    }
+
     @ObservationIgnored
     var ocrTask: Task<Void, Never>?
     @ObservationIgnored

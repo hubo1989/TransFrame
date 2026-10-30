@@ -365,6 +365,9 @@
 "engine.config.chain.add" = "Добавить в цепочку";
 "engine.config.chain.entryDeleted" = "Элемент удалён";
 
+"engine.config.compare.title" = "Движки сравнения";
+"engine.config.compare.needTwo" = "Выберите минимум 2 движка для сравнения";
+
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";
 "engine.selection.mode.primary_fallback" = "Основной/резервный";

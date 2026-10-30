@@ -13,6 +13,9 @@ struct ImageTranslationPipelineConfig: Sendable, Equatable {
     /// V2 ordered chain: when non-nil and engineModeV2 == .ordered, the
     /// render pipeline routes through translateOrderedV2 (Phase 3).
     var orderedChainV2: [EngineChainItem]? = nil
+    /// V2 compare set: when non-nil and engineModeV2 == .compare, the
+    /// render pipeline routes through translateCompareV2 (Phase 4).
+    var compareEnginesV2: [EngineChainItem]? = nil
 
     @MainActor
     static func fromAppSettings(scene: TranslationScene? = nil) -> ImageTranslationPipelineConfig {
@@ -39,7 +42,8 @@ struct ImageTranslationPipelineConfig: Sendable, Equatable {
             fallbackEnabled: settings.translationFallbackEnabled,
             parallelEngines: settings.parallelEngines,
             sceneBindings: settings.sceneBindings,
-            orderedChainV2: settings.engineModeV2 == .ordered ? settings.engineChainV2 : nil
+            orderedChainV2: settings.engineModeV2 == .ordered ? settings.engineChainV2 : nil,
+            compareEnginesV2: settings.engineModeV2 == .compare ? settings.compareEnginesV2 : nil
         )
     }
 }
@@ -141,6 +145,20 @@ final class ImageTranslationPipeline: Sendable {
         context: PipelineContext
     ) async throws -> [BilingualSegment] {
         try await translationRenderPipeline.translate(
+            analysisResult: analysisResult,
+            config: config,
+            context: context
+        )
+    }
+
+    /// Translate and return the full bundle (per-engine results) so compare
+    /// mode can render switchable results without re-translating (Phase 4).
+    func translateBundle(
+        analysisResult: ScreenAnalysisResult,
+        config: ImageTranslationPipelineConfig,
+        context: PipelineContext
+    ) async throws -> TranslationResultBundle {
+        try await translationRenderPipeline.translateBundle(
             analysisResult: analysisResult,
             config: config,
             context: context

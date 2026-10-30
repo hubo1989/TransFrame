@@ -55,6 +55,15 @@ protocol TranslationServicing: Sendable {
         scene: TranslationScene?,
         chain: [EngineChainItem]
     ) async throws -> TranslationResultBundle
+
+    /// V2 compare mode (Phase 4): run entries in parallel, one result each.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle
 }
 
 // MARK: - Default Implementation
@@ -92,6 +101,23 @@ extension TranslationServicing {
             primaryEngine: chain.first?.resolvedEngine ?? .apple,
             selectionMode: .primaryWithFallback,
             scene: scene
+        )
+    }
+
+    /// Default V2 compare implementation: same forwarding shape as ordered.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        try await translateOrderedV2(
+            segments: segments,
+            to: targetLanguage,
+            from: sourceLanguage,
+            scene: scene,
+            chain: engines
         )
     }
 
