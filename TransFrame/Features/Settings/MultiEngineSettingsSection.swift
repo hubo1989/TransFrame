@@ -88,6 +88,17 @@ struct MultiEngineSettingsSection: View {
 
     @ViewBuilder
     private var modeSpecificSection: some View {
+        // V2 compare owns engine selection when active; the legacy parallel
+        // editor writes settings the new dispatch never reads (PR #93 review)
+        if viewModel.settings.engineModeV2 == .compare {
+            EmptyView()
+        } else {
+            innerModeSpecificSection
+        }
+    }
+
+    @ViewBuilder
+    private var innerModeSpecificSection: some View {
         switch viewModel.settings.engineSelectionMode {
         case .primaryWithFallback:
             primaryFallbackSection
@@ -830,6 +841,23 @@ struct MultiEngineSettingsSection: View {
                 await MainActor.run {
                     viewModel.settings.compatibleProviderConfigs.remove(at: index)
                     viewModel.settings.saveCompatibleConfigs()
+                    // Purge the deleted instance from V2 selections, otherwise
+                    // invisible entries keep consuming the 2-4 quota and fail
+                    // every run (PR #93 review).
+                    let deletedID = config.id
+                    let chain = viewModel.settings.engineChainV2.filter { $0.kind != .compatible(deletedID) }
+                    if chain.count < viewModel.settings.engineChainV2.count {
+                        viewModel.settings.setEngineChainV2(chain.isEmpty ? [.builtin(.apple)] : chain)
+                    }
+                    let compare = viewModel.settings.compareEnginesV2.filter { $0.kind != .compatible(deletedID) }
+                    if compare.count < viewModel.settings.compareEnginesV2.count {
+                        // Keep the 2-entry minimum by padding with a builtin
+                        var padded = compare
+                        while padded.count < EngineSelectionLimits.compareEnginesMinimum {
+                            padded.append(.builtin(.apple))
+                        }
+                        viewModel.settings.setCompareEnginesV2(padded)
+                    }
                 }
             } catch {
                 // Log error but don't remove config if credential migration fails

@@ -745,19 +745,6 @@ actor TranslationService {
         )
     }
 
-    /// A chain entry failure carrying its engine identity for the
-    /// aggregated allEnginesFailed message (PR #92 review: bare provider
-    /// errors are generic and cannot attribute the failure).
-    struct EngineFailedError: LocalizedError, Sendable {
-        let engine: TranslationEngineType
-        let underlying: Error?
-
-        var errorDescription: String? {
-            let reason = underlying?.localizedDescription ?? "unknown error"
-            return "\(engine.localizedName): \(reason)"
-        }
-    }
-
     /// Translate with one chain entry, resolving compatible instances by UUID.
     private func translateWithChainItem(
         _ item: EngineChainItem,
@@ -803,10 +790,15 @@ actor TranslationService {
                     "\(provider.name) returned no results"
                 )
             }
-            return TranslationResultBundle.single(
+            let result = EngineResult(
                 engine: .custom,
                 segments: bilingual,
                 latency: Date().timeIntervalSince(start),
+                displayName: config.displayName
+            )
+            return TranslationResultBundle(
+                results: [result],
+                primaryEngine: .custom,
                 selectionMode: .primaryWithFallback,
                 scene: scene
             )
@@ -832,16 +824,25 @@ actor TranslationService {
         engines: [EngineChainItem]
     ) async throws -> TranslationResultBundle {
         guard !segments.isEmpty else {
+            // Empty input is a caller bug; log it instead of silently
+            // returning a bundle whose primaryEngine may not even resolve.
+            logger.notice("compare: empty segments (caller bug)")
             return TranslationResultBundle(
                 results: [],
-                primaryEngine: engines.first.map(\.resolvedEngine) ?? .apple,
+                primaryEngine: .apple,
                 selectionMode: .parallel,
                 scene: scene
             )
         }
 
-        // Defensive: empty selection runs Apple alone rather than failing
-        let effectiveEngines = engines.isEmpty ? [.builtin(.apple)] : engines
+        // Defensive: empty selection runs Apple alone; clamp to the compare
+        // limit so hand-built configs cannot fan out unbounded paid calls
+        // (service-layer backstop for EngineSelectionLimits, PR #93 review).
+        var effectiveEngines = engines.isEmpty ? [.builtin(.apple)] : engines
+        if effectiveEngines.count > EngineSelectionLimits.compareEnginesLimit {
+            logger.warning("compare: clamping \(effectiveEngines.count) entries to \(EngineSelectionLimits.compareEnginesLimit)")
+            effectiveEngines = Array(effectiveEngines.prefix(EngineSelectionLimits.compareEnginesLimit))
+        }
 
         // Correlate results with chain items by entry id: the same engine
         // may legitimately appear twice (e.g. two compatible instances).
@@ -861,10 +862,16 @@ actor TranslationService {
                             from: sourceLanguage,
                             scene: scene
                         )
-                        let result = bundle.results.first ?? EngineResult.failed(
+                        var result = bundle.results.first ?? EngineResult.failed(
                             engine: item.resolvedEngine,
                             error: TranslationProviderError.translationFailed("no result")
                         )
+                        if case .compatible(let instanceID) = item.kind,
+                           result.displayName == nil,
+                           let name = await self.compatibleConfigsForChain()
+                               .first(where: { $0.id == instanceID })?.displayName {
+                            result.displayName = name
+                        }
                         return (item.id, result)
                     } catch {
                         return (item.id, EngineResult.failed(

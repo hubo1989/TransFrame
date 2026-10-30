@@ -61,12 +61,13 @@ extension PreviewViewModel {
                     context: context
                 )
                 guard generation == self.analysisGeneration else { return }
-                let successResults = bundle.results.filter { $0.isSuccess }
-                if successResults.count > 1, config.compareEnginesV2 != nil {
-                    // Compare mode: keep per-engine results; show primary first
-                    compareResults = successResults
-                    selectedCompareEngineId = successResults.first?.id
-                    bilingualSegments = successResults.first?.segments ?? []
+                if config.compareEnginesV2 != nil, bundle.results.count > 1 {
+                    // Compare mode: keep ALL entries (failures included) so the
+                    // chips can show per-engine status; display follows the
+                    // primary (first successful) result (PR #93 review).
+                    compareResults = bundle.results
+                    selectedCompareEngineId = bundle.results.first(where: { $0.isSuccess })?.id
+                    bilingualSegments = bundle.primaryResult
                 } else {
                     compareResults = []
                     selectedCompareEngineId = nil

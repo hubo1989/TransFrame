@@ -207,7 +207,7 @@ struct PreviewResultsPanel: View {
                         Circle()
                             .fill(result.isSuccess ? Color.green : Color.orange)
                             .frame(width: 5, height: 5)
-                        Text(result.engine.localizedName)
+                        Text(result.displayName ?? result.engine.localizedName)
                             .font(.caption2)
                         Text(String(format: "%.1fs", result.latency))
                             .font(.caption2)
