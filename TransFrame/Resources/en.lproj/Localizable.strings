@@ -373,6 +373,9 @@
 "engine.config.chain.add" = "Add to chain";
 "engine.config.chain.entryDeleted" = "Entry deleted";
 
+"engine.config.compare.title" = "Compare engines";
+"engine.config.compare.needTwo" = "Select at least 2 engines to compare";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Engine Selection Mode";
 "engine.selection.mode.primary_fallback" = "Primary/Fallback";

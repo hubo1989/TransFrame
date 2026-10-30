@@ -365,6 +365,9 @@
 "engine.config.chain.add" = "Zur Kette hinzufügen";
 "engine.config.chain.entryDeleted" = "Eintrag gelöscht";
 
+"engine.config.compare.title" = "Vergleichs-Engines";
+"engine.config.compare.needTwo" = "Für den Vergleich mindestens 2 Engines wählen";
+
 /* Engine-Auswahlmodi */
 "engine.selection.mode.title" = "Engine-Auswahlmodus";
 "engine.selection.mode.primary_fallback" = "Primär/Fallback";

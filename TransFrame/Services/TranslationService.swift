@@ -745,19 +745,6 @@ actor TranslationService {
         )
     }
 
-    /// A chain entry failure carrying its engine identity for the
-    /// aggregated allEnginesFailed message (PR #92 review: bare provider
-    /// errors are generic and cannot attribute the failure).
-    struct EngineFailedError: LocalizedError, Sendable {
-        let engine: TranslationEngineType
-        let underlying: Error?
-
-        var errorDescription: String? {
-            let reason = underlying?.localizedDescription ?? "unknown error"
-            return "\(engine.localizedName): \(reason)"
-        }
-    }
-
     /// Translate with one chain entry, resolving compatible instances by UUID.
     private func translateWithChainItem(
         _ item: EngineChainItem,
@@ -803,10 +790,15 @@ actor TranslationService {
                     "\(provider.name) returned no results"
                 )
             }
-            return TranslationResultBundle.single(
+            let result = EngineResult(
                 engine: .custom,
                 segments: bilingual,
                 latency: Date().timeIntervalSince(start),
+                displayName: config.displayName
+            )
+            return TranslationResultBundle(
+                results: [result],
+                primaryEngine: .custom,
                 selectionMode: .primaryWithFallback,
                 scene: scene
             )
@@ -816,6 +808,103 @@ actor TranslationService {
     /// Compatible instance list for chain resolution.
     private func compatibleConfigsForChain() async -> [CompatibleTranslationProvider.CompatibleConfig] {
         await registry.compatibleConfigList()
+    }
+
+    // MARK: - V2 Compare Mode (Phase 4)
+
+    /// Parallel compare: run 2-4 entries concurrently, return one
+    /// EngineResult per entry (success or failure) in selection order.
+    /// At least one success → successful bundle; all failed → aggregated
+    /// error with engine identity. Cancellation propagates immediately.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        guard !segments.isEmpty else {
+            // Empty input is a caller bug; log it instead of silently
+            // returning a bundle whose primaryEngine may not even resolve.
+            logger.notice("compare: empty segments (caller bug)")
+            return TranslationResultBundle(
+                results: [],
+                primaryEngine: .apple,
+                selectionMode: .parallel,
+                scene: scene
+            )
+        }
+
+        // Defensive: empty selection runs Apple alone; clamp to the compare
+        // limit so hand-built configs cannot fan out unbounded paid calls
+        // (service-layer backstop for EngineSelectionLimits, PR #93 review).
+        var effectiveEngines = engines.isEmpty ? [.builtin(.apple)] : engines
+        if effectiveEngines.count > EngineSelectionLimits.compareEnginesLimit {
+            logger.warning("compare: clamping \(effectiveEngines.count) entries to \(EngineSelectionLimits.compareEnginesLimit)")
+            effectiveEngines = Array(effectiveEngines.prefix(EngineSelectionLimits.compareEnginesLimit))
+        }
+
+        // Correlate results with chain items by entry id: the same engine
+        // may legitimately appear twice (e.g. two compatible instances).
+        // Cancellation is recorded as a failed result and rethrown after the
+        // group drains (task-group children cannot throw here).
+        let results = await withTaskGroup(
+            of: (UUID, EngineResult).self,
+            returning: [UUID: EngineResult].self
+        ) { group in
+            for item in effectiveEngines {
+                group.addTask {
+                    do {
+                        let bundle = try await self.translateWithChainItem(
+                            item,
+                            segments: segments,
+                            to: targetLanguage,
+                            from: sourceLanguage,
+                            scene: scene
+                        )
+                        var result = bundle.results.first ?? EngineResult.failed(
+                            engine: item.resolvedEngine,
+                            error: TranslationProviderError.translationFailed("no result")
+                        )
+                        if case .compatible(let instanceID) = item.kind,
+                           result.displayName == nil,
+                           let name = await self.compatibleConfigsForChain()
+                               .first(where: { $0.id == instanceID })?.displayName {
+                            result.displayName = name
+                        }
+                        return (item.id, result)
+                    } catch {
+                        return (item.id, EngineResult.failed(
+                            engine: item.resolvedEngine,
+                            error: error
+                        ))
+                    }
+                }
+            }
+            var collected: [UUID: EngineResult] = [:]
+            for await pair in group {
+                collected[pair.0] = pair.1
+            }
+            return collected
+        }
+
+        try Task.checkCancellation()
+
+        let orderedResults = effectiveEngines.compactMap { results[$0.id] }
+
+        guard orderedResults.contains(where: { $0.isSuccess }) else {
+            throw MultiEngineError.allEnginesFailed(
+                orderedResults.map { EngineFailedError(engine: $0.engine, underlying: $0.error) }
+            )
+        }
+
+        let primary = orderedResults.first(where: \.isSuccess) ?? orderedResults[0]
+        return TranslationResultBundle(
+            results: orderedResults,
+            primaryEngine: primary.engine,
+            selectionMode: .parallel,
+            scene: scene
+        )
     }
 
     // MARK: - Legacy API (Backward Compatible)

@@ -11,4 +11,5 @@ extension Logger {
     static let ui = Logger(subsystem: subsystem, category: "ui")
     static let settings = Logger(subsystem: subsystem, category: "settings")
     static let textInsertion = Logger(subsystem: subsystem, category: "TextInsertion")
+    static let pipeline = Logger(subsystem: subsystem, category: "pipeline")
 }

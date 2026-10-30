@@ -24,17 +24,24 @@ struct EngineResult: Sendable, Identifiable {
     /// Unique identifier
     let id: UUID
 
+    /// Display name for UI chips: compatible-instance name when this entry
+    /// came from a chain item (PR #93 review: two compatible instances must
+    /// not both render as the generic "Custom").
+    var displayName: String? = nil
+
     init(
         engine: TranslationEngineType,
         segments: [BilingualSegment],
         latency: TimeInterval,
-        error: Error? = nil
+        error: Error? = nil,
+        displayName: String? = nil
     ) {
         self.id = UUID()
         self.engine = engine
         self.segments = segments
         self.latency = latency
         self.error = error
+        self.displayName = displayName
     }
 
     /// Whether this result was successful
@@ -174,6 +181,19 @@ struct TranslationResultBundle: Sendable {
 // MARK: - Error Types for Bundle
 
 /// Errors specific to multi-engine translation
+/// A chain entry failure carrying its engine identity for the aggregated
+/// allEnginesFailed message (PR #92 review: bare provider errors are generic
+/// and cannot attribute the failure).
+struct EngineFailedError: LocalizedError, Sendable {
+    let engine: TranslationEngineType
+    let underlying: Error?
+
+    var errorDescription: String? {
+        let reason = underlying?.localizedDescription ?? "unknown error"
+        return "\(engine.localizedName): \(reason)"
+    }
+}
+
 enum MultiEngineError: LocalizedError, Sendable {
     /// All engines failed
     case allEnginesFailed([Error])

@@ -365,6 +365,9 @@
 "engine.config.chain.add" = "Aggiungi alla catena";
 "engine.config.chain.entryDeleted" = "Voce eliminata";
 
+"engine.config.compare.title" = "Motori di confronto";
+"engine.config.compare.needTwo" = "Seleziona almeno 2 motori da confrontare";
+
 /* Modalità di selezione motore */
 "engine.selection.mode.title" = "Modalità Selezione Motore";
 "engine.selection.mode.primary_fallback" = "Primario/Fallback";

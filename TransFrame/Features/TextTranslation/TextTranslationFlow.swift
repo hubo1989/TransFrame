@@ -129,6 +129,9 @@ struct TextTranslationConfig: Sendable {
     let parallelEngines: [TranslationEngineType]
     /// Scene routing bindings active for the request
     let sceneBindings: [TranslationScene: SceneEngineBinding]
+    /// V2 selection: ordered chain or compare set, active when engineModeV2
+    /// routes the request (Phase 4). nil keeps legacy dispatch.
+    var v2Selection: (mode: EngineModeV2, entries: [EngineChainItem])? = nil
 
     /// Default configuration using common settings
     static let `default` = TextTranslationConfig(
@@ -357,7 +360,7 @@ extension TextTranslationConfig {
         let targetLanguage = settings.translationTargetLanguage?.rawValue ?? "zh-Hans"
         let sourceLanguage: String? = settings.translationSourceLanguage == .auto ? nil : settings.translationSourceLanguage.rawValue
 
-        return TextTranslationConfig(
+        var config = TextTranslationConfig(
             targetLanguage: targetLanguage,
             sourceLanguage: sourceLanguage,
             preferredEngine: resolvePreferredEngine(from: settings, scene: .textSelection),
@@ -367,6 +370,10 @@ extension TextTranslationConfig {
             parallelEngines: settings.parallelEngines,
             sceneBindings: settings.sceneBindings
         )
+        config.v2Selection = (settings.engineModeV2, settings.engineModeV2 == .ordered
+            ? settings.engineChainV2
+            : settings.compareEnginesV2)
+        return config
     }
 
     /// Creates a configuration specifically for translate and insert functionality.

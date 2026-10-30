@@ -365,6 +365,9 @@
 "engine.config.chain.add" = "체인에 추가";
 "engine.config.chain.entryDeleted" = "항목 삭제됨";
 
+"engine.config.compare.title" = "비교 엔진";
+"engine.config.compare.needTwo" = "비교하려면 최소 2개 엔진을 선택하세요";
+
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
 "engine.selection.mode.primary_fallback" = "주/보조";

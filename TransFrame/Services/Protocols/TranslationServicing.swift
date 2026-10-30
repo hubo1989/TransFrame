@@ -55,6 +55,15 @@ protocol TranslationServicing: Sendable {
         scene: TranslationScene?,
         chain: [EngineChainItem]
     ) async throws -> TranslationResultBundle
+
+    /// V2 compare mode (Phase 4): run entries in parallel, one result each.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle
 }
 
 // MARK: - Default Implementation
@@ -91,6 +100,67 @@ extension TranslationServicing {
             )],
             primaryEngine: chain.first?.resolvedEngine ?? .apple,
             selectionMode: .primaryWithFallback,
+            scene: scene
+        )
+    }
+
+    /// Default V2 compare implementation: minimal parallel execution via
+    // task group — each entry translated through the ordered path would be
+    // sequential; instead run the legacy parallel translate once per builtin
+    // entry and synthesize one EngineResult per entry (compatible entries
+    // degrade to a skipped failure). The real TranslationService overrides
+    // this with full chain-item semantics.
+    func translateCompareV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        engines: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        let collected = await withTaskGroup(of: EngineResult?.self, returning: [EngineResult].self) { group in
+            for item in engines {
+                group.addTask {
+                    guard case .builtin(let engine) = item.kind else {
+                        return EngineResult.failed(
+                            engine: .custom,
+                            error: MultiEngineError.chainEntryUnavailable(
+                                "compatible entries need the full service"
+                            )
+                        )
+                    }
+                    do {
+                        let single = try await self.translateOrderedV2(
+                            segments: segments,
+                            to: targetLanguage,
+                            from: sourceLanguage,
+                            scene: scene,
+                            chain: [.builtin(engine)]
+                        )
+                        return single.results.first ?? EngineResult.failed(
+                            engine: engine,
+                            error: MultiEngineError.noResults
+                        )
+                    } catch {
+                        return EngineResult.failed(engine: engine, error: error)
+                    }
+                }
+            }
+            var results: [EngineResult] = []
+            for await result in group {
+                if let result { results.append(result) }
+            }
+            return results
+        }
+        guard collected.contains(where: { $0.isSuccess }) else {
+            throw MultiEngineError.allEnginesFailed(
+                collected.map { EngineFailedError(engine: $0.engine, underlying: $0.error) }
+            )
+        }
+        let primary = collected.first(where: { $0.isSuccess })!
+        return TranslationResultBundle(
+            results: collected,
+            primaryEngine: primary.engine,
+            selectionMode: .parallel,
             scene: scene
         )
     }

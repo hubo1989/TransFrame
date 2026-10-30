@@ -365,6 +365,9 @@
 "engine.config.chain.add" = "チェーンに追加";
 "engine.config.chain.entryDeleted" = "項目は削除済み";
 
+"engine.config.compare.title" = "比較エンジン";
+"engine.config.compare.needTwo" = "比較には2つ以上のエンジンを選択してください";
+
 /* エンジン選択モード */
 "engine.selection.mode.title" = "エンジン選択モード";
 "engine.selection.mode.primary_fallback" = "プライマリ/フォールバック";

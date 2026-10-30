@@ -77,6 +77,9 @@ struct MultiEngineSettingsSection: View {
             if viewModel.settings.engineModeV2 == .ordered {
                 Divider()
                 orderedChainSectionV2
+            } else {
+                Divider()
+                compareEnginesSectionV2
             }
         }
     }
@@ -85,6 +88,17 @@ struct MultiEngineSettingsSection: View {
 
     @ViewBuilder
     private var modeSpecificSection: some View {
+        // V2 compare owns engine selection when active; the legacy parallel
+        // editor writes settings the new dispatch never reads (PR #93 review)
+        if viewModel.settings.engineModeV2 == .compare {
+            EmptyView()
+        } else {
+            innerModeSpecificSection
+        }
+    }
+
+    @ViewBuilder
+    private var innerModeSpecificSection: some View {
         switch viewModel.settings.engineSelectionMode {
         case .primaryWithFallback:
             primaryFallbackSection
@@ -271,6 +285,93 @@ struct MultiEngineSettingsSection: View {
         guard chain.indices.contains(index), chain.indices.contains(target) else { return }
         chain.swapAt(index, target)
         viewModel.settings.setEngineChainV2(chain)
+    }
+
+    // MARK: - V2 Compare Engines Section (Phase 4)
+
+    /// Multi-select editor for the compare set (2-4 entries): toggle chips
+    /// over configured cards + compatible instances. Selection count is
+    /// enforced at both ends (cannot drop below 2 while in compare mode,
+    /// cannot exceed 4).
+    @ViewBuilder
+    private var compareEnginesSectionV2: some View {
+        let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
+        let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
+        let selected = viewModel.settings.compareEnginesV2
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(localized("engine.config.compare.title"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(selected.count)/\(EngineSelectionLimits.compareEnginesLimit)")
+                    .font(.caption2)
+                    .foregroundStyle(
+                        selected.count >= EngineSelectionLimits.compareEnginesMinimum
+                            ? Color.secondary : Color.orange
+                    )
+            }
+
+            FlowLayout(spacing: 6) {
+                ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
+                    compareChip(
+                        title: config.id.localizedName,
+                        isSelected: selected.contains { $0.kind == .builtin(config.id) },
+                        toggle: { toggleCompareEntry(.builtin(config.id)) }
+                    )
+                }
+                ForEach(compatibleConfigs) { config in
+                    compareChip(
+                        title: config.displayName,
+                        isSelected: selected.contains { $0.kind == .compatible(config.id) },
+                        toggle: { toggleCompareEntry(.compatible(config.id)) }
+                    )
+                }
+            }
+
+            if selected.count < EngineSelectionLimits.compareEnginesMinimum {
+                Text(localized("engine.config.compare.needTwo"))
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func compareChip(title: String, isSelected: Bool, toggle: @escaping () -> Void) -> some View {
+        Button(action: toggle) {
+            HStack(spacing: 4) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption2)
+                }
+                Text(title)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isSelected ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+            )
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func toggleCompareEntry(_ kind: EngineChainItem.Kind) {
+        var compare = viewModel.settings.compareEnginesV2
+        let isSelected = compare.contains { $0.kind == kind }
+        if isSelected {
+            // Cannot drop below the minimum while compare is active
+            guard compare.count > EngineSelectionLimits.compareEnginesMinimum else { return }
+            compare.removeAll { $0.kind == kind }
+        } else {
+            guard compare.count < EngineSelectionLimits.compareEnginesLimit else { return }
+            compare.append(EngineChainItem(kind: kind))
+        }
+        viewModel.settings.setCompareEnginesV2(compare)
     }
 
     // MARK: - Primary/Fallback Section
@@ -740,6 +841,23 @@ struct MultiEngineSettingsSection: View {
                 await MainActor.run {
                     viewModel.settings.compatibleProviderConfigs.remove(at: index)
                     viewModel.settings.saveCompatibleConfigs()
+                    // Purge the deleted instance from V2 selections, otherwise
+                    // invisible entries keep consuming the 2-4 quota and fail
+                    // every run (PR #93 review).
+                    let deletedID = config.id
+                    let chain = viewModel.settings.engineChainV2.filter { $0.kind != .compatible(deletedID) }
+                    if chain.count < viewModel.settings.engineChainV2.count {
+                        viewModel.settings.setEngineChainV2(chain.isEmpty ? [.builtin(.apple)] : chain)
+                    }
+                    let compare = viewModel.settings.compareEnginesV2.filter { $0.kind != .compatible(deletedID) }
+                    if compare.count < viewModel.settings.compareEnginesV2.count {
+                        // Keep the 2-entry minimum by padding with a builtin
+                        var padded = compare
+                        while padded.count < EngineSelectionLimits.compareEnginesMinimum {
+                            padded.append(.builtin(.apple))
+                        }
+                        viewModel.settings.setCompareEnginesV2(padded)
+                    }
                 }
             } catch {
                 // Log error but don't remove config if credential migration fails
