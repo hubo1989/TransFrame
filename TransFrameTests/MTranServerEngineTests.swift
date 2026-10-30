@@ -317,9 +317,12 @@ final class MTranServerEngineTests: XCTestCase {
     }
 
     private func waitForRequests(count: Int) async {
-        for _ in 0..<100 {
+        // Poll with real suspension: Task.yield() never lets URLSession's
+        // networking threads run, so under load the old 100-iteration loop
+        // spuriously timed out before the request was even issued.
+        for _ in 0..<500 {
             if MTranTestURLProtocol.requests.count == count { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
         }
         XCTFail("Expected \(count) requests, got \(MTranTestURLProtocol.requests.count)")
     }

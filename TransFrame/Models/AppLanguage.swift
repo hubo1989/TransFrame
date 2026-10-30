@@ -134,9 +134,11 @@ final class LanguageManager {
             currentLanguage = .system
         }
         
-        applyLanguage()
+        // No observers should run until the shared instance has finished
+        // initialization; an observer may itself access LanguageManager.shared.
+        applyLanguage(notify: false)
     }
-    
+
     // MARK: - Public Methods
     
     /// Returns a localized string for the given key
@@ -164,7 +166,7 @@ final class LanguageManager {
     
     // MARK: - Private Methods
     
-    private func applyLanguage() {
+    private func applyLanguage(notify: Bool = true) {
         let localeId = effectiveLocaleIdentifier
         
         // Find the bundle for this language
@@ -180,7 +182,9 @@ final class LanguageManager {
         UserDefaults.standard.set([localeId], forKey: "AppleLanguages")
         
         // Post notification for views to refresh
-        NotificationCenter.default.post(name: Self.languageDidChangeNotification, object: nil)
+        if notify {
+            NotificationCenter.default.post(name: Self.languageDidChangeNotification, object: nil)
+        }
     }
     
     private func saveLanguage() {
