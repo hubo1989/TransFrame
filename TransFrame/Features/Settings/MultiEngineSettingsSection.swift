@@ -16,6 +16,8 @@ struct MultiEngineSettingsSection: View {
     @State private var compatibleSheetState: CompatibleSheetState?
     
     @State private var configuredEngines: Set<TranslationEngineType> = []
+    // Real health probe results (Phase 5)
+    @State private var healthCache: [EngineHealthKey: EngineHealth] = [:]
 
     // Sheet state for compatible engine configuration
     struct CompatibleSheetState: Identifiable {
@@ -43,6 +45,7 @@ struct MultiEngineSettingsSection: View {
         }
         .onAppear {
             checkConfiguredEngines()
+            refreshHealth()
         }
     }
 
@@ -649,7 +652,10 @@ struct MultiEngineSettingsSection: View {
                 }
             }
         }
-        .sheet(item: $editingConfig, onDismiss: { checkConfiguredEngines() }) { config in
+        .sheet(item: $editingConfig, onDismiss: {
+            checkConfiguredEngines()
+            refreshHealth()
+        }) { config in
             let engine = config.id
             EngineConfigSheet(
                 engine: engine,
@@ -979,14 +985,20 @@ struct MultiEngineSettingsSection: View {
     private func engineCard(_ engine: TranslationEngineType) -> some View {
         let config = viewModel.settings.engineConfigs[engine] ?? .default(for: engine)
         let _ = Logger.settings.info("engineCard \(engine.rawValue): isEnabled=\(config.isEnabled), fromDefault=\(viewModel.settings.engineConfigs[engine] == nil)")
-        // Built-in engines (apple, mtranServer) and Ollama don't need API keys
-        // For others, we check if they require API key (simplified check - in real use would check keychain)
-        let isConfigured = configuredEngines.contains(engine)
-        // OpenAI-compatible card counts as configured if either the official
-        // endpoint or the Ollama preset proxy has credentials.
-        let effectiveIsConfigured = engine == .openai
-            ? (isConfigured || configuredEngines.contains(.ollama))
-            : isConfigured
+        // Real availability probe (Phase 5): four-state health replaces the
+        // key-presence dot. OpenAI-compatible card aggregates openai+ollama.
+        let health: EngineHealth = {
+            let primary = healthCache[.builtin(engine)] ?? .checking
+            if engine == .openai {
+                let ollamaHealth = healthCache[.builtin(.ollama)]
+                // best of the two: available > unverified/misconfigured > unconfigured
+                if case .unconfigured = primary, ollamaHealth != nil, ollamaHealth != .unconfigured {
+                    return ollamaHealth!
+                }
+                return primary
+            }
+            return primary
+        }()
 
         Button {
             editingConfig = config
@@ -1001,15 +1013,17 @@ struct MultiEngineSettingsSection: View {
                         .font(.subheadline)
                         .lineLimit(1)
 
-                    // Show status for all engines. OpenAI-compatible card
-                    // aggregates openai + ollama (preset proxy, PRD US-003).
+                    // Four-state health dot (Phase 5): green=available,
+                    // red=misconfigured(reason tooltip), orange=unconfigured,
+                    // gray=unverified, secondary=checking
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(effectiveIsConfigured ? (config.isEnabled ? Color.green : Color.gray) : Color.orange)
+                            .fill(healthDotColor(health))
                             .frame(width: 6, height: 6)
-                        Text(effectiveIsConfigured ? localized("engine.status.configured") : localized("engine.status.unconfigured"))
+                        Text(healthLabel(health))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                            .help(healthTooltip(health))
                     }
                 }
 
@@ -1193,6 +1207,57 @@ struct MultiEngineSettingsSection: View {
     }
 
     // MARK: - Helpers
+
+    // MARK: - Health helpers (Phase 5)
+
+    private func healthDotColor(_ health: EngineHealth) -> Color {
+        switch health {
+        case .available: return .green
+        case .misconfigured: return .red
+        case .unconfigured: return .orange
+        case .unverified: return .gray
+        case .checking: return .secondary
+        }
+    }
+
+    private func healthLabel(_ health: EngineHealth) -> String {
+        switch health {
+        case .available: return localized("engine.health.available")
+        case .misconfigured: return localized("engine.health.misconfigured")
+        case .unconfigured: return localized("engine.status.unconfigured")
+        case .unverified: return localized("engine.health.unverified")
+        case .checking: return localized("engine.health.checking")
+        }
+    }
+
+    private func healthTooltip(_ health: EngineHealth) -> String {
+        switch health {
+        case .misconfigured(let reason): return reason
+        default: return healthLabel(health)
+        }
+    }
+
+    /// Probe all rendered cards + compatible instances; async, non-blocking.
+    private func refreshHealth() {
+        Task {
+            await EngineHealthChecker.shared.invalidateAll()
+            var keys: [EngineHealthKey] = TranslationEngineType.uiCards
+                .filter { $0 != .openai }
+                .map { .builtin($0) }
+            // OpenAI-compatible card aggregates openai + ollama
+            keys.append(contentsOf: [.builtin(.openai), .builtin(.ollama)])
+            for config in viewModel.settings.compatibleProviderConfigs {
+                keys.append(.compatible(config.id))
+            }
+            var updated: [EngineHealthKey: EngineHealth] = [:]
+            for key in keys {
+                updated[key] = await EngineHealthChecker.shared.refresh(key)
+            }
+            await MainActor.run {
+                self.healthCache.merge(updated) { _, new in new }
+            }
+        }
+    }
 
     private func engineIcon(_ engine: TranslationEngineType) -> String {
         switch engine {

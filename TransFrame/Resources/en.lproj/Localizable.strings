@@ -376,6 +376,14 @@
 "engine.config.compare.title" = "Compare engines";
 "engine.config.compare.needTwo" = "Select at least 2 engines to compare";
 
+"engine.health.available" = "Available";
+"engine.health.misconfigured" = "Misconfigured";
+"engine.health.unverified" = "Unverified";
+"engine.health.checking" = "Checking…";
+"engine.health.mtran.unreachable" = "MTranServer endpoint unreachable";
+"engine.health.instance.deleted" = "Compatible instance deleted";
+"engine.health.timeout" = "Probe timed out";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Engine Selection Mode";
 "engine.selection.mode.primary_fallback" = "Primary/Fallback";

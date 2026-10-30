@@ -368,6 +368,14 @@
 "engine.config.compare.title" = "Motores de comparação";
 "engine.config.compare.needTwo" = "Selecione pelo menos 2 motores para comparar";
 
+"engine.health.available" = "Disponível";
+"engine.health.misconfigured" = "Mal configurado";
+"engine.health.unverified" = "Não verificado";
+"engine.health.checking" = "Verificando…";
+"engine.health.mtran.unreachable" = "Endpoint MTranServer inacessível";
+"engine.health.instance.deleted" = "Instância removida";
+"engine.health.timeout" = "Tempo esgotado";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Modo de Seleção do Motor";
 "engine.selection.mode.primary_fallback" = "Primário/Reserva";

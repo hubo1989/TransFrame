@@ -368,6 +368,14 @@
 "engine.config.compare.title" = "Vergleichs-Engines";
 "engine.config.compare.needTwo" = "Für den Vergleich mindestens 2 Engines wählen";
 
+"engine.health.available" = "Verfügbar";
+"engine.health.misconfigured" = "Fehlerhaft";
+"engine.health.unverified" = "Ungeprüft";
+"engine.health.checking" = "Prüfe…";
+"engine.health.mtran.unreachable" = "MTranServer-Endpunkt nicht erreichbar";
+"engine.health.instance.deleted" = "Instanz gelöscht";
+"engine.health.timeout" = "Zeitüberschreitung beim Test";
+
 /* Engine-Auswahlmodi */
 "engine.selection.mode.title" = "Engine-Auswahlmodus";
 "engine.selection.mode.primary_fallback" = "Primär/Fallback";

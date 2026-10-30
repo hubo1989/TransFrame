@@ -368,6 +368,14 @@
 "engine.config.compare.title" = "비교 엔진";
 "engine.config.compare.needTwo" = "비교하려면 최소 2개 엔진을 선택하세요";
 
+"engine.health.available" = "사용 가능";
+"engine.health.misconfigured" = "설정 오류";
+"engine.health.unverified" = "미확인";
+"engine.health.checking" = "확인 중…";
+"engine.health.mtran.unreachable" = "MTranServer 엔드포인트 접근 불가";
+"engine.health.instance.deleted" = "인스턴스 삭제됨";
+"engine.health.timeout" = "시간 초과";
+
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
 "engine.selection.mode.primary_fallback" = "주/보조";

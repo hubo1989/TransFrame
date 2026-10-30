@@ -368,6 +368,14 @@
 "engine.config.compare.title" = "Движки сравнения";
 "engine.config.compare.needTwo" = "Выберите минимум 2 движка для сравнения";
 
+"engine.health.available" = "Доступен";
+"engine.health.misconfigured" = "Ошибка настройки";
+"engine.health.unverified" = "Не проверен";
+"engine.health.checking" = "Проверка…";
+"engine.health.mtran.unreachable" = "Эндпоинт MTranServer недоступен";
+"engine.health.instance.deleted" = "Экземпляр удалён";
+"engine.health.timeout" = "Таймаут";
+
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";
 "engine.selection.mode.primary_fallback" = "Основной/резервный";
