@@ -106,29 +106,35 @@ final class PRDAcceptanceTests: XCTestCase {
     // MARK: - 5.1 Text tool cognition (success criterion 3)
 
     func testTextToolDisplayNameAndTooltip() {
-        XCTAssertEqual(AnnotationToolType.text.displayName, "文本")
+        let expectedName = String(localized: "tool.text")
+        XCTAssertEqual(AnnotationToolType.text.displayName, expectedName)
         let zh = parseStrings("zh-Hans")
         XCTAssertEqual(zh["tool.text"], "文本")
         XCTAssertEqual(parseStrings("en")["tool.text"], "Text")
 
         // In-place toolbar shares the same display name (tooltip = name (shortcut))
         let inPlace = SelectionInPlaceToolbar.AnnotationTool.text
-        XCTAssertEqual(inPlace.displayName, "文本")
+        XCTAssertEqual(inPlace.displayName, expectedName)
         XCTAssertEqual(inPlace.shortcutKey, "T")
-        XCTAssertTrue(inPlace.tooltip.contains("文本"))
+        XCTAssertTrue(inPlace.tooltip.contains(expectedName))
         XCTAssertTrue(inPlace.tooltip.contains("T"))
     }
 
     // MARK: - 5.3 Line tool (success criterion 4)
 
     func testLineToolExistsInBothToolchains() {
+        // Runtime tool names follow the test host's current localization.
+        let expectedName = String(localized: "tool.line")
+        XCTAssertEqual(parseStrings("zh-Hans")["tool.line"], "直线")
+        XCTAssertEqual(parseStrings("en")["tool.line"], "Line")
+
         // Preview tool chain
         XCTAssertTrue(AnnotationToolType.allCases.contains(.line))
-        XCTAssertEqual(AnnotationToolType.line.displayName, "直线")
+        XCTAssertEqual(AnnotationToolType.line.displayName, expectedName)
 
         // In-place toolbar must expose the line tool as well
         XCTAssertTrue(SelectionInPlaceToolbar.AnnotationTool.allCases.contains(.line))
-        XCTAssertEqual(SelectionInPlaceToolbar.AnnotationTool.line.displayName, "直线")
+        XCTAssertEqual(SelectionInPlaceToolbar.AnnotationTool.line.displayName, expectedName)
 
         // Drawing produces a line annotation between the two drag points
         var tool = LineTool()
