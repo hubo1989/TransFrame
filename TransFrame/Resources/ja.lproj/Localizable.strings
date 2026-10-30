@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "順次フォールバック";
 "engine.mode.compare" = "並行比較";
 
+"engine.config.chain.title" = "フォールバックチェーン";
+"engine.config.chain.add" = "チェーンに追加";
+"engine.config.chain.entryDeleted" = "項目は削除済み";
+
 /* エンジン選択モード */
 "engine.selection.mode.title" = "エンジン選択モード";
 "engine.selection.mode.primary_fallback" = "プライマリ/フォールバック";

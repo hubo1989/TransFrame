@@ -369,6 +369,10 @@
 "engine.mode.ordered" = "Ordered";
 "engine.mode.compare" = "Compare";
 
+"engine.config.chain.title" = "Fallback chain";
+"engine.config.chain.add" = "Add to chain";
+"engine.config.chain.entryDeleted" = "Entry deleted";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Engine Selection Mode";
 "engine.selection.mode.primary_fallback" = "Primary/Fallback";

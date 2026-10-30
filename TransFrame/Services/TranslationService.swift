@@ -676,6 +676,123 @@ actor TranslationService {
         return try await registry.createProvider(for: engine, config: engineConfig)
     }
 
+    // MARK: - V2 Ordered Mode (Phase 3)
+
+    /// Ordered fallback chain: try each entry in order until one succeeds.
+    /// Chain members that are unavailable (not configured / no credentials)
+    /// are skipped with a logged EngineResult; all-failure throws an
+    /// aggregated error. Compatible instances resolve by UUID; a dangling
+    /// UUID (instance deleted) is skipped the same way.
+    func translateOrderedV2(
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String? = nil,
+        scene: TranslationScene? = nil,
+        chain: [EngineChainItem]
+    ) async throws -> TranslationResultBundle {
+        guard !segments.isEmpty else {
+            return TranslationResultBundle(
+                results: [],
+                primaryEngine: chain.first.map(\.resolvedEngine) ?? .apple,
+                selectionMode: .primaryWithFallback,
+                scene: scene
+            )
+        }
+
+        // Defensive: empty chain falls back to Apple so the pipeline still runs
+        let effectiveChain = chain.isEmpty ? [.builtin(.apple)] : chain
+
+        var failures: [EngineResult] = []
+        for item in effectiveChain {
+            do {
+                let bundle = try await translateWithChainItem(
+                    item,
+                    segments: segments,
+                    to: targetLanguage,
+                    from: sourceLanguage,
+                    scene: scene
+                )
+                return TranslationResultBundle(
+                    results: failures + bundle.results,
+                    primaryEngine: item.resolvedEngine,
+                    selectionMode: .primaryWithFallback,
+                    scene: scene
+                )
+            } catch {
+                failures.append(EngineResult.failed(
+                    engine: item.resolvedEngine,
+                    error: error,
+                    latency: 0
+                ))
+                logger.warning("ordered chain: entry failed engine=\(item.resolvedEngine.rawValue, privacy: .public) err=\(String(describing: error), privacy: .public)")
+            }
+        }
+
+        throw MultiEngineError.allEnginesFailed(
+            failures.compactMap { $0.error }
+        )
+    }
+
+    /// Translate with one chain entry, resolving compatible instances by UUID.
+    private func translateWithChainItem(
+        _ item: EngineChainItem,
+        segments: [String],
+        to targetLanguage: String,
+        from sourceLanguage: String?,
+        scene: TranslationScene?
+    ) async throws -> TranslationResultBundle {
+        switch item.kind {
+        case .builtin(let engine):
+            return try await translateWithEngine(
+                engine,
+                segments: segments,
+                to: targetLanguage,
+                from: sourceLanguage,
+                scene: scene
+            )
+        case .compatible(let instanceID):
+            let configs = await compatibleConfigsForChain()
+            guard let config = configs.first(where: { $0.id == instanceID }) else {
+                throw MultiEngineError.chainEntryUnavailable(
+                    "compatible instance deleted: \(instanceID)"
+                )
+            }
+            let provider = try await registry.createCompatibleProvider(
+                compatibleConfig: config
+            )
+            guard await provider.isAvailable else {
+                throw TranslationProviderError.notAvailable
+            }
+            let start = Date()
+            let results = try await translateWithResolvedPrompt(
+                provider: provider,
+                engine: .custom,
+                texts: segments,
+                from: sourceLanguage,
+                to: targetLanguage,
+                scene: scene
+            )
+            let bilingual = results.map { BilingualSegment(from: $0) }
+            guard !bilingual.isEmpty else {
+                throw TranslationProviderError.translationFailed(
+                    "\(provider.name) returned no results"
+                )
+            }
+            return TranslationResultBundle.single(
+                engine: .custom,
+                segments: bilingual,
+                latency: Date().timeIntervalSince(start),
+                selectionMode: .primaryWithFallback,
+                scene: scene
+            )
+        }
+    }
+
+    /// Compatible instance list for chain resolution.
+    private func compatibleConfigsForChain() async -> [CompatibleTranslationProvider.CompatibleConfig] {
+        await registry.compatibleConfigList()
+    }
+
     // MARK: - Legacy API (Backward Compatible)
 
     /// Translates segments using the preferred engine with automatic fallback

@@ -369,6 +369,10 @@
 "engine.mode.ordered" = "顺序退避";
 "engine.mode.compare" = "并行对比";
 
+"engine.config.chain.title" = "引擎链（按顺序退避）";
+"engine.config.chain.add" = "添加引擎";
+"engine.config.chain.entryDeleted" = "已失效";
+
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";
 "engine.selection.mode.primary_fallback" = "主备";

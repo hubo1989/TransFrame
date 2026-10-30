@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "Sequentiell";
 "engine.mode.compare" = "Vergleich";
 
+"engine.config.chain.title" = "Fallback-Kette";
+"engine.config.chain.add" = "Zur Kette hinzufügen";
+"engine.config.chain.entryDeleted" = "Eintrag gelöscht";
+
 /* Engine-Auswahlmodi */
 "engine.selection.mode.title" = "Engine-Auswahlmodus";
 "engine.selection.mode.primary_fallback" = "Primär/Fallback";

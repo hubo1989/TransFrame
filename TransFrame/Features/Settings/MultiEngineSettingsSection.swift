@@ -57,7 +57,12 @@ struct MultiEngineSettingsSection: View {
             // Segmented mode picker
             Picker(localized("engine.config.title"), selection: Binding(
                 get: { viewModel.settings.engineSelectionMode },
-                set: { viewModel.settings.engineSelectionMode = $0 }
+                set: { newValue in
+                    viewModel.settings.engineSelectionMode = newValue
+                    // Keep the V2 mode in sync for the converged pipeline
+                    viewModel.settings.engineModeV2 =
+                        (newValue == .parallel) ? .compare : .ordered
+                }
             )) {
                 ForEach(EngineSelectionMode.allCases) { mode in
                     Label(mode.localizedName, systemImage: mode.iconName)
@@ -66,6 +71,13 @@ struct MultiEngineSettingsSection: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+
+            // V2 ordered chain editor (Phase 3): shown while legacy modes
+            // remain; becomes the only UI at Phase 6 teardown.
+            if viewModel.settings.engineModeV2 == .ordered {
+                Divider()
+                orderedChainSectionV2
+            }
         }
     }
 
@@ -83,6 +95,158 @@ struct MultiEngineSettingsSection: View {
         case .sceneBinding:
             sceneBindingSection
         }
+    }
+
+    // MARK: - V2 Ordered Chain Section (Phase 3)
+
+    /// Engine chain editor for the converged ordered mode: ordered list,
+    /// drag/move reordering, replace/remove per row, add from configured
+    /// cards or compatible instances. Reuses the quickSwitch row pattern
+    /// (composite IDs so row identity doesn't shift mid-delete).
+    @ViewBuilder
+    private var orderedChainSectionV2: some View {
+        let enabledEngines = viewModel.settings.engineConfigs.values.filter { $0.isEnabled }
+        let compatibleConfigs = viewModel.settings.compatibleProviderConfigs
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(localized("engine.config.chain.title"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(viewModel.settings.engineChainV2.count)/\(EngineSelectionLimits.orderedChainLimit)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(
+                Array(viewModel.settings.engineChainV2.enumerated().map {
+                    (id: "\($0.offset)-\($0.element.id.uuidString)", offset: $0.offset, item: $0.element)
+                }),
+                id: \.id
+            ) { _, index, item in
+                chainRowV2(
+                    item: item,
+                    index: index,
+                    enabledEngines: enabledEngines,
+                    compatibleConfigs: compatibleConfigs
+                )
+            }
+            .onMove { source, destination in
+                var chain = viewModel.settings.engineChainV2
+                chain.move(fromOffsets: source, toOffset: destination)
+                viewModel.settings.setEngineChainV2(chain)
+            }
+
+            if viewModel.settings.engineChainV2.count < EngineSelectionLimits.orderedChainLimit {
+                Menu {
+                    ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
+                        Button(config.id.localizedName) {
+                            appendChainEntry(.builtin(config.id))
+                        }
+                    }
+                    if !compatibleConfigs.isEmpty {
+                        Divider()
+                        ForEach(compatibleConfigs) { config in
+                            Button(config.displayName) {
+                                appendChainEntry(.compatible(config.id))
+                            }
+                        }
+                    }
+                } label: {
+                    Label(localized("engine.config.chain.add"), systemImage: "plus.circle")
+                        .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+    }
+
+    private func chainRowV2(
+        item: EngineChainItem,
+        index: Int,
+        enabledEngines: [TranslationEngineConfig],
+        compatibleConfigs: [CompatibleTranslationProvider.CompatibleConfig]
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.caption)
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(Color.accentColor)
+                .cornerRadius(9)
+
+            Text(chainItemDisplayName(item, compatibleConfigs: compatibleConfigs))
+                .font(.subheadline)
+
+            Spacer()
+
+            Menu {
+                ForEach(enabledEngines.filter { $0.id != .custom }, id: \.id) { config in
+                    Button(config.id.localizedName) {
+                        replaceChainEntry(at: index, with: .builtin(config.id))
+                    }
+                }
+                if !compatibleConfigs.isEmpty {
+                    Divider()
+                    ForEach(compatibleConfigs) { config in
+                        Button(config.displayName) {
+                            replaceChainEntry(at: index, with: .compatible(config.id))
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+
+            Button {
+                removeChainEntry(at: index)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.settings.engineChainV2.count <= 1)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func chainItemDisplayName(
+        _ item: EngineChainItem,
+        compatibleConfigs: [CompatibleTranslationProvider.CompatibleConfig]
+    ) -> String {
+        switch item.kind {
+        case .builtin(let engine):
+            return engine.localizedName
+        case .compatible(let id):
+            let name = compatibleConfigs.first(where: { $0.id == id })?.displayName
+            return name ?? localized("engine.config.chain.entryDeleted")
+        }
+    }
+
+    private func appendChainEntry(_ kind: EngineChainItem.Kind) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.count < EngineSelectionLimits.orderedChainLimit else { return }
+        chain.append(EngineChainItem(kind: kind))
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func replaceChainEntry(at index: Int, with kind: EngineChainItem.Kind) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.indices.contains(index) else { return }
+        chain[index] = EngineChainItem(kind: kind)
+        viewModel.settings.setEngineChainV2(chain)
+    }
+
+    private func removeChainEntry(at index: Int) {
+        var chain = viewModel.settings.engineChainV2
+        guard chain.indices.contains(index), chain.count > 1 else { return }
+        chain.remove(at: index)
+        viewModel.settings.setEngineChainV2(chain)
     }
 
     // MARK: - Primary/Fallback Section

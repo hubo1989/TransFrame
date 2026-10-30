@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "Последовательно";
 "engine.mode.compare" = "Сравнение";
 
+"engine.config.chain.title" = "Цепочка резервных движков";
+"engine.config.chain.add" = "Добавить в цепочку";
+"engine.config.chain.entryDeleted" = "Элемент удалён";
+
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";
 "engine.selection.mode.primary_fallback" = "Основной/резервный";

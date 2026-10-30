@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "Secuencial";
 "engine.mode.compare" = "Comparación";
 
+"engine.config.chain.title" = "Cadena de respaldo";
+"engine.config.chain.add" = "Añadir a la cadena";
+"engine.config.chain.entryDeleted" = "Entrada eliminada";
+
 /* Modos de Selección del Motor */
 "engine.selection.mode.title" = "Modo de Selección del Motor";
 "engine.selection.mode.primary_fallback" = "Principal/Respaldo";

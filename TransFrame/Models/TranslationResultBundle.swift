@@ -187,6 +187,9 @@ enum MultiEngineError: LocalizedError, Sendable {
     /// No results available
     case noResults
 
+    /// A chain entry cannot be resolved (e.g. compatible instance deleted)
+    case chainEntryUnavailable(String)
+
     var errorDescription: String? {
         switch self {
         case .allEnginesFailed(let errors):
@@ -212,6 +215,14 @@ enum MultiEngineError: LocalizedError, Sendable {
             return NSLocalizedString(
                 "multiengine.error.no_results",
                 comment: "No translation results available"
+            )
+        case .chainEntryUnavailable(let reason):
+            return String(
+                format: NSLocalizedString(
+                    "multiengine.error.chain_entry_unavailable",
+                    comment: "Engine chain entry unavailable: %@"
+                ),
+                reason
             )
         }
     }

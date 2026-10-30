@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "Sequencial";
 "engine.mode.compare" = "Comparação";
 
+"engine.config.chain.title" = "Cadeia de fallback";
+"engine.config.chain.add" = "Adicionar à cadeia";
+"engine.config.chain.entryDeleted" = "Entrada removida";
+
 /* Engine Selection Modes */
 "engine.selection.mode.title" = "Modo de Seleção do Motor";
 "engine.selection.mode.primary_fallback" = "Primário/Reserva";

@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "순차 폴백";
 "engine.mode.compare" = "병렬 비교";
 
+"engine.config.chain.title" = "폴백 체인";
+"engine.config.chain.add" = "체인에 추가";
+"engine.config.chain.entryDeleted" = "항목 삭제됨";
+
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
 "engine.selection.mode.primary_fallback" = "주/보조";

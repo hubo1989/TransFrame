@@ -361,6 +361,10 @@
 "engine.mode.ordered" = "Séquentiel";
 "engine.mode.compare" = "Comparaison";
 
+"engine.config.chain.title" = "Chaîne de repli";
+"engine.config.chain.add" = "Ajouter à la chaîne";
+"engine.config.chain.entryDeleted" = "Entrée supprimée";
+
 /* Modes de sélection du moteur */
 "engine.selection.mode.title" = "Mode de sélection du moteur";
 "engine.selection.mode.primary_fallback" = "Principal/Secours";
