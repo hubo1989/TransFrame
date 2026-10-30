@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "Endpoint MTranServer non raggiungibile";
 "engine.health.instance.deleted" = "Istanza eliminata";
 "engine.health.timeout" = "Timeout superato";
+"engine.health.refresh" = "Ricontrolla";
 
 /* Modalità di selezione motore */
 "engine.selection.mode.title" = "Modalità Selezione Motore";

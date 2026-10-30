@@ -350,6 +350,15 @@ struct MultiEngineSettingsSection: View {
                 Text(localized("engine.available.title"))
                     .font(.headline)
                 Spacer()
+                Button {
+                    refreshHealth()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(localized("engine.health.refresh"))
             }
 
             // Group engines by category (inventory convergence: 8 cards,
@@ -381,7 +390,12 @@ struct MultiEngineSettingsSection: View {
         }
         .sheet(item: $editingConfig, onDismiss: {
             checkConfiguredEngines()
-            refreshHealth()
+            // EngineConfigSheet persists credentials in an unawaited Task;
+            // give it a beat before probing or the gate reads stale keys
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                self.refreshHealth()
+            }
         }) { config in
             let engine = config.id
             EngineConfigSheet(
@@ -478,6 +492,7 @@ struct MultiEngineSettingsSection: View {
     @ViewBuilder
     private func compatibleEngineCard(config: CompatibleTranslationProvider.CompatibleConfig, index: Int) -> some View {
         let isSelected = isCompatibleEngineSelected(config)
+        let health = healthCache[.compatible(config.id)] ?? .checking
         Button {
             compatibleSheetState = CompatibleSheetState(config: config, index: index)
         } label: {
@@ -491,13 +506,16 @@ struct MultiEngineSettingsSection: View {
                         .font(.subheadline)
                         .lineLimit(1)
 
+                    // Real probe health (PR #94 review: instances must not
+                    // always render green "configured")
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(isSelected ? Color.green : Color.gray)
+                            .fill(healthDotColor(health))
                             .frame(width: 6, height: 6)
-                        Text(localized("engine.status.configured"))
+                        Text(healthLabel(health))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                            .help(healthTooltip(health))
                     }
                 }
 
@@ -700,14 +718,13 @@ struct MultiEngineSettingsSection: View {
         // key-presence dot. OpenAI-compatible card aggregates openai+ollama.
         let health: EngineHealth = {
             let primary = healthCache[.builtin(engine)] ?? .checking
-            if engine == .openai {
-                let ollamaHealth = healthCache[.builtin(.ollama)]
-                // best of the two: available > unverified/misconfigured > unconfigured
-                if case .unconfigured = primary, ollamaHealth != nil, ollamaHealth != .unconfigured {
-                    return ollamaHealth!
-                }
+            guard engine == .openai, let ollama = healthCache[.builtin(.ollama)] else {
                 return primary
             }
+            // Aggregation precedence: any available → available; else any
+            // probed (unverified/misconfigured) → that; else unconfigured.
+            if primary == .available || ollama == .available { return .available }
+            if primary == .unconfigured { return ollama }
             return primary
         }()
 
@@ -815,24 +832,18 @@ struct MultiEngineSettingsSection: View {
         }
     }
 
-    /// Probe all rendered cards + compatible instances; async, non-blocking.
+    /// Probe all rendered cards + compatible instances concurrently; each
+    /// result publishes as it arrives (no waiting on the slowest engine).
     private func refreshHealth() {
-        Task {
-            await EngineHealthChecker.shared.invalidateAll()
+        Task { @MainActor in
+            let compatibleIDs = viewModel.settings.compatibleProviderConfigs.map(\.id)
             var keys: [EngineHealthKey] = TranslationEngineType.uiCards
                 .filter { $0 != .openai }
                 .map { .builtin($0) }
-            // OpenAI-compatible card aggregates openai + ollama
             keys.append(contentsOf: [.builtin(.openai), .builtin(.ollama)])
-            for config in viewModel.settings.compatibleProviderConfigs {
-                keys.append(.compatible(config.id))
-            }
-            var updated: [EngineHealthKey: EngineHealth] = [:]
-            for key in keys {
-                updated[key] = await EngineHealthChecker.shared.refresh(key)
-            }
-            await MainActor.run {
-                self.healthCache.merge(updated) { _, new in new }
+            keys.append(contentsOf: compatibleIDs.map { .compatible($0) })
+            await EngineHealthChecker.shared.probeAll(keys) { key, health in
+                self.healthCache[key] = health
             }
         }
     }

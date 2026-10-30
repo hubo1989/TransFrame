@@ -383,6 +383,7 @@
 "engine.health.mtran.unreachable" = "MTranServer 端点不可达";
 "engine.health.instance.deleted" = "兼容实例已删除";
 "engine.health.timeout" = "探测超时";
+"engine.health.refresh" = "重新探测";
 
 /* 引擎选择模式 */
 "engine.selection.mode.title" = "引擎选择模式";

@@ -29,6 +29,11 @@ enum EngineHealthKey: Hashable, Sendable {
     case compatible(UUID)
 }
 
+/// Probe timeout — distinct from CancellationError so cooperative
+/// cancellation of the caller's task is never misreported as a timeout
+/// (which would cache a wrong red dot for 60s).
+struct EngineHealthTimeoutError: Error, Sendable {}
+
 /// Actor-based health probe with a 60s cache.
 /// Probes use the providers' existing verifyConnection endpoints
 /// (models/usage lists — free, no tokens consumed).
@@ -76,8 +81,12 @@ actor EngineHealthChecker {
             return .available
 
         case .builtin(.mtranServer):
-            // Reuse the existing checker (probe + TTL cache of its own)
-            let reachable = (try? await MTranServerChecker.checkAvailability()) ?? false
+            // Probe the CONFIGURED endpoint: Configuration.default reads the
+            // persisted host/port from UserDefaults (a remote server must
+            // not be judged by localhost's fate, PR #94 review).
+            let reachable = (try? await MTranServerChecker.checkAvailability(
+                configuration: .default
+            )) ?? false
             return reachable
                 ? .available
                 : .misconfigured(NSLocalizedString(
@@ -86,12 +95,22 @@ actor EngineHealthChecker {
                 ))
 
         case .builtin(.google), .builtin(.baidu):
-            // No free probe endpoint; credentials presence is checked at save
-            return .unverified
+            // No free probe endpoint. unconfigured when credentials are
+            // absent (fresh install must not read as configured-but-
+            // unverifiable); unverified once the user has saved keys.
+            let hasCreds = await KeychainService.shared.hasCredentials(for: keyEngine(key))
+            return hasCreds ? .unverified : .unconfigured
+
+        case .builtin(.claude), .builtin(.gemini), .builtin(.deepl):
+            // Their verifyConnection actually translates "1" (PAID call) —
+            // automatic probes must not consume quota. Same policy as
+            // google/baidu: credentials gate, then unverified.
+            let hasCreds = await KeychainService.shared.hasCredentials(for: keyEngine(key))
+            return hasCreds ? .unverified : .unconfigured
 
         case .builtin(let engine):
-            // openai / claude / gemini / deepl / ollama / custom:
-            // credentials gate first, then provider verifyConnection
+            // openai / ollama / custom: free models-list probe behind a
+            // credentials gate
             if engine.requiresAPIKey {
                 let hasCreds = await KeychainService.shared.hasCredentials(for: engine)
                 if !hasCreds {
@@ -123,7 +142,7 @@ actor EngineHealthChecker {
                     try await provider.verifyConnection()
                 }
                 return .available
-            } catch is CancellationError {
+            } catch is EngineHealthTimeoutError {
                 return .misconfigured(NSLocalizedString(
                     "engine.health.timeout",
                     comment: "Probe timed out"
@@ -134,13 +153,20 @@ actor EngineHealthChecker {
         }
     }
 
+    /// Extract the builtin engine from a key (nil-safe helper for the
+    /// credentials gate in the unverified branches).
+    nonisolated private func keyEngine(_ key: EngineHealthKey) -> TranslationEngineType {
+        if case .builtin(let engine) = key { return engine }
+        return .custom
+    }
+
     private func probeViaService(_ engine: TranslationEngineType) async -> EngineHealth {
         do {
             try await withTimeout(seconds: 5) {
                 try await TranslationService.shared.verifyConnection(for: engine)
             }
             return .available
-        } catch is CancellationError {
+        } catch is EngineHealthTimeoutError {
             return .misconfigured(NSLocalizedString(
                 "engine.health.timeout",
                 comment: "Probe timed out"
@@ -156,6 +182,27 @@ actor EngineHealthChecker {
         return String(text.prefix(120))
     }
 
+    /// Probe several keys concurrently; publishes each result as it arrives
+    /// via the handler (UI updates incrementally instead of waiting for the
+    /// slowest engine, PR #94 review).
+    func probeAll(
+        _ keys: [EngineHealthKey],
+        onResult: @Sendable @MainActor (EngineHealthKey, EngineHealth) -> Void
+    ) async {
+        await withTaskGroup(of: (EngineHealthKey, EngineHealth).self) { group in
+            for key in keys {
+                group.addTask {
+                    let health = await self.refresh(key)
+                    return (key, health)
+                }
+            }
+            for await (key, health) in group {
+                await onResult(key, health)
+                self.cache[key] = (health, self.now())
+            }
+        }
+    }
+
     /// Cancellation-based timeout wrapper.
     private func withTimeout<T: Sendable>(
         seconds: TimeInterval,
@@ -165,10 +212,10 @@ actor EngineHealthChecker {
             group.addTask { try await operation() }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw CancellationError()
+                throw EngineHealthTimeoutError()
             }
             guard let first = try await group.next() else {
-                throw CancellationError()
+                throw EngineHealthTimeoutError()
             }
             group.cancelAll()
             return first

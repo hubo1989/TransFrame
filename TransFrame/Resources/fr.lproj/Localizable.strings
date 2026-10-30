@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "Endpoint MTranServer injoignable";
 "engine.health.instance.deleted" = "Instance supprimée";
 "engine.health.timeout" = "Délai dépassé";
+"engine.health.refresh" = "Revérifier";
 
 /* Modes de sélection du moteur */
 "engine.selection.mode.title" = "Mode de sélection du moteur";

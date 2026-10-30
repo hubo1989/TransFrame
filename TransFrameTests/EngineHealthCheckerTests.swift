@@ -12,21 +12,31 @@ final class EngineHealthCheckerTests: XCTestCase {
         XCTAssertEqual(health, .available)
     }
 
-    func testGoogleAndBaiduAreUnverified() async {
-        // No free probe endpoint: must not send any request
+    func testGoogleAndBaiduNeverProbe() async {
+        // No free probe endpoint: must not send any request. State depends
+        // on credentials (unconfigured without keys, unverified with).
         for engine in [TranslationEngineType.google, TranslationEngineType.baidu] {
+            let hasCreds = await KeychainService.shared.hasCredentials(for: engine)
             let health = await EngineHealthChecker.shared.refresh(.builtin(engine))
-            XCTAssertEqual(health, .unverified)
+            XCTAssertEqual(health, hasCreds ? .unverified : .unconfigured)
         }
     }
 
-    func testKeylessEngineWithoutCredentialsShortCircuitsToUnconfigured() async {
-        // claude requires a key; with none stored the probe must return
-        // .unconfigured WITHOUT touching the network
-        let keychain = KeychainService.shared
-        try? await keychain.deleteCredentials(for: .claude)
-        let health = await EngineHealthChecker.shared.refresh(.builtin(.claude))
-        XCTAssertEqual(health, .unconfigured)
+    func testEngineWithoutCredentialsShortCircuitsToUnconfigured() async {
+        // claude: paid-verify engines are credentials-gated BEFORE any probe;
+        // with no stored key the result is .unconfigured without network.
+        // Read-only check — never deletes the developer's real credentials
+        // (PR #94 review: the original test deleted the live Claude key).
+        let hasCreds = await KeychainService.shared.hasCredentials(for: .claude)
+        if !hasCreds {
+            let health = await EngineHealthChecker.shared.refresh(.builtin(.claude))
+            XCTAssertEqual(health, .unconfigured)
+        } else {
+            // credentials exist on this machine: assert the paid-probe
+            // exemption instead (must NOT verify-connection)
+            let health = await EngineHealthChecker.shared.refresh(.builtin(.claude))
+            XCTAssertEqual(health, .unverified)
+        }
     }
 
     func testDanglingCompatibleInstanceIsMisconfigured() async {

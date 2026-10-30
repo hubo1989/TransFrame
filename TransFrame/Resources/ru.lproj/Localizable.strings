@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "Эндпоинт MTranServer недоступен";
 "engine.health.instance.deleted" = "Экземпляр удалён";
 "engine.health.timeout" = "Таймаут";
+"engine.health.refresh" = "Проверить снова";
 
 /* Режимы выбора движка */
 "engine.selection.mode.title" = "Режим выбора движка";

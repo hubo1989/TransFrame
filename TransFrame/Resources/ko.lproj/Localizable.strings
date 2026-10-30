@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "MTranServer 엔드포인트 접근 불가";
 "engine.health.instance.deleted" = "인스턴스 삭제됨";
 "engine.health.timeout" = "시간 초과";
+"engine.health.refresh" = "다시 확인";
 
 /* 엔진 선택 모드 */
 "engine.selection.mode.title" = "엔진 선택 모드";
