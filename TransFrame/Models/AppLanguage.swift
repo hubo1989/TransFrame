@@ -133,7 +133,15 @@ final class LanguageManager {
         } else {
             currentLanguage = .system
         }
-        
+
+        // Self-heal the historical self-lock: pre-fix builds wrote the
+        // resolved locale into AppleLanguages even under .system, so users
+        // (and any headless test host) could be locked to a language they
+        // never chose. Under .system the key now carries no user intent —
+        // drop it so resolution follows the system again. Explicit choices
+        // re-write their value on the next applyLanguage pass anyway.
+        Self.healStaleAppleLanguages(for: currentLanguage)
+
         // No observers should run until the shared instance has finished
         // initialization; an observer may itself access LanguageManager.shared.
         applyLanguage(notify: false)
@@ -165,7 +173,19 @@ final class LanguageManager {
     }
     
     // MARK: - Private Methods
-    
+
+    /// Removes a stale AppleLanguages write made by pre-fix builds while the
+    /// user choice is .system (the historical self-lock). Callable from tests.
+    static func healStaleAppleLanguages(
+        for language: AppLanguage,
+        defaults: UserDefaults = .standard
+    ) {
+        if language == .system,
+           defaults.array(forKey: "AppleLanguages") != nil {
+            defaults.removeObject(forKey: "AppleLanguages")
+        }
+    }
+
     private func applyLanguage(notify: Bool = true) {
         let localeId = effectiveLocaleIdentifier
         

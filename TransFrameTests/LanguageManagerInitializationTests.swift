@@ -21,6 +21,36 @@ final class LanguageManagerInitializationTests: XCTestCase {
         XCTAssertEqual(notifications, 0)
     }
 
+    func testSystemModeHealsStaleAppleLanguagesOnNextAccess() {
+        // Self-heal: a pre-fix build (or headless host) wrote a resolved locale
+        // into AppleLanguages while the user choice is .system. The heal must
+        // drop the stale key so resolution follows the system again.
+        // Uses an isolated UserDefaults suite: AppKit continuously re-seeds
+        // the test host's standard domain with the global preference list,
+        // which would mask the removal.
+        let suite = "testSystemModeHeal-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // Note: array(forKey: "AppleLanguages") falls back to the global
+        // preference list when the key is absent, so verify via the
+        // suite's persisted dictionary instead.
+        defaults.set(["en"], forKey: "AppleLanguages")
+        LanguageManager.healStaleAppleLanguages(for: .system, defaults: defaults)
+        XCTAssertNil(
+            defaults.persistentDomain(forName: suite)?["AppleLanguages"],
+            "system mode must heal away a stale resolved-locale write"
+        )
+
+        // Explicit choices keep their persisted value
+        defaults.set(["zh-Hans"], forKey: "AppleLanguages")
+        LanguageManager.healStaleAppleLanguages(for: .simplifiedChinese, defaults: defaults)
+        XCTAssertEqual(
+            defaults.persistentDomain(forName: suite)?["AppleLanguages"] as? [String],
+            ["zh-Hans"]
+        )
+    }
+
     func testSystemModeNeverPersistsAppleLanguages() {
         // The self-lock regression: with language = .system, applyLanguage must
         // not write AppleLanguages. AppKit may seed the test host's domain
