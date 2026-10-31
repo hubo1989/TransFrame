@@ -66,7 +66,16 @@ final class LanguageManagerInitializationTests: XCTestCase {
         let original = manager.currentLanguage
         defer { manager.currentLanguage = original }
 
+        // Force a real transition: the singleton usually already sits at
+        // .system, and the same-value assignment would be swallowed by the
+        // didSet guard without ever calling applyLanguage (PR #96 review).
+        manager.currentLanguage = .english
+        UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        if let seeded = seededByHost {
+            UserDefaults.standard.set(seeded, forKey: "AppleLanguages")
+        }
         manager.currentLanguage = .system
+
         let after = UserDefaults.standard.array(forKey: "AppleLanguages") ?? []
         if baseline.isEmpty {
             XCTAssertTrue(after.isEmpty, "system mode must not write AppleLanguages, got \(after)")
@@ -74,6 +83,28 @@ final class LanguageManagerInitializationTests: XCTestCase {
             XCTAssertEqual(after as? [String], baseline as? [String],
                            "system mode must not overwrite AppleLanguages")
         }
+    }
+
+    func testSwitchingBackToSystemClearsPersistedChoice() {
+        // Transition regression (PR #96 review): an explicit choice writes
+        // AppleLanguages; switching back to .system must CLEAR it in the
+        // same pass, or the stale value keeps overriding the system language
+        // until a future launch's init-time heal.
+        let manager = LanguageManager.shared
+        let original = manager.currentLanguage
+        defer { manager.currentLanguage = original }
+
+        manager.currentLanguage = .english
+        XCTAssertEqual(UserDefaults.standard.array(forKey: "AppleLanguages") as? [String], ["en"])
+
+        manager.currentLanguage = .system
+        // AppleLanguages may fall back to the host-seeded global list when
+        // absent, so assert on the standard domain via removeObject outcome:
+        // after the explicit ["en"] write, a present key must be our cleared
+        // state's absence — verify the write path itself stopped persisting.
+        let persisted = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")
+        XCTAssertNil(persisted?["AppleLanguages"] ?? persisted?.keys.first { $0 == "AppleLanguages" },
+                     "switching back to .system must clear the persisted choice")
     }
 
     func testExplicitChoicePersistsAppleLanguages() {

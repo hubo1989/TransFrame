@@ -204,8 +204,13 @@ final class LanguageManager {
         // the app can never follow system-language changes again — and a
         // headless context (e.g. the xcodebuild test host) resolves "system"
         // to "en" once, poisoning the domain for every subsequent GUI launch.
+        // Switching BACK to .system must also clear the previously persisted
+        // choice, or the stale value keeps overriding the system language
+        // until a future launch's init-time heal (PR #96 review).
         if currentLanguage != .system {
             UserDefaults.standard.set([localeId], forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
         }
         
         // Post notification for views to refresh
