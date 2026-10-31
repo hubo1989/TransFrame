@@ -178,8 +178,15 @@ final class LanguageManager {
             bundle = .main
         }
         
-        // Apply to UserDefaults for system-level settings
-        UserDefaults.standard.set([localeId], forKey: "AppleLanguages")
+        // Persist the resolved language ONLY when the user made an explicit
+        // choice. Writing it for `.system` creates a self-lock: the persisted
+        // value feeds back into Locale.preferredLanguages on next launch, so
+        // the app can never follow system-language changes again — and a
+        // headless context (e.g. the xcodebuild test host) resolves "system"
+        // to "en" once, poisoning the domain for every subsequent GUI launch.
+        if currentLanguage != .system {
+            UserDefaults.standard.set([localeId], forKey: "AppleLanguages")
+        }
         
         // Post notification for views to refresh
         if notify {
