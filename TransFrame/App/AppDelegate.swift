@@ -223,8 +223,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hex = String(format: "#%02X%02X%02X", r, g, b)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(hex, forType: .string)
+            _ = HistoryWindowController.shared
             NotificationCenter.default.post(name: .colorDidPick, object: hex)
+            // spec §4.1 entry #2: lightweight completion toast with a
+            // "view history" link (1.5s auto-dismiss)
+            ColorPickToastController.shared.show(hex: hex)
         }
+    }
+
+    /// Opens the independent color history window (spec §4.1)
+    @objc func openColorHistory() {
+        Logger.ui.debug("Opening color history window")
+
+        ColorHistoryWindowController.shared.showColorHistory()
     }
 
     /// Opens an image file from disk and launches the annotation editor

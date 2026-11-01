@@ -140,6 +140,15 @@ final class MenuBarController {
             imageName: "clock.arrow.circlepath"
         ))
 
+        // Color History (spec §4.1: tray entry right after Translation History)
+        menu.addItem(createMenuItem(
+            titleKey: "menu.color.history",
+            comment: "Color History",
+            action: #selector(AppDelegate.openColorHistory),
+            target: appDelegate,
+            imageName: "paintpalette"
+        ))
+
         menu.addItem(NSMenuItem.separator())
 
         // Pinned Windows Actions

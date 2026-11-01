@@ -132,7 +132,8 @@ final class HistoryStore: ObservableObject {
         }) {
             var merged = entry
             merged.isFavorite = entries[index].isFavorite
-            entries[index] = merged
+            entries.remove(at: index)
+            entries.insert(merged, at: 0)
         } else {
             entries.insert(entry, at: 0)
         }
@@ -206,6 +207,41 @@ final class HistoryStore: ObservableObject {
     /// Clears all history entries.
     func clear() {
         entries.removeAll()
+        saveHistory()
+        updateFilteredEntries()
+    }
+
+    // MARK: - Color History
+
+    /// Returns color-category entries filtered by a HEX fragment and
+    /// favorites-only flag (spec §4.3).
+    ///
+    /// Filtering is case-insensitive on the stored HEX (`translatedText`):
+    /// `1a2b` matches `#1A2B3C`. An empty/nil fragment returns all color
+    /// entries; `favoritesOnly` stacks with the fragment filter.
+    /// - Parameters:
+    ///   - matching: HEX fragment to match, or nil/empty for all
+    ///   - favoritesOnly: when true, only starred entries are returned
+    /// - Returns: Color entries (newest first) matching both filters
+    func colorEntries(matching fragment: String?, favoritesOnly: Bool) -> [TranslationHistory] {
+        var result = entries.filter { $0.category == .color }
+
+        if favoritesOnly {
+            result = result.filter { $0.isFavorite }
+        }
+
+        if let fragment, !fragment.isEmpty {
+            let lowercased = fragment.lowercased()
+            result = result.filter { $0.translatedText.lowercased().contains(lowercased) }
+        }
+
+        return result
+    }
+
+    /// Clears only color-category entries, leaving every other category
+    /// untouched (spec §4.3: "clear all" affects only colors).
+    func clearColorHistory() {
+        entries.removeAll { $0.category == .color }
         saveHistory()
         updateFilteredEntries()
     }
