@@ -195,8 +195,8 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_STYLE=Automatic \
-            MACOSX_DEPLOYMENT_TARGET=26.0 \
-            ARCHS=arm64 \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             clean build
 
       - name: Sign App & Create DMG
@@ -226,7 +226,7 @@ jobs:
           ln -sf /Applications dmg_temp/Applications
 
           VERSION=${{ steps.vars.outputs.version }}
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
 
           hdiutil create -volname "${{ env.PROJECT_NAME }}" \
             -srcfolder dmg_temp \
@@ -353,7 +353,7 @@ jobs:
           echo "Notarization complete."
 
           echo "Recreating DMG with stapled app..."
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
 
           mkdir -p dmg_temp
           cp -R "$APP_PATH" dmg_temp/
@@ -392,7 +392,7 @@ jobs:
         id: sign_dmg
         run: |
           VERSION=${{ steps.vars.outputs.version }}
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
           # Find sign_update tool in derived data
           SIGN_TOOL=$(find build/SourcePackages/artifacts -name "sign_update" -type f | head -1)
           
@@ -448,7 +448,7 @@ jobs:
         run: |
           VERSION=${{ steps.vars.outputs.version }}
           BUILD_NUM="${{ steps.build_number.outputs.build_num }}"
-          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag_name }}/${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag_name }}/${{ env.PROJECT_NAME }}-${VERSION}.dmg"
           PUBDATE="${{ steps.pubdate.outputs.date }}"
           DMG_SIZE="${{ steps.notarize.outputs.dmg_size || steps.create_dmg.outputs.dmg_size }}"
           SIGNATURE="${{ steps.sign_dmg.outputs.signature }}"
@@ -497,7 +497,7 @@ jobs:
             appcast.xml
           generate_release_notes: true
           body: |
-            > **注意**：本构建为 **arm64-only**（`-arm64.dmg`），不含 x86_64 切片。
+            > **注意**：本构建为 **universal**（arm64 + x86_64），Intel 与 Apple Silicon Mac 均可运行，需 macOS 15.0+。Apple 翻译引擎需 macOS 26，旧系统上将自动使用链中的其他引擎。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

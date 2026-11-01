@@ -206,6 +206,16 @@ actor TranslationEngine {
 
     private struct TranslationTimeout: Error {}
 
+    /// Apple's direct TranslationSession API requires macOS 26; on older
+    /// systems the engine reports unavailable and the chain falls through.
+    enum AppleEngineUnavailable: Error, CustomStringConvertible {
+        case onLegacySystem
+
+        var description: String {
+            "Apple 翻译需要 macOS 26（Tahoe）；当前系统上请配置其他引擎"
+        }
+    }
+
     // MARK: - Configuration
 
     /// Translation configuration options
@@ -396,6 +406,16 @@ actor TranslationEngine {
             group.addTask { [text, source, target] in
                 do {
                     let detectedSource = source ?? Self.detectLanguage(for: text) ?? .english
+                    // init(installedSource:target:) is macOS 26+; the
+                    // source:target: initializer covers macOS 15–25 for the
+                    // x86_64 (Intel) slice.
+                    // The direct TranslationSession init is macOS 26+; macOS
+                    // 15–25 only exposes the SwiftUI .translationTask path,
+                    // which this engine does not implement — fail unavailable
+                    // so the chain falls through to the next engine.
+                    guard #available(macOS 26.0, *) else {
+                        throw AppleEngineUnavailable.onLegacySystem
+                    }
                     let session = TranslationSession(
                         installedSource: detectedSource.localeLanguage,
                         target: target.localeLanguage

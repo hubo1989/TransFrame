@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "MTranServer-Endpunkt nicht erreichbar";
 "engine.health.instance.deleted" = "Instanz gelöscht";
 "engine.health.timeout" = "Zeitüberschreitung beim Test";
+"engine.health.apple.legacy" = "Apple-Übersetzung erfordert macOS 26";
 "engine.health.refresh" = "Neu prüfen";
 
 /* Engine-Auswahlmodi */

@@ -20,7 +20,15 @@ actor AppleTranslationProvider: TranslationProvider {
     }
     
     var isAvailable: Bool {
-        get async { true }
+        get async {
+            // Apple's direct TranslationSession API is macOS 26+; on older
+            // systems the provider reports unavailable so the engine chain
+            // falls through to the next configured engine.
+            if #available(macOS 26.0, *) {
+                return true
+            }
+            return false
+        }
     }
     
     func translate(
@@ -44,7 +52,11 @@ actor AppleTranslationProvider: TranslationProvider {
     }
     
     func verifyConnection() async throws {
-        // Built-in Apple Translation is always available on system level
+        // Direct-session API is macOS 26+; on 15–25 the engine is unavailable
+        // and a connection test must report that instead of a no-op pass.
+        guard #available(macOS 26.0, *) else {
+            throw TranslationEngine.AppleEngineUnavailable.onLegacySystem
+        }
     }
     
     private func mapEngineError(_ error: TranslationEngineError) -> TranslationProviderError {

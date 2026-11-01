@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "Endpoint MTranServer injoignable";
 "engine.health.instance.deleted" = "Instance supprimée";
 "engine.health.timeout" = "Délai dépassé";
+"engine.health.apple.legacy" = "La traduction Apple nécessite macOS 26";
 "engine.health.refresh" = "Revérifier";
 
 /* Modes de sélection du moteur */
