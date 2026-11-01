@@ -226,17 +226,17 @@ jobs:
           ln -sf /Applications dmg_temp/Applications
 
           VERSION=${{ steps.vars.outputs.version }}
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
-          ARM64_DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
 
           hdiutil create -volname "${{ env.PROJECT_NAME }}" \
             -srcfolder dmg_temp \
             -ov -format UDZO \
             "$DMG_FILE"
 
-          # arm64-only build; keep the un-suffixed name for backward compatibility,
-          # but release notes state this is an arm64-only artifact (see Create Release body).
-          cp "$DMG_FILE" "$ARM64_DMG_FILE"
+          # arm64-only build; single suffixed artifact — the appcast and the
+          # release notes both point at this file. No un-suffixed duplicate:
+          # an Intel download would not launch anyway (deployment target is
+          # arm64-only), and Sparkle reads the URL from our own appcast.
 
           # Get file size
           DMG_SIZE=$(stat -f%z "$DMG_FILE")
@@ -353,8 +353,7 @@ jobs:
           echo "Notarization complete."
 
           echo "Recreating DMG with stapled app..."
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
-          ARM64_DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
 
           mkdir -p dmg_temp
           cp -R "$APP_PATH" dmg_temp/
@@ -364,8 +363,6 @@ jobs:
             -srcfolder dmg_temp \
             -ov -format UDZO \
             "$DMG_FILE"
-
-          cp "$DMG_FILE" "$ARM64_DMG_FILE"
 
           echo "Notarizing DMG..."
           DMG_ZIP="$RUNNER_TEMP/${{ env.PROJECT_NAME }}-${VERSION}-dmg.zip"
@@ -382,7 +379,6 @@ jobs:
             echo "##[error]stapler staple failed for DMG after 5 attempts"
             exit 1
           fi
-          cp "$DMG_FILE" "$ARM64_DMG_FILE"
 
           rm -rf dmg_temp
           rm -f "$ZIP_PATH" "$DMG_ZIP"
@@ -396,8 +392,7 @@ jobs:
         id: sign_dmg
         run: |
           VERSION=${{ steps.vars.outputs.version }}
-          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}.dmg"
-          
+          DMG_FILE="${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
           # Find sign_update tool in derived data
           SIGN_TOOL=$(find build/SourcePackages/artifacts -name "sign_update" -type f | head -1)
           
@@ -453,7 +448,7 @@ jobs:
         run: |
           VERSION=${{ steps.vars.outputs.version }}
           BUILD_NUM="${{ steps.build_number.outputs.build_num }}"
-          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag_name }}/${{ env.PROJECT_NAME }}-${VERSION}.dmg"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag_name }}/${{ env.PROJECT_NAME }}-${VERSION}-arm64.dmg"
           PUBDATE="${{ steps.pubdate.outputs.date }}"
           DMG_SIZE="${{ steps.notarize.outputs.dmg_size || steps.create_dmg.outputs.dmg_size }}"
           SIGNATURE="${{ steps.sign_dmg.outputs.signature }}"
@@ -502,7 +497,7 @@ jobs:
             appcast.xml
           generate_release_notes: true
           body: |
-            > **注意**：本次构建为 **arm64-only**。`$NAME-$VERSION.dmg` 与 `$NAME-$VERSION-arm64.dmg` 为同一 arm64 产物（无后缀名为向后兼容保留），不含 x86_64 切片。
+            > **注意**：本构建为 **arm64-only**（`-arm64.dmg`），不含 x86_64 切片。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
