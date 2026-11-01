@@ -20,7 +20,15 @@ actor AppleTranslationProvider: TranslationProvider {
     }
     
     var isAvailable: Bool {
-        get async { true }
+        get async {
+            // Apple's direct TranslationSession API is macOS 26+; on older
+            // systems the provider reports unavailable so the engine chain
+            // falls through to the next configured engine.
+            if #available(macOS 26.0, *) {
+                return true
+            }
+            return false
+        }
     }
     
     func translate(
