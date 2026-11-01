@@ -207,4 +207,71 @@ final class ColorHistoryStoreTests: XCTestCase {
         XCTAssertEqual(hits.count, 1)
         XCTAssertTrue(hits[0].isFavorite)
     }
+
+    // MARK: - Shared Pick Pipeline (spec §4.5 补工)
+
+    @MainActor
+    func testRecordPickedColorInsertsCanonicalEntryAtTop() {
+        let store = makeStore()
+        store.addEntry(colorEntry("#111111"))
+
+        // The shared entry point used by every eyedropper surface
+        store.recordPickedColor(hex: "#2B3C4D")
+
+        let colors = store.colorEntries(matching: nil, favoritesOnly: false)
+        XCTAssertEqual(colors.map(\.translatedText), ["#2B3C4D", "#111111"])
+        // Canonical fields (spec §3 data model)
+        XCTAssertEqual(colors[0].sourceText, "Color Picked")
+        XCTAssertEqual(colors[0].sourceLanguage, "RGB Hex")
+        XCTAssertEqual(colors[0].category, .color)
+    }
+
+    @MainActor
+    func testRecordPickedColorDeduplicatesAndKeepsFavorite() {
+        let store = makeStore()
+        let starred = colorEntry("#AABBCC", favorite: true)
+        store.addEntry(starred)
+
+        // Re-picking a previously starred color through the shared pipeline
+        store.recordPickedColor(hex: "#AABBCC")
+
+        let hits = store.colorEntries(matching: "AABBCC", favoritesOnly: false)
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertTrue(hits[0].isFavorite)
+    }
+
+    @MainActor
+    func testRecordPickedColorBroadcastObserverMatches() {
+        // The `.colorDidPick` observer path (used by tray + toolbars) must
+        // produce the same store state as calling recordPickedColor directly.
+        let other = makeStore()
+        NotificationCenter.default.post(name: .colorDidPick, object: "#123456")
+
+        // Observer hops through a MainActor Task; pump the queue once.
+        let exp = expectation(description: "observer insert")
+        DispatchQueue.main.async { exp.fulfill() }
+        wait(for: [exp], timeout: 2)
+
+        XCTAssertEqual(other.entries.map(\.translatedText), ["#123456"])
+        XCTAssertEqual(other.entries.first?.sourceText, "Color Picked")
+        XCTAssertEqual(other.entries.first?.sourceLanguage, "RGB Hex")
+        XCTAssertEqual(other.entries.first?.category, .color)
+    }
+
+    // MARK: - Pick Hotkey (spec §4.2 empty-state hint)
+
+    func testPickColorShortcutDefaultIsValidAndDistinct() {
+        let def = KeyboardShortcut.pickColorDefault
+        // Must carry a non-shift modifier to be registrable
+        XCTAssertTrue(def.isValid)
+        // Ctrl+Cmd+C — distinct from the plain Cmd+C clipboard binding and
+        // from all five capture-family defaults
+        XCTAssertNotEqual(def, .fullScreenDefault)
+        XCTAssertNotEqual(def, .selectionDefault)
+        XCTAssertNotEqual(def, .translationModeDefault)
+        XCTAssertNotEqual(def, .textSelectionTranslationDefault)
+        XCTAssertNotEqual(def, .translateAndInsertDefault)
+        // Display string is what the empty state shows
+        XCTAssertTrue(def.displayString.contains("C"))
+    }
 }

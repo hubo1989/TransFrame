@@ -107,11 +107,13 @@ final class MenuBarController {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Color Picker
+        // Color Picker — shows the configurable global hotkey (spec §4.2
+        // empty-state hint points here too)
         menu.addItem(createMenuItem(
             titleKey: "menu.pick.color",
             comment: "Pick Color from Screen",
             action: #selector(AppDelegate.pickScreenColor),
+            shortcut: settings.pickColorShortcut,
             target: appDelegate,
             imageName: "eyedropper"
         ))

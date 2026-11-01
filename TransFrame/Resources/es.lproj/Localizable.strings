@@ -282,6 +282,7 @@
 "settings.shortcut.translation.mode" = "Modo de Traducción";
 "settings.shortcut.text.selection.translation" = "Traducción de Selección de Texto";
 "settings.shortcut.translate.and.insert" = "Traducir e Insertar";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "Presione teclas...";
 "settings.shortcut.reset" = "Restablecer a predeterminados";
 "settings.shortcut.error.no.modifier" = "Los atajos deben incluir Comando, Control u Opción";
@@ -979,6 +980,8 @@
 "colorHistory.copied" = "Copied";
 "colorHistory.empty.title" = "No Picked Colors";
 "colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
 "colorHistory.no.results.title" = "No Matching Colors";
 "colorHistory.no.results.message" = "No colors match your search";
 "colorHistory.toast.viewHistory" = "View History";

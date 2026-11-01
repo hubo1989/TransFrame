@@ -402,9 +402,12 @@ private struct ColorSwatchCell: View {
             swatch
                 .frame(height: 48)
                 .frame(maxWidth: .infinity)
-                .overlay(alignment: .topLeading) { favoriteBadge }
+                // spec §4.2: hover actions AND the constant favorite star both
+                // live in the top-right corner as one trailing cluster — the
+                // star merges into the action group on hover (its toggle
+                // button reflects the state), so the two never overlap.
+                .overlay(alignment: .topTrailing) { topTrailingCluster }
                 .overlay(alignment: .center) { copiedBadge }
-                .overlay(alignment: .bottomTrailing) { hoverActions }
                 .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radii.small))
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignSystem.Radii.small)
@@ -496,6 +499,38 @@ private struct ColorSwatchCell: View {
             .fill(swatchColor)
     }
 
+    /// The single top-right cluster (spec §4.2). At rest it shows only the
+    /// constant favorite star (filled = favorited, dim outline otherwise).
+    /// On hover the action group materializes and the star collapses into it
+    /// as its leading button — one trailing HStack, zero overlap.
+    @ViewBuilder
+    private var topTrailingCluster: some View {
+        if isHovered {
+            HStack(spacing: 2) {
+                actionButton(
+                    icon: entry.isFavorite ? "star.fill" : "star",
+                    help: entry.isFavorite
+                        ? String(localized: "colorHistory.unfavorite")
+                        : String(localized: "colorHistory.favorite")
+                ) {
+                    onToggleFavorite()
+                }
+                actionButton(icon: "doc.on.doc", help: String(localized: "colorHistory.copy.hex")) {
+                    onCopy()
+                    flashCopiedBadge()
+                }
+                actionButton(icon: "trash", help: String(localized: "history.delete"), role: .destructive) {
+                    onDelete()
+                }
+            }
+            .padding(3)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignSystem.Radii.small))
+            .transition(.opacity)
+        } else {
+            favoriteBadge
+        }
+    }
+
     /// Favorite entries always show a star badge (spec §4.2).
     private var favoriteBadge: some View {
         Group {
@@ -521,34 +556,6 @@ private struct ColorSwatchCell: View {
                     .background(Color.black.opacity(0.65))
                     .clipShape(Capsule())
                     .transition(.opacity)
-            }
-        }
-    }
-
-    /// Hover actions: copy / favorite / delete (spec §4.2).
-    private var hoverActions: some View {
-        Group {
-            if isHovered {
-                HStack(spacing: 2) {
-                    actionButton(icon: "doc.on.doc", help: String(localized: "colorHistory.copy.hex")) {
-                        onCopy()
-                        flashCopiedBadge()
-                    }
-                    actionButton(
-                        icon: entry.isFavorite ? "star.fill" : "star",
-                                        help: entry.isFavorite
-                                            ? String(localized: "colorHistory.unfavorite")
-                                            : String(localized: "colorHistory.favorite")
-                    ) {
-                        onToggleFavorite()
-                    }
-                    actionButton(icon: "trash", help: String(localized: "history.delete"), role: .destructive) {
-                        onDelete()
-                    }
-                }
-                .padding(3)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DesignSystem.Radii.small))
-                .transition(.opacity)
             }
         }
     }
@@ -597,9 +604,32 @@ private struct ColorSwatchCell: View {
 // MARK: - Empty State
 
 /// Empty state: centered illustration + guidance + eyedropper shortcut hint
-/// (spec §4.2).
+/// (spec §4.2). The hint reads the live "pick color" hotkey and refreshes
+/// when the user rebinds it in Settings.
 private struct ColorHistoryEmptyView: View {
     let searchActive: Bool
+
+    /// Re-render trigger when the pick hotkey is rebound in Settings.
+    @State private var shortcutRefreshID = UUID()
+
+    private var pickShortcut: KeyboardShortcut {
+        AppSettings.shared.pickColorShortcut
+    }
+
+    private var shortcutHint: Text {
+        // spec §4.2: show the bound hotkey; fall back to the tray path when
+        // unbound (never an empty string).
+        Text(
+            String(
+                format: String(localized: "colorHistory.empty.shortcut"),
+                pickShortcut.displayString
+            )
+        )
+    }
+
+    private var trayHint: Text {
+        Text(String(localized: "colorHistory.empty.trayHint"))
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -623,6 +653,20 @@ private struct ColorHistoryEmptyView: View {
                 Text("colorHistory.empty.message")
                     .font(.body)
                     .foregroundStyle(.tertiary)
+
+                // Dynamic pick shortcut hint; keyed on the refresh ID so
+                // rebinding in Settings updates this line live.
+                (pickShortcut.isValid ? shortcutHint : trayHint)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .id(shortcutRefreshID)
+                    .onReceive(
+                        NotificationCenter.default.publisher(
+                            for: AppSettings.shortcutDidChangeNotification
+                        )
+                    ) { _ in
+                        shortcutRefreshID = UUID()
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

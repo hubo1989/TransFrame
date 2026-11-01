@@ -282,6 +282,7 @@
 "settings.shortcut.translation.mode" = "번역 모드";
 "settings.shortcut.text.selection.translation" = "텍스트 선택 번역";
 "settings.shortcut.translate.and.insert" = "번역하고 삽입";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "키를 누르세요...";
 "settings.shortcut.reset" = "기본값으로 재설정";
 "settings.shortcut.error.no.modifier" = "단축키에는 Command, Control 또는 Option이 포함되어야 합니다";
@@ -979,6 +980,8 @@
 "colorHistory.copied" = "Copied";
 "colorHistory.empty.title" = "No Picked Colors";
 "colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
 "colorHistory.no.results.title" = "No Matching Colors";
 "colorHistory.no.results.message" = "No colors match your search";
 "colorHistory.toast.viewHistory" = "View History";

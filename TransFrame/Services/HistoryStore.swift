@@ -82,14 +82,7 @@ final class HistoryStore: ObservableObject {
         ) { [weak self] notif in
             guard let hex = notif.object as? String else { return }
             Task { @MainActor in
-                let entry = TranslationHistory(
-                    sourceText: "Color Picked",
-                    translatedText: hex,
-                    sourceLanguage: "RGB Hex",
-                    targetLanguage: hex,
-                    category: .color
-                )
-                self?.addEntry(entry)
+                self?.recordPickedColor(hex: hex)
             }
         })
 
@@ -244,6 +237,28 @@ final class HistoryStore: ObservableObject {
         entries.removeAll { $0.category == .color }
         saveHistory()
         updateFilteredEntries()
+    }
+
+    // MARK: - Shared Color Pick Pipeline
+
+    /// Builds the canonical color history entry for a picked hex (spec §3
+    /// data model: fixed source/sourceLanguage, HEX in translatedText).
+    static func makeColorPickEntry(hex: String, date: Date = Date()) -> TranslationHistory {
+        TranslationHistory(
+            sourceText: "Color Picked",
+            translatedText: hex,
+            sourceLanguage: "RGB Hex",
+            targetLanguage: hex,
+            timestamp: date,
+            category: .color
+        )
+    }
+
+    /// Records a picked screen color into this store (dedup + top insert
+    /// follow `addEntry`). Does NOT post `.colorDidPick` — callers that
+    /// own the pick flow decide whether to broadcast.
+    func recordPickedColor(hex: String, date: Date = Date()) {
+        addEntry(Self.makeColorPickEntry(hex: hex, date: date))
     }
 
     /// Sets the search query and updates filtered entries.
