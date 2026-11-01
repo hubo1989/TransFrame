@@ -9,10 +9,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/hubo1989/TransFrame/releases"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version"></a>
+  <a href="https://github.com/hubo1989/TransFrame/releases"><img src="https://img.shields.io/github/v/release/hubo1989/TransFrame?include_prereleases" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-13.0%2B-brightgreen.svg" alt="macOS"></a>
+  <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-15.0%2B-brightgreen.svg" alt="macOS"></a>
   <a href="https://swift.org/"><img src="https://img.shields.io/badge/Swift-6.0-orange.svg" alt="Swift"></a>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a>
 </p>
 
 ## ✨ 功能特性
@@ -24,9 +28,9 @@
 - **多显示器支持** - 自动识别并支持多显示器环境
 - **Retina 屏幕优化** - 完美支持高分辨率显示器
 
-### 🆕 文本翻译功能
+### 文本翻译
 - **文本选择翻译** - 选中任意文本，一键翻译并弹出结果窗口
-- **翻译并插入** - 选中文本翻译后，自动替换为译文（绕过输入法）
+- **翻译并插入** - 目标复核 + 粘贴兜底，安全地将选中文本替换为译文（绕过输入法）
 - **独立语言设置** - 翻译并插入支持独立的目标语言配置
 
 ### OCR 文字识别
@@ -34,44 +38,45 @@
 - **PaddleOCR** - 可选外部引擎，中文识别更准确
 
 ### 多引擎翻译
-两种收敛模式：**顺序退避**（最多 5 个引擎按序尝试，失败自动降级）与**并行对比**（2–4 个引擎同时翻译，逐引擎延迟对比）。
-- **Apple 翻译** - 系统内置，离线可用
-- **MTranServer** - 自建翻译服务器
-- **OpenAI 兼容** - OpenAI 官方 / Ollama 本地 / 自定义端点
+两种收敛模式：**顺序退避**（最多 5 个引擎按序尝试，某引擎失败自动降级到下一个）与**并行对比**（2–4 个引擎同时翻译，按引擎切换查看结果与延迟，切换不重新翻译）。
+- **Apple 翻译** - 系统内置，离线可用（需 macOS 26；旧系统上自动使用链中下一个引擎）
+- **MTranServer** - 自建翻译服务器，高质量翻译
+- **OpenAI 兼容** - 一张卡片覆盖 OpenAI 官方 / Ollama 本地 / 自定义端点（支持无密钥本地端点）
 - **Claude / Gemini / Google / DeepL / 百度** - 云翻译 API
-- 真实可用性探测：状态点反映引擎实际可达性
+- **真实可用性探测** - 状态点反映引擎实际可达性（绿/红/橙/灰四态），自动检查绝不消耗付费 API 配额
+- **无损迁移** - 从旧版四模式配置升级，引擎、密钥与选择全部保留
 
 ### 标注工具
-- 矩形框选
-- 箭头标注
-- 手绘涂鸦
-- 文字注释
-- 截图裁剪
+- 矩形、椭圆、直线、箭头、手绘、文字标注
+- **智能马赛克 / 隐私擦除** - 一键擦除自动识别的敏感区域
+- **内嵌结果面板** - OCR 文本与双语对照结果停靠在预览窗口内
+- 截图裁剪、撤销重做、⌘ 拖拽约束、文字提交后可拖动
 
 ### 其他功能
 - **翻译历史** - 保存翻译记录，支持搜索和导出
-- **双语对照** - 原文译文并排显示
-- **覆盖层显示** - 翻译结果直接显示在截图上方
+- **双语对照** - 原文译文并排显示，按视觉行分组
+- **覆盖层显示** - 翻译结果直接渲染在截图上方
+- **自动更新** - 内置 Sparkle 更新通道
 - **自定义快捷键** - 支持全局快捷键快速截图和翻译
 - **菜单栏快捷操作** - 所有功能均可通过菜单栏访问
-- **多语言支持** - 支持 25+ 种语言翻译
+- **多语言界面** - 界面本地化 10 种语言，默认跟随系统语言
 
 ## ⌨️ 快捷键
 
 | 快捷键 | 功能 |
-|--------|------|
+|----------|--------|
 | `Cmd+Shift+3` | 全屏截图 |
-| `Cmd+Shift+4` | 区域截图翻译（默认） |
+| `Cmd+Shift+4` | 区域截图（默认） |
 | `Cmd+Shift+T` | 翻译模式（截图后直接翻译） |
 | `Cmd+Shift+Y` | 文本选择翻译 |
 | `Cmd+Shift+I` | 翻译并插入 |
 
 > 所有快捷键均可在设置中自定义
 
-## 预览窗口操作
+## 预览窗口快捷键
 
 | 快捷键 | 功能 |
-|--------|------|
+|----------|--------|
 | `Enter` / `Cmd+S` | 保存截图 |
 | `Cmd+C` | 复制到剪贴板 |
 | `Escape` | 关闭窗口 / 取消裁剪 |
@@ -85,31 +90,16 @@
 
 ## 📦 安装要求
 
-- macOS 13.0 (Ventura) 或更高版本
+- macOS 15.0 (Sequoia) 或更高版本
+- Universal 双架构二进制：Apple Silicon 与 Intel Mac 均可原生运行
 - 屏幕录制权限（首次使用时会提示）
 - 辅助功能权限（文本翻译功能需要）
 
 ## 下载安装
 
-从 [Releases](../../releases) 页面下载最新版本。
+从 [Releases](../../releases) 页面下载最新的 `TransFrame-<version>.dmg`，将 TransFrame 拖入「应用程序」即可。
 
-> ⚠️ **注意：应用未经过 Apple 开发者签名**
->
-> 由于目前没有 Apple Developer 账号，应用未进行代码签名。首次运行时 macOS 会提示「无法打开」或「开发者无法验证」。
->
-> **解决方法**（二选一）：
->
-> **方法 1 - 终端命令（推荐）**
-> ```bash
-> xattr -rd com.apple.quarantine /Applications/TransFrame.app
-> ```
->
-> **方法 2 - 系统设置**
-> 1. 打开「系统设置」→「隐私与安全性」
-> 2. 在「安全性」部分找到关于 TransFrame 的提示
-> 3. 点击「仍要打开」
->
-> 两种方法都只需要执行一次，之后可以正常使用。
+> ✅ 应用已使用 Developer ID 证书签名、公证并 staple——首次打开无需任何 Gatekeeper 绕过操作。更新通过内置 Sparkle 自动送达。
 
 ## 🔧 技术栈
 
@@ -118,6 +108,7 @@
 - **ScreenCaptureKit** - 系统级屏幕录制与截图
 - **Vision** - Apple 原生 OCR 文字识别
 - **Translation** - Apple 系统翻译框架
+- **Sparkle 2** - 签名公证的自动更新
 - **CoreGraphics** - 图像处理与渲染
 
 ## 📁 项目结构
@@ -131,74 +122,26 @@ TransFrame/
 │       ├── TextTranslationCoordinator.swift
 │       └── HotkeyCoordinator.swift
 ├── Features/               # 功能模块
-│   ├── Capture/           # 截图功能
-│   ├── Preview/           # 预览与标注
-│   ├── TextTranslation/   # 文本翻译
-│   ├── Overlay/           # 翻译覆盖层
-│   ├── BilingualResult/   # 双语结果展示
-│   ├── History/           # 历史记录
-│   ├── Settings/          # 设置界面
-│   └── MenuBar/           # 菜单栏控制
-├── Services/              # 业务服务
-│   ├── Protocols/         # 服务协议（依赖注入）
-│   ├── OCREngine/         # OCR 引擎
-│   ├── Translation/       # 翻译服务
-│   └── VLMProvider/       # 视觉语言模型
-├── Models/                # 数据模型
-└── Resources/             # 资源文件
+│   ├── Capture/           # 截图捕获
+│   ├── Preview/           # 预览、标注与结果面板
+│   ├── TextTranslation/   # 文本选择翻译与插入
+│   ├── TranslationFlow/   # 翻译管线
+│   ├── Settings/          # 设置界面（引擎卡片、链与对比编辑器）
+│   └── MenuBar/           # 菜单栏集成
+├── Services/               # 业务逻辑
+│   ├── Translation/       # 引擎注册表、Provider、顺序/对比分发
+│   ├── Pipelines/         # 分析 / 翻译 / 渲染管线
+│   ├── EngineHealthChecker.swift  # 真实可用性探测
+│   └── ...                 # 钥匙串、快捷键、文本插入等
+├── Models/                 # 数据模型（设置、引擎选择 V2、结果）
+├── Resources/              # 资源与 10 语言本地化
+└── TransFrameTests/        # XCTest 测试套件（含 PRD 验收测试）
 ```
-
-## 🛠️ 构建源码
-
-```bash
-# 克隆仓库
-git clone https://github.com/hubo1989/TransFrame.git
-cd TransFrame
-
-# 用 Xcode 打开
-open TransFrame.xcodeproj
-
-# 或命令行构建
-xcodebuild -project TransFrame.xcodeproj -scheme TransFrame
-```
-
-## 📝 更新日志
-
-### v1.0.0 (TransFrame 首次发布)
-- 🎉 应用品牌从 **ScreenTranslate** 彻底更名为 **TransFrame**
-- ✨ 默认 Bundle Identifier 变更为 `com.transframe.app`
-- ⚙️ 全面重构并重命名了项目目录、文件和底层配置，以适配新品牌名称
-- 🧪 升级并重构单元测试，实现完全的环境独立性验证
-
-### v1.3.0
-- ✨ 新增关于菜单（版本、许可证、致谢）
-- ✨ 集成 Sparkle 自动更新框架
-- ✨ 添加 GitHub Actions CI/CD 自动发布
-- 📚 README 翻译为英文
-
-### v1.1.0
-- ✨ 新增文本选择翻译功能（选中任意文本一键翻译）
-- ✨ 新增翻译并插入功能（自动替换选中文本为译文）
-- ✨ 菜单栏快捷键与设置同步
-- 🏗️ 架构重构：AppDelegate 拆分为 3 个 Coordinator
-- 🧪 添加单元测试覆盖
-- 🐛 修复 Retina 屏幕显示问题
-- 🐛 修复翻译并插入语言设置不生效问题
-
-### v1.0.2
-- 🐛 深度修复 Retina 屏幕缩放问题
-
-### v1.0.1
-- 🎉 首次发布
 
 ## 🤝 贡献指南
 
-欢迎提交 Issue 和 Pull Request。
+欢迎贡献！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
-
----
-
-Made with Swift for macOS
+本项目基于 MIT 许可证开源，详见 [LICENSE](LICENSE) 文件。
