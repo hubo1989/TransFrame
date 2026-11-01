@@ -385,6 +385,8 @@ TransFrame for Windows 是 macOS 屏幕翻译工具 TransFrame 的 Windows 原�
 | 默认快捷键 | Cmd 系 | Ctrl+Alt 系（Win+Shift+S 留给系统截图） | 键位布局差异 |
 | 触控栏/焦点行为 | NSWindow | WS_EX_NOACTIVATE 等价实现 | 窗口模型差异 |
 | 全局快捷键实现 | Carbon | RegisterHotKey（系统级，不吃焦点） | — |
+| 引擎注册表缓存 | 逐引擎精细失效 | config-slice 缓存：配置变更整体重建引擎对象（毫秒级内存操作，无用户感知差异）。理由：C++ `unique_ptr` 独占所有权使逐引擎新旧比较不可行（**已裁决，2026-11-02**） | 语言所有权模型差异 |
+| 错误分类 | 4 类（网络/配额/鉴权/内容） | 5 类，新增 `Configuration`（未配 key/配置损坏时提示"请先配置"而非含糊网络错误）（**已裁决，2026-11-02**） | Windows 实现更准确，不影响 macOS |
 
 ### 6.13 支持矩阵
 
