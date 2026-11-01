@@ -77,8 +77,16 @@ actor EngineHealthChecker {
     private func probe(_ key: EngineHealthKey) async -> EngineHealth {
         switch key {
         case .builtin(.apple):
-            // Local framework: always available
-            return .available
+            // Local framework — but the direct-session API surface this app
+            // uses is macOS 26+; on 15–25 the engine reports unavailable and
+            // the health dot must not claim otherwise (PR #98 review).
+            if #available(macOS 26.0, *) {
+                return .available
+            }
+            return .misconfigured(NSLocalizedString(
+                "engine.health.apple.legacy",
+                comment: "Apple translation requires macOS 26"
+            ))
 
         case .builtin(.mtranServer):
             // Probe the CONFIGURED endpoint: Configuration.default reads the

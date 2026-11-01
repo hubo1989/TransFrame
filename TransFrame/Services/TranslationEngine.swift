@@ -409,20 +409,17 @@ actor TranslationEngine {
                     // init(installedSource:target:) is macOS 26+; the
                     // source:target: initializer covers macOS 15–25 for the
                     // x86_64 (Intel) slice.
-                    let session: TranslationSession
-                    if #available(macOS 26.0, *) {
-                        session = TranslationSession(
-                            installedSource: detectedSource.localeLanguage,
-                            target: target.localeLanguage
-                        )
-                    } else {
-                        // The direct-init API surface is macOS 26+; macOS 15–25
-                        // only exposes the SwiftUI .translationTask path, which
-                        // this engine does not implement. Fail unavailable so
-                        // the engine chain falls through to the next engine
-                        // (ordered-fallback design).
+                    // The direct TranslationSession init is macOS 26+; macOS
+                    // 15–25 only exposes the SwiftUI .translationTask path,
+                    // which this engine does not implement — fail unavailable
+                    // so the chain falls through to the next engine.
+                    guard #available(macOS 26.0, *) else {
                         throw AppleEngineUnavailable.onLegacySystem
                     }
+                    let session = TranslationSession(
+                        installedSource: detectedSource.localeLanguage,
+                        target: target.localeLanguage
+                    )
                     let result = try await session.translate(text)
                     return .success(result)
                 } catch {

@@ -195,7 +195,6 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_STYLE=Automatic \
-            MACOSX_DEPLOYMENT_TARGET=26.0 \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             clean build
@@ -498,7 +497,7 @@ jobs:
             appcast.xml
           generate_release_notes: true
           body: |
-            > **注意**：本构建为 **universal**（arm64 + x86_64），Intel 与 Apple Silicon Mac 均可运行；macOS 15.0+。
+            > **注意**：本构建为 **universal**（arm64 + x86_64），Intel 与 Apple Silicon Mac 均可运行，需 macOS 15.0+。Apple 翻译引擎需 macOS 26，旧系统上将自动使用链中的其他引擎。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

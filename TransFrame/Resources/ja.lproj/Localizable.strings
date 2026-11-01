@@ -375,6 +375,7 @@
 "engine.health.mtran.unreachable" = "MTranServer エンドポイントに到達できません";
 "engine.health.instance.deleted" = "インスタンス削除済み";
 "engine.health.timeout" = "タイムアウト";
+"engine.health.apple.legacy" = "Apple翻訳には macOS 26 が必要です";
 "engine.health.refresh" = "再チェック";
 
 /* エンジン選択モード */
