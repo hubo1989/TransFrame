@@ -64,6 +64,12 @@ struct SceneEngineBinding {
         b.customPrompt = getOptional<std::string>(j, "customPrompt");
         return b;
     }
+
+    friend bool operator==(const SceneEngineBinding& a, const SceneEngineBinding& b) {
+        return a.scene == b.scene && a.primaryEngine == b.primaryEngine &&
+               a.fallbackEngine == b.fallbackEngine && a.fallbackEnabled == b.fallbackEnabled &&
+               a.customPrompt == b.customPrompt;
+    }
 };
 
 inline void to_json(Json& j, const SceneEngineBinding& b) { b.toJson(j); }

@@ -1,0 +1,64 @@
+name: windows-ci
+
+on:
+  push:
+    branches: [main, "hubo/**"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  pull_request:
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    name: Core tests (MSVC ${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build solution
+        working-directory: windows
+        run: msbuild TransFrame.sln /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
+
+      - name: Run Catch2 tests
+        working-directory: windows/build/${{ matrix.platform }}/${{ matrix.configuration }}/TransFrame.Core.Tests
+        run: .\TransFrame.Core.Tests.exe
+
+      - name: Upload test binaries on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: windows/build
+          if-no-files-found: ignore
+
+  portable-check:
+    # Prove the Core layer stays platform-clean: the same sources compile
+    # under GCC on Linux. Guarantees no accidental Win32 includes leak in.
+    name: Core portable check (GCC, ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-13
+
+      - name: Build and run Catch2 tests
+        working-directory: windows
+        run: |
+          g++-13 -std=c++20 -Wall -Wextra -Werror \
+            -I Core -I external \
+            Core/*.cpp external/catch2/catch_amalgamated.cpp Tests/*.cpp \
+            -o ../build-tests 2>&1 | head -80
+          ../build-tests

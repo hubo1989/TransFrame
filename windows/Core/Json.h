@@ -79,6 +79,25 @@ inline void from_json(const Json& j, std::chrono::system_clock::time_point& t) {
 /// Convenience alias used by history models.
 using TimePoint = std::chrono::system_clock::time_point;
 
+/// ADL cannot find tf::core::to_json for std::chrono types (their namespace is
+/// std::chrono, not tf::core), so hook the serializer explicitly. This makes
+/// Json{{"timestamp", someTimePoint}} work inside initializer lists.
+}  // namespace tf::core
+
+namespace nlohmann {
+template <>
+struct adl_serializer<std::chrono::system_clock::time_point> {
+    static void to_json(tf::core::Json& j, const std::chrono::system_clock::time_point& t) {
+        ::tf::core::to_json(j, t);
+    }
+    static void from_json(const tf::core::Json& j, std::chrono::system_clock::time_point& t) {
+        ::tf::core::from_json(j, t);
+    }
+};
+}  // namespace nlohmann
+
+namespace tf::core {
+
 /// Current wall-clock time (thin wrapper so tests can inject fixed clocks later).
 inline TimePoint now() { return std::chrono::system_clock::now(); }
 
