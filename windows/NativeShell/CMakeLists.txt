@@ -13,6 +13,13 @@ if (NOT MSVC)
     add_compile_options(-Wall -Wextra -Werror)
 endif()
 
+if (WIN32)
+    # The task-A sln sets CharacterSet=Unicode; the CMake build must too, or
+    # MAKEINTRESOURCE (IDC_CROSS / IDI_APPLICATION) expands to LPSTR and the
+    # W-suffix Win32 APIs reject it.
+    add_compile_definitions(UNICODE _UNICODE)
+endif()
+
 # ---------------------------------------------------------------------------
 # Portable sources (policy core: no Win32/WinRT includes)
 # ---------------------------------------------------------------------------

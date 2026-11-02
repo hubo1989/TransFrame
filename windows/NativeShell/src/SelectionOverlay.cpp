@@ -38,7 +38,9 @@ struct SelectionOverlayController::Impl {
     // D2D/DComp device stack.
     ComPtr<ID3D11Device> d3dDevice;
     ComPtr<IDXGIDevice> dxgiDevice;
-    ComPtr<ID2D1Factory2> d2dFactory;
+    // ID2D1Factory1 (d2d1_1.h) carries CreateDevice; ID2D1Factory2 only
+    // exists from d2d1_3.h and adds nothing this overlay needs.
+    ComPtr<ID2D1Factory1> d2dFactory;
     ComPtr<ID2D1Device> d2dDevice;
     ComPtr<ID2D1DeviceContext> d2dContext;
     ComPtr<IDCompositionDevice> dcompDevice;
@@ -92,7 +94,16 @@ struct SelectionOverlayController::Impl {
                 }
                 break;
             case WM_KILLFOCUS:
-                cancelSession();
+                // Static wndProc dispatches into Impl::handleMessage (a
+                // non-static member); the controller-level cancel is done by
+                // the session owner (HotkeyManager/App), not here.
+                state.cancel();
+                if (completion) {
+                    completion({false, {}, false, 0});
+                    completion = nullptr;
+                }
+                sessionActive = false;
+                ::ShowWindow(h, SW_HIDE);
                 return 0;
             default:
                 break;
@@ -141,7 +152,7 @@ struct SelectionOverlayController::Impl {
         // D2D 1.1 factory + device.
         D2D1_FACTORY_OPTIONS fo{};
         if (FAILED(::D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                                       __uuidof(ID2D1Factory2),
+                                       __uuidof(ID2D1Factory1),
                                        &fo, reinterpret_cast<void**>(d2dFactory.GetAddressOf())))) {
             return false;
         }
@@ -246,7 +257,7 @@ struct SelectionOverlayController::Impl {
         if (pl.punchThrough) {
             // Undim: clear the selection area to transparent.
             const auto sel = toD2D(*pl.punchThrough);
-            d2dContext->PushAxisAlignedClip(&sel, D2D1_ANTIALIAS_ALIASED);
+            d2dContext->PushAxisAlignedClip(&sel, D2D1_ANTIALIAS_MODE_ALIASED);
             // (Clear is clipped: selection becomes un-dimmed.)
             // 1px stroke.
             ComPtr<ID2D1SolidColorBrush> stroke;

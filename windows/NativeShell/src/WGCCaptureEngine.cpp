@@ -15,7 +15,6 @@
 #include "tf/CaptureService.hpp"
 
 #include <winrt/Windows.Graphics.Capture.h>
-#include <winrt/Windows.Graphics.Capture.Interop.h>
 #include <winrt/Windows.System.h>
 
 namespace tf {
