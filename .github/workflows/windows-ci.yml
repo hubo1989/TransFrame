@@ -40,7 +40,7 @@ jobs:
         working-directory: windows
         shell: pwsh
         run: |
-          & "..\build\${{ matrix.platform }}\${{ matrix.configuration }}\TransFrame.Core.Tests\TransFrame.Core.Tests.exe"
+          & ".\build\${{ matrix.platform }}\${{ matrix.configuration }}\TransFrame.Core.Tests\TransFrame.Core.Tests.exe"
           exit $LASTEXITCODE
 
       - name: Upload test binaries on failure
