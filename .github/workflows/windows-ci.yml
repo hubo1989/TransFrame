@@ -14,6 +14,7 @@ on:
 
 jobs:
   core-tests:
+    # Task A: solution skeleton + portable core models/algorithms.
     name: Core tests (MSVC ${{ matrix.platform }})
     runs-on: windows-latest
     strategy:
@@ -84,9 +85,44 @@ jobs:
           path: windows/NativeShell/build
           if-no-files-found: ignore
 
+  translation-tests:
+    # Task C: translation/OCR services. Core (portable) Catch2 tests on
+    # MSVC x64 + ARM64; NativeShell Win32/WinRT TUs compile+link into the
+    # smoke target (running it needs a GUI session - see windows/README.md).
+    name: Translation services (MSVC ${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S windows -B windows/build -A ${{ matrix.platform }} -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+
+      - name: Build
+        run: cmake --build windows/build --config ${{ matrix.configuration }} --parallel
+
+      - name: Run Catch2 tests (Core)
+        # x64 runner cannot execute ARM64 binaries (no emulation on
+        # windows-latest); ARM64 leg proves compile+link only.
+        if: matrix.platform == 'x64'
+        working-directory: windows/build/${{ matrix.configuration }}
+        run: .\translation_tests.exe
+
+      - name: Upload test binaries on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translation-tests-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: windows/build
+          if-no-files-found: ignore
+
   portable-check:
-    # Prove the Core + NativeShell portable layers stay platform-clean:
-    # the same sources compile under GCC on Linux (no Win32 leaks).
+    # Prove the portable layers stay platform-clean: the same sources
+    # compile under GCC on Linux (no Win32 leaks).
     name: Portable checks (GCC, ubuntu)
     runs-on: ubuntu-latest
     steps:
@@ -95,7 +131,7 @@ jobs:
       - name: Install compiler
         run: sudo apt-get update && sudo apt-get install -y g++-13 cmake
 
-      - name: Core — build and run Catch2 tests
+      - name: Core (task A) — build and run Catch2 tests
         working-directory: windows
         run: |
           g++-13 -std=c++20 -Wall -Wextra -Werror \
@@ -104,12 +140,16 @@ jobs:
             -o ../build-tests 2>&1 | head -80
           ../build-tests
 
-      - name: NativeShell — configure and build
+      - name: NativeShell (task B) — configure, build, test
         run: |
           cmake -S windows/NativeShell -B windows/NativeShell/build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=g++-13
           cmake --build windows/NativeShell/build --parallel
+          windows/NativeShell/build/native_shell_tests
 
-      - name: NativeShell — run tests
-        working-directory: windows/NativeShell/build
-        run: ./native_shell_tests
+      - name: Translation (task C) — configure, build, test
+        run: |
+          cmake -S windows -B windows/build-c -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-13
+          cmake --build windows/build-c --parallel
+          windows/build-c/translation_tests

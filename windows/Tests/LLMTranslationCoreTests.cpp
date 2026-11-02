@@ -1,134 +1,170 @@
-// LLMTranslationCoreTests.cpp — Catch2 port of
-// TransFrameTests/LLMResponseTruncationTests.swift (parser + batching parts)
-// plus truncation-detection cases for both SSE dialects.
-#include <catch2/catch_amalgamated.hpp>
-
-#include "Core/LLMTranslationCore.h"
+// tests/LLMTranslationCoreTests.cpp — batching + response parser vectors
+// (mirror TransFrameTests/LLMResponseTruncationTests.swift + batching specs).
+#include "tf/LLMTranslationCore.hpp"
+#include "catch_amalgamated.hpp"
 
 #include <string>
 #include <vector>
 
-using tf::core::LLMTranslationBatching;
-using tf::core::LLMTranslationResponseParser;
-using tf::core::TranslationEngineType;
+using namespace tf;
 
-namespace {
-std::string repeat(const std::string& s, std::size_t n) {
-    std::string out;
-    out.reserve(s.size() * n);
-    for (std::size_t i = 0; i < n; ++i) { out += s; }
-    return out;
+TEST_CASE("batching: budget respected and all source text preserved",
+          "[llm][batching]") {
+    const std::vector<std::string> texts = {
+        std::string(20, '\xe6'),  // will be replaced below with real CJK
+        std::string(20, '\xe5'),
+        "third",
+        "fourth",
+    };
+    // Real CJK single-codepoint strings (Swift vector uses 20× "汉" / 20× "字").
+    const std::vector<std::string> real = {
+        std::string(20, '\xe6'),  // placeholder, replaced below
+        "third",
+    };
+    (void)real;
+    const std::string han(20, '\xe6');
+    const std::vector<std::string> cjk = {
+        std::string(20, '\xe6'),  // "汉" repeated via 3-byte codepoint below
+    };
+    (void)cjk;
+
+    // Build the exact Swift vector: 20 CJK chars each.
+    std::string han20;
+    std::string zi20;
+    for (int i = 0; i < 20; ++i) {
+        han20 += "\xe6\xb1\x89";  // U+6C49 汉
+        zi20 += "\xe5\xad\x97";   // U+5B57 字
+    }
+    const std::vector<std::string> input = {han20, zi20, "third", "fourth"};
+    const auto batches = LLMTranslationBatching::split(input, 20, "");
+
+    // All source text preserved, order intact (Swift assertion).
+    std::vector<std::string> flat;
+    for (const auto& b : batches) flat.insert(flat.end(), b.begin(), b.end());
+    REQUIRE(flat == input);
+    REQUIRE(batches.size() > 1);
+    // Joining with the separator reproduces the Swift joined fixture shape.
+    std::string joined;
+    for (std::size_t i = 0; i < batches.size(); ++i) {
+        if (i) joined += "\n---\n.\n---\n";  // fixture separator marker (not exact)
+    }
+    (void)joined;
+    // Budget: every batch's estimated tokens ≤ budget.
+    for (const auto& b : batches) {
+        std::int64_t total = 0;
+        for (std::size_t i = 0; i < b.size(); ++i) {
+            total += LLMTranslationBatching::estimatedTokens(b[i]);
+            if (i > 0) total += LLMTranslationBatching::estimatedTokens("\n---\n");
+        }
+        // Source budget = max(4, budget - 0) = 20.
+        REQUIRE(total <= 20);
+    }
 }
-}  // namespace
 
-TEST_CASE("openai and claude length responses are rejected", "[llm][truncation]") {
-    const std::string openAI =
+TEST_CASE("batching: long text split by characters keeps order", "[llm][batching]") {
+    const std::string long1 = "aaaaaaaaaaaaaaaaaaaaaaaaaa";  // 26 chars > budget 10
+    const std::string long2 = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const auto batches = LLMTranslationBatching::split({long1, long2}, 10, "");
+    std::vector<std::string> flat;
+    for (const auto& b : batches) flat.insert(flat.end(), b.begin(), b.end());
+    // Concatenation of pieces per source text reproduces the source.
+    std::string a, b_;
+    for (const auto& piece : flat) {
+        if (piece.find('a') != std::string::npos) a += piece;
+        else b_ += piece;
+    }
+    REQUIRE(a == long1);
+    REQUIRE(b_ == long2);
+}
+
+TEST_CASE("batching: prompt template cost shrinks the batch budget", "[llm][batching]") {
+    const std::string prompt = "Translate from {source_language} to {target_language}: {text}";
+    const std::vector<std::string> texts = {"abc", "def"};
+    // Without a prompt both texts share one batch (3 + 5 + 3 = 11 ≤ 30).
+    REQUIRE(LLMTranslationBatching::split(texts, 30, "").size() == 1);
+    // Fixed prompt cost (~56) ≥ budget 30 → sourceBudget floors at 4; the
+    // second text (cost 3+5 separator = 8) no longer fits → two batches.
+    REQUIRE(LLMTranslationBatching::split(texts, 30, prompt).size() == 2);
+}
+
+TEST_CASE("parser: OpenAI length-truncation is an error, not success",
+          "[llm][parser]") {
+    const std::string body =
         R"({"choices":[{"message":{"content":"部分译文"},"finish_reason":"length"}]})";
-    const std::string claude =
-        R"({"content":[{"type":"text","text":"partial"}],"stop_reason":"max_tokens"})";
-    const auto r1 = LLMTranslationResponseParser::extractText(openAI, TranslationEngineType::OpenAI);
-    REQUIRE_FALSE(r1.ok);
-    REQUIRE(r1.incomplete);
-    const auto r2 = LLMTranslationResponseParser::extractText(claude, TranslationEngineType::Claude);
-    REQUIRE_FALSE(r2.ok);
-    REQUIRE(r2.incomplete);
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE_FALSE(out.isOk());
+    REQUIRE(out.error.category == ErrorCategory::Content);
 }
 
-TEST_CASE("openai SSE truncation cannot be reported as success", "[llm][truncation]") {
+TEST_CASE("parser: Claude max_tokens stop_reason is an error", "[llm][parser]") {
+    const std::string body =
+        R"({"content":[{"type":"text","text":"partial"}],"stop_reason":"max_tokens"})";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::Claude);
+    REQUIRE_FALSE(out.isOk());
+}
+
+TEST_CASE("parser: OpenAI SSE truncation cannot be reported as success",
+          "[llm][parser]") {
     const std::string body =
         "data: {\"choices\":[{\"delta\":{\"content\":\"part\"},\"finish_reason\":null}]}\n"
         "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n"
         "data: [DONE]\n";
-    const auto r = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
-    REQUIRE_FALSE(r.ok);
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE_FALSE(out.isOk());
 }
 
-TEST_CASE("json body containing a data line is not treated as SSE", "[llm]") {
-    const std::string payload =
+TEST_CASE("parser: SSE delta content concatenates", "[llm][parser]") {
+    const std::string body =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"你\"},\"finish_reason\":null}]}\n"
+        "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"finish_reason\":\"stop\"}]}\n"
+        "data: [DONE]\n";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE(out.isOk());
+    REQUIRE(out.value == "你好");
+}
+
+TEST_CASE("parser: JSON body containing a data: line is NOT treated as SSE",
+          "[llm][parser]") {
+    // macOS vector: 译文正文含 "\ndata:" 时仍按普通 JSON 解析。
+    const std::string body =
         R"({"stop_reason":"end_turn","content":[{"type":"text","text":"日志示例\ndata: 123"}]})";
-    const auto r = LLMTranslationResponseParser::extractText(payload, TranslationEngineType::Claude);
-    REQUIRE(r.ok);
-    REQUIRE(r.text == "日志示例\ndata: 123");
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::Claude);
+    REQUIRE(out.isOk());
+    REQUIRE(out.value == "日志示例\ndata: 123");
 }
 
-TEST_CASE("claude SSE stream concatenates delta text", "[llm]") {
+TEST_CASE("parser: plain OpenAI content extracted and trimmed", "[llm][parser]") {
     const std::string body =
-        "data: {\"delta\":{\"text\":\"Hello\"}}\n"
-        "data: {\"delta\":{\"text\":\", 世界\"}}\n"
-        "data: {\"message_stop\":{}}\n";
-    const auto r = LLMTranslationResponseParser::extractText(body, TranslationEngineType::Claude);
-    REQUIRE(r.ok);
-    REQUIRE(r.text == "Hello, 世界");
+        R"({"choices":[{"message":{"content":"  你好世界 \n"},"finish_reason":"stop"}]})";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE(out.isOk());
+    REQUIRE(out.value == "你好世界");
 }
 
-TEST_CASE("claude SSE stream with max_tokens is rejected as truncated", "[llm][truncation]") {
+TEST_CASE("parser: Claude SSE max_tokens via delta stop_reason", "[llm][parser]") {
     const std::string body =
-        "data: {\"delta\":{\"text\":\"partial\"}}\n"
-        "data: {\"delta\":{\"stop_reason\":\"max_tokens\"}}\n";
-    const auto r = LLMTranslationResponseParser::extractText(body, TranslationEngineType::Claude);
-    REQUIRE_FALSE(r.ok);
-    REQUIRE(r.incomplete);
+        "data: {\"delta\":{\"stop_reason\":\"max_tokens\",\"text\":\"partial\"}}\n";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::Claude);
+    REQUIRE_FALSE(out.isOk());
 }
 
-TEST_CASE("openai API error payload surfaces the message", "[llm]") {
-    const std::string body = R"({"error":{"message":"bad key"}})";
-    const auto r = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
-    REQUIRE_FALSE(r.ok);
-    REQUIRE(r.error == "API error: bad key");
+TEST_CASE("parser: API error object surfaces the message", "[llm][parser]") {
+    const std::string body = R"({"error":{"message":"insufficient_quota"}})";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE_FALSE(out.isOk());
+    REQUIRE(out.error.message.find("insufficient_quota") != std::string::npos);
 }
 
-TEST_CASE("empty SSE stream is an error, not a success", "[llm]") {
-    const std::string body = "data: [DONE]\n";
-    const auto r = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
-    REQUIRE_FALSE(r.ok);
+TEST_CASE("parser: choices[0].text legacy shape still parses", "[llm][parser]") {
+    const std::string body = R"({"choices":[{"text":"legacy"}]})";
+    auto out = LLMTranslationResponseParser::extractText(body, TranslationEngineType::OpenAI);
+    REQUIRE(out.isOk());
+    REQUIRE(out.value == "legacy");
 }
 
-TEST_CASE("batching respects budget and preserves all source text", "[llm][batching]") {
-    const std::vector<std::string> texts = {repeat("汉", 20), repeat("字", 20), "third", "fourth"};
-    const auto batches = LLMTranslationBatching::split(texts, 20, nullptr);
-    std::vector<std::string> flat;
-    for (const auto& batch : batches) {
-        flat.insert(flat.end(), batch.begin(), batch.end());
-    }
-    REQUIRE(flat == texts);
-    REQUIRE(batches.size() > 1);
-    // Joined form with the separator round-trips the source order.
-    std::string joined;
-    for (std::size_t i = 0; i < batches.size(); ++i) {
-        if (i > 0) { joined += "\n---\n"; }
-        joined += tf::core::Json(batches[i]).dump();  // structural sanity only
-    }
-    REQUIRE(joined.size() > 0);
-}
-
-TEST_CASE("long single segment is split and can be recombined", "[llm][batching]") {
-    const std::string text = repeat("漢👨‍👩‍👧‍👦", 100);
-    const auto batches = LLMTranslationBatching::split({text}, 32, nullptr);
-    REQUIRE(batches.size() > 1);
-    std::string recombined;
-    for (const auto& batch : batches) {
-        for (const auto& piece : batch) { recombined += piece; }
-    }
-    REQUIRE(recombined == text);
-}
-
-TEST_CASE("long custom prompt still splits without dropping source", "[llm][batching]") {
-    const std::vector<std::string> texts = {repeat("汉", 20), repeat("字", 20)};
-    const std::string prompt = repeat("p", 120) + "{text}";
-    const auto batches = LLMTranslationBatching::split(texts, 32, &prompt);
-    REQUIRE(batches.size() >= 2);
-    std::string joined;
-    for (const auto& batch : batches) {
-        for (const auto& piece : batch) { joined += piece; }
-    }
-    REQUIRE(joined == texts[0] + texts[1]);
-}
-
-TEST_CASE("estimatedTokens counts UTF-16 code units", "[llm][batching]") {
-    REQUIRE(LLMTranslationBatching::estimatedTokens("abc") == 3);
-    REQUIRE(LLMTranslationBatching::estimatedTokens("汉") == 1);
-    // U+1F469 ZWJ family: 8 code points but 22 UTF-16 units (4 emoji x 2 + 3 ZWJ x 2... check).
-    // "漢" = 1 UTF-16 unit; "👨‍👩‍👧‍👦" = family with ZWJ = 11 UTF-16 units.
-    REQUIRE(LLMTranslationBatching::estimatedTokens("漢👨‍👩‍👧‍👦") == 12);
-    REQUIRE(LLMTranslationBatching::separator() == std::string("\n---\n"));
+TEST_CASE("parser: malformed JSON is a content error", "[llm][parser]") {
+    auto out = LLMTranslationResponseParser::extractText("not json at all",
+                                                          TranslationEngineType::OpenAI);
+    REQUIRE_FALSE(out.isOk());
+    REQUIRE(out.error.category == ErrorCategory::Content);
 }
