@@ -159,7 +159,7 @@ bool isLocalhostHost(const std::string& host) {
         h = h.substr(1, h.size() - 2);
     }
     return h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "0.0.0.0" ||
-           h.size() > 6 && h.compare(h.size() - 6, 6, ".local") == 0;
+           (h.size() > 6 && h.compare(h.size() - 6, 6, ".local") == 0);
 }
 
 std::optional<ProviderError> guardApiKeyTransport(const std::string& url, bool sendingApiKey) {
