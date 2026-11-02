@@ -1,15 +1,17 @@
 // NativeShellInit.cpp — composition root wiring the fallback chain.
 #include "pch.h"
 
-#include "tf/CaptureService.hpp"
-#include "tf/DisplayMonitor.hpp"
-#include "tf/HotkeyManager.hpp"
+#include "tf/NativeShellInit.hpp"
+
 #include "tf/WindowDetector.hpp"
+
+#include <memory>
 
 namespace tf {
 
 // Forward declarations from engine TUs.
 std::unique_ptr<ICaptureEngine> makeWgcCaptureEngine();
+std::unique_ptr<ICaptureEngine> makeGdiCaptureEngine();
 bool probeDxgiDuplicationAvailability();
 bool probeGdiAvailability();
 
@@ -23,8 +25,10 @@ std::unique_ptr<IHotkeyRegistrar> makeWin32HotkeyRegistrar();
 std::unique_ptr<CaptureService> makeCaptureService() {
     std::vector<std::unique_ptr<ICaptureEngine>> chain;
     chain.push_back(makeWgcCaptureEngine());
-    // DXGI + GDI engines are registered as availability-probed stubs in this
-    // milestone; each engine TU fills isAvailable/capture.
+    // DXGI Desktop Duplication engine TU is a probe-only stub in this
+    // milestone (needs the shared D3D device singleton); the chain runs
+    // WGC -> GDI so captures always have a working tail (PRD §3.2).
+    chain.push_back(makeGdiCaptureEngine());
     return std::make_unique<CaptureService>(std::move(chain));
 }
 
@@ -42,6 +46,17 @@ std::unique_ptr<WindowDetectorService> makeWindowDetectorService(DWORD excludePi
 std::unique_ptr<HotkeyManager> makeHotkeyManager() {
     static auto registrar = makeWin32HotkeyRegistrar();
     return std::make_unique<HotkeyManager>(*registrar);
+}
+
+// ---------------------------------------------------------------------------
+// Windows OCR seams: implemented in Win32OcrUiaHosts.cpp (WinRT glue).
+// ---------------------------------------------------------------------------
+WindowsOcrEngine::LanguageProvider MakeWinRtLanguageProvider();
+WindowsOcrEngine::Recognizer MakeWinRtRecognizer();
+
+std::unique_ptr<IOcrEngine> makeWindowsOcrEngine() {
+    return std::make_unique<WindowsOcrEngine>(makeWinRtLanguageProvider(),
+                                              makeWinRtRecognizer());
 }
 
 } // namespace tf

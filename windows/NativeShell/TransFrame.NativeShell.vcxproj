@@ -41,7 +41,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir)include;$(ProjectDir)..\Core;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)include;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -97,6 +97,14 @@
     <ClCompile Include="src\GdiCaptureEngine.cpp"/>
     <ClCompile Include="src\SelectionOverlay.cpp"/>
     <ClCompile Include="src\TrayIcon.cpp"/>
+    <ClCompile Include="src\ResultWindow.cpp"/>
+    <ClCompile Include="src\WinHttpTransport.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\CredManKeyStore.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\Win32OcrUiaHosts.cpp"/>
     <ClCompile Include="src\NativeShellInit.cpp"/>
   </ItemGroup>
 
@@ -110,6 +118,7 @@
     <ClInclude Include="include\tf\OverlayRenderer.hpp"/>
     <ClInclude Include="include\tf\SelectionOverlay.hpp"/>
     <ClInclude Include="include\tf\TrayIcon.hpp"/>
+    <ClInclude Include="include\tf\ResultWindow.hpp"/>
     <ClInclude Include="src\pch.h"/>
   </ItemGroup>
 

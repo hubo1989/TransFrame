@@ -47,7 +47,10 @@ bool TrayIconService::install() {
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
-    nid.hWnd = ::GetForegroundWindow();  // replaced by App's message window
+    // Callback parent: the App's hidden message window when provided (the
+    // reliable route — GetForegroundWindow can be null/destroyed by the time
+    // the user clicks the icon).
+    nid.hWnd = callbackWindow_ ? static_cast<HWND>(callbackWindow_) : ::GetForegroundWindow();
     nid.uID = kTrayIconId;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = kTrayCallbackMessage;
@@ -56,6 +59,13 @@ bool TrayIconService::install() {
 
     installed_ = ::Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     return installed_;
+}
+
+void TrayIconService::setCallbackWindow(void* hwnd) {
+    const bool reinstall = installed_;
+    if (reinstall) remove();
+    callbackWindow_ = static_cast<HWND>(hwnd);
+    if (reinstall) install();
 }
 
 void TrayIconService::remove() {
@@ -90,6 +100,7 @@ void TrayIconService::showMenuAtCursor() {
         dispatch(items[idx].command, items[idx].recentIndex);
     }
 }
+
 
 void TrayIconService::dispatch(TrayCommand command, int recentIndex) {
     if (handler_) handler_(command, recentIndex);

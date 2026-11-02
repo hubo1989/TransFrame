@@ -40,7 +40,9 @@ set(PORTABLE_HEADERS
     include/tf/CaptureService.hpp
     include/tf/HotkeyManager.hpp
     include/tf/OverlayRenderer.hpp
+    include/tf/SelectionOverlay.hpp
     include/tf/TrayIcon.hpp
+    include/tf/ResultWindow.hpp
 )
 
 # ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ if (WIN32)
         src/GdiCaptureEngine.cpp
         src/SelectionOverlay.cpp
         src/TrayIcon.cpp
+        src/ResultWindow.cpp
         src/NativeShellInit.cpp
     )
 endif()
@@ -75,8 +78,13 @@ endif()
 
 if (WIN32)
     # WinRT + Win32 linkage (task A sln adds the .vcxproj equivalents).
+    list(APPEND PORTABLE_SOURCES
+        src/WinHttpTransport.cpp
+        src/CredManKeyStore.cpp
+        src/Win32OcrUiaHosts.cpp
+    )
     target_link_libraries(native_shell PUBLIC
-        dwmapi shcore dxgi d2d1 dcomp d3d11 windowsapp)
+        dwmapi shcore dxgi d2d1 dcomp d3d11 windowsapp winhttp advapi32)
 endif()
 
 # ---------------------------------------------------------------------------

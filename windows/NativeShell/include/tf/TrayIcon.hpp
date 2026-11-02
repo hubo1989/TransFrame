@@ -64,6 +64,10 @@ public:
     /// Create the Shell_NotifyIcon entry (call once, after message window up).
     bool install();
 
+    /// Route tray callbacks to the App's hidden message window (call before
+    /// install; safe after — reinstalls the icon against the new parent).
+    void setCallbackWindow(void* hwnd);  // HWND
+
     /// Remove the tray entry (app exit / crash-safe teardown).
     void remove();
 
@@ -80,6 +84,7 @@ private:
 
     TrayCommandHandler handler_;
     std::vector<RecentShot> recent_;
+    void* callbackWindow_ = nullptr;  // HWND (void* keeps the header Win32-free)
     bool installed_ = false;
 };
 

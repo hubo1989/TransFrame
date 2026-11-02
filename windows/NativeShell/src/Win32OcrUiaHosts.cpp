@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <optional>
 
 #pragma comment(lib, "windowsapp")
@@ -73,15 +74,16 @@ WindowsOcrEngine::Recognizer MakeWinRtRecognizer() {
                 return ProviderError::configuration("OCR engine creation failed");
             }
 
-            // BGRA → SoftwareBitmap (Premultiplied is the OCR-supported alpha).
-            InMemoryRandomAccessStream stream;
-            DataWriter writer(stream);
-            writer.WriteBytes({reinterpret_cast<const uint8_t*>(image.bgra.data()),
-                               reinterpret_cast<const uint8_t*>(image.bgra.data()) +
-                                   image.bgra.size()});
-            writer.FlushAsync().get();
-            BitmapDecoder decoder = BitmapDecoder::CreateAsync(stream).get();
-            SoftwareBitmap bitmap = decoder.GetSoftwareBitmapAsync().get();
+            // BGRA → SoftwareBitmap. The input is raw header-less pixels, so
+            // a BitmapDecoder cannot parse it — build the bitmap directly
+            // from the buffer (Bgra8, Premultiplied is OCR-supported alpha).
+            winrt::Windows::Storage::Streams::Buffer buffer(
+                static_cast<uint32_t>(image.bgra.size()));
+            std::memcpy(buffer.data(), image.bgra.data(), image.bgra.size());
+            buffer.Length(static_cast<uint32_t>(image.bgra.size()));
+            SoftwareBitmap bitmap = SoftwareBitmap::CreateCopyFromBuffer(
+                buffer, BitmapPixelFormat::Bgra8, static_cast<int>(image.width),
+                static_cast<int>(image.height));
             if (bitmap == nullptr) {
                 return ProviderError::content("Bitmap conversion failed");
             }
