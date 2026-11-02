@@ -58,7 +58,7 @@ jobs:
         working-directory: windows
         run: |
           g++-13 -std=c++20 -Wall -Wextra -Werror \
-            -I Core -I external \
+            -I . -I Core -I external \
             Core/*.cpp external/catch2/catch_amalgamated.cpp Tests/*.cpp \
             -o ../build-tests 2>&1 | head -80
           ../build-tests
