@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <optional>
 
 #pragma comment(lib, "windowsapp")
 
@@ -91,12 +92,35 @@ WindowsOcrEngine::Recognizer MakeWinRtRecognizer() {
             for (const auto& line : result.Lines()) {
                 WindowsOcrEngine::RawLine raw;
                 raw.text = winrt::to_string(line.Text());
-                const auto rect = line.BoundingRect();  // DIPs, top-left origin
-                const double scale = 1.0;  // SoftwareBitmap works in pixels
-                raw.x = static_cast<std::int64_t>(rect.X * scale);
-                raw.y = static_cast<std::int64_t>(rect.Y * scale);
-                raw.w = static_cast<std::int64_t>(rect.Width * scale);
-                raw.h = static_cast<std::int64_t>(rect.Height * scale);
+                // OcrLine has no BoundingRect; union the word rects (DIPs,
+                // top-left origin).
+                std::optional<winrt::Windows::Foundation::Rect> bounds;
+                for (const auto& word : line.Words()) {
+                    const auto r = word.BoundingRect();
+                    if (!bounds) {
+                        bounds = r;
+                    } else {
+                        const double left = std::min<double>(bounds->X, r.X);
+                        const double top = std::min<double>(bounds->Y, r.Y);
+                        const double right =
+                            std::max<double>(bounds->X + bounds->Width, r.X + r.Width);
+                        const double bottom =
+                            std::max<double>(bounds->Y + bounds->Height, r.Y + r.Height);
+                        bounds = winrt::Windows::Foundation::Rect(
+                            static_cast<float>(left), static_cast<float>(top),
+                            static_cast<float>(right - left),
+                            static_cast<float>(bottom - top));
+                    }
+                }
+                if (bounds) {
+                    const double scale = 1.0;  // SoftwareBitmap works in pixels
+                    raw.x = static_cast<std::int64_t>(bounds->X * scale);
+                    raw.y = static_cast<std::int64_t>(bounds->Y * scale);
+                    raw.w = static_cast<std::int64_t>(bounds->Width * scale);
+                    raw.h = static_cast<std::int64_t>(bounds->Height * scale);
+                } else {
+                    raw.x = raw.y = raw.w = raw.h = 0;
+                }
                 raw.confidence = 0.0f;  // no score → mapped to 1.0 upstream
                 if (!raw.text.empty()) outLines.push_back(std::move(raw));
             }
