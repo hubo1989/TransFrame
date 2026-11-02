@@ -26,7 +26,7 @@ struct MonitorItem {
     wgc::Direct3D11CaptureFrame frame{nullptr};
 };
 
-winrt::Windows::Foundation::IInspectable getInspectable(IDXGIObject* obj) {
+winrt::Windows::Foundation::IInspectable getInspectable(IDXGIObject* /*obj*/) {
     // Direct3D11CaptureFramePool requires the WinRT IDirect3DDevice created
     // from the D3D device via CreateDirect3D11DeviceFromDXGIDevice.
     return nullptr;  // placeholder (see captureOnce path)
@@ -65,7 +65,7 @@ public:
     }
 
 private:
-    CaptureResult captureOnce(const CaptureRequest& request) {
+    CaptureResult captureOnce(const CaptureRequest& /*request*/) {
         // Full implementation requires the App's D3D device singleton; the
         // chain builder wires it in NativeShellInit.cpp. Geometry plumbing,
         // engine ordering and the fallback contract are complete here.
