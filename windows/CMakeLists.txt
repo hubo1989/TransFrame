@@ -48,7 +48,9 @@ add_test(NAME translation_tests COMMAND translation_tests)
 # ---------------------------------------------------------------------------
 if (WIN32)
     file(GLOB NS_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/NativeShell/src/*.cpp)
+    # Smoke links Core sources too (per windows/README.md manual command).
     add_executable(nativeshell_smoke
+        ${CORE_SRC}
         ${NS_SRC}
         Tests/manual/smoke_translation.cpp
     )
