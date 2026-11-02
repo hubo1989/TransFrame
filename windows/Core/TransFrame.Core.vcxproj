@@ -41,7 +41,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir);$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(ProjectDir)include;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -97,19 +97,45 @@
     <ClCompile Include="TranslationResultBundle.cpp" />
     <ClCompile Include="VLMProviderType.cpp" />
     <ClCompile Include="VisualLineGrouping.cpp" />
-    <!-- Task C translation services (portable, mirror CMake CORE_SRC glob) -->
-    <ClCompile Include="src\CoreModels.cpp" />
-    <ClCompile Include="src\CloudProviders.cpp" />
-    <ClCompile Include="src\CompatibleChatProvider.cpp" />
-    <ClCompile Include="src\CredentialAccounts.cpp" />
-    <ClCompile Include="src\EngineHealthChecker.cpp" />
-    <ClCompile Include="src\HttpTransport.cpp" />
-    <ClCompile Include="src\LLMChatProvider.cpp" />
-    <ClCompile Include="src\LLMTranslationCore.cpp" />
-    <ClCompile Include="src\MTranServerProvider.cpp" />
-    <ClCompile Include="src\OcrEngines.cpp" />
-    <ClCompile Include="src\TextSelectionInsertion.cpp" />
-    <ClCompile Include="src\TranslationScheduler.cpp" />
+    <!-- Task C translation services (portable, mirror CMake CORE_SRC glob).
+         ObjectFileName mirrors the source subfolder so src\LLMTranslationCore
+         never collides with the task-A root LLMTranslationCore.cpp. -->
+    <ClCompile Include="src\CoreModels.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\CloudProviders.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\CompatibleChatProvider.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\CredentialAccounts.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\EngineHealthChecker.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\HttpTransport.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\LLMChatProvider.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\LLMTranslationCore.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\MTranServerProvider.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\OcrEngines.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\TextSelectionInsertion.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\TranslationScheduler.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
