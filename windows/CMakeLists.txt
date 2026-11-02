@@ -13,7 +13,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Core portable sources + Catch2 tests
 # ---------------------------------------------------------------------------
 file(GLOB CORE_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/src/*.cpp)
-file(GLOB TEST_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Tests/*.cpp)
+set(TEST_SRC
+    Tests/TranslationSchedulerTests.cpp
+    Tests/ProvidersTests.cpp
+    Tests/LLMTranslationCoreTests.cpp
+    Tests/EngineHealthCheckerTests.cpp
+    Tests/OcrAndTextSelectionTests.cpp
+)
 
 add_executable(translation_tests
     ${CORE_SRC}
@@ -47,7 +53,11 @@ add_test(NAME translation_tests COMMAND translation_tests)
 # session (see windows/README.md manual smoke).
 # ---------------------------------------------------------------------------
 if (WIN32)
-    file(GLOB NS_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/NativeShell/src/*.cpp)
+    set(NS_SRC
+        NativeShell/src/WinHttpTransport.cpp
+        NativeShell/src/CredManKeyStore.cpp
+        NativeShell/src/Win32OcrUiaHosts.cpp
+    )
     # Smoke links Core sources too (per windows/README.md manual command).
     add_executable(nativeshell_smoke
         ${CORE_SRC}

@@ -65,7 +65,7 @@
   <ItemGroup>
     <ClCompile Include="TestMain.cpp" />
     <ClCompile Include="CoreModelsTests.cpp" />
-    <ClCompile Include="LLMTranslationCoreTests.cpp" />
+    <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
     <ClCompile Include="TranslationPromptConfigTests.cpp" />
     <ClCompile Include="VisualLineGroupingTests.cpp" />
     <ClCompile Include="..\external\catch2\catch_amalgamated.cpp">

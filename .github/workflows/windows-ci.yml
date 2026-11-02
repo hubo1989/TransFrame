@@ -136,7 +136,9 @@ jobs:
         run: |
           g++-13 -std=c++20 -Wall -Wextra -Werror \
             -I . -I Core -I external \
-            Core/*.cpp external/catch2/catch_amalgamated.cpp Tests/*.cpp \
+            Core/*.cpp external/catch2/catch_amalgamated.cpp \
+            Tests/TestMain.cpp Tests/CoreModelsTests.cpp Tests/LLMTranslationCoreTestsA.cpp \
+            Tests/TranslationPromptConfigTests.cpp Tests/VisualLineGroupingTests.cpp \
             -o ../build-tests 2>&1 | head -80
           ../build-tests
 
