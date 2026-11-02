@@ -65,7 +65,11 @@ if (WIN32)
 endif()
 
 add_library(native_shell STATIC ${PORTABLE_SOURCES})
-target_include_directories(native_shell PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(native_shell PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Core/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Core/vendor
+)
 target_compile_features(native_shell PUBLIC cxx_std_20)
 
 if (MSVC)

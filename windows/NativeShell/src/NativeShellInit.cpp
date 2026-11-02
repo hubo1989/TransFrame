@@ -55,8 +55,8 @@ WindowsOcrEngine::LanguageProvider MakeWinRtLanguageProvider();
 WindowsOcrEngine::Recognizer MakeWinRtRecognizer();
 
 std::unique_ptr<IOcrEngine> makeWindowsOcrEngine() {
-    return std::make_unique<WindowsOcrEngine>(makeWinRtLanguageProvider(),
-                                              makeWinRtRecognizer());
+    return std::make_unique<WindowsOcrEngine>(MakeWinRtLanguageProvider(),
+                                              MakeWinRtRecognizer());
 }
 
 } // namespace tf

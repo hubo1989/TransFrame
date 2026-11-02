@@ -2,13 +2,12 @@
 // NOT RUN on this macOS host (requires Windows SDK); compile under MSVC
 // (C++/WinRT + WindowsApp.lib). Structure mirrors the protocol contracts in
 // Core/include/tf/OcrEngines.hpp and TextSelectionInsertion.hpp.
+#include "pch.h"  // project pch (defines WIN32_LEAN_AND_MEAN/NOMINMAX + Win32 baseline)
+
 #include "tf/Win32OcrUiaHosts.h"
 
 #ifdef _WIN32
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #include <windows.h>
 
 #include <winrt/Windows.Foundation.h>

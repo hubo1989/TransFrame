@@ -13,6 +13,7 @@
 #define TF_SELECTION_OVERLAY_HPP
 
 #include "OverlayRenderer.hpp"
+#include "WindowDetector.hpp"
 
 #include <functional>
 #include <memory>
@@ -52,6 +53,11 @@ public:
     void cancelSession();
 
     bool isActive() const;
+
+    /// FR-02: attach the App's window detector for hover highlighting and
+    /// click-to-capture-window. Ownership stays with the caller; must outlive
+    /// the controller (or be reset with setWindowDetector(nullptr)).
+    void setWindowDetector(WindowDetectorService* detector);
 
     /// Inject render state (tests). Production uses internal message pump.
     OverlayState& state();

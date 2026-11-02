@@ -13,10 +13,14 @@
 //   3. window highlight (accent fill 25% + stroke)
 //   4. size badge, crosshair, toolbar skeleton
 // The D2D1Device is shared with the capture engine's D3D11 device.
+//
+// FR-02 (window click): a WindowDetectorService is attached by the App;
+// mouse-move hover hit-tests against its snapshot (refreshed at mouse-down).
 #include "pch.h"
 
 #include "tf/SelectionOverlay.hpp"
 #include "tf/OverlayRenderer.hpp"
+#include "tf/WindowDetector.hpp"
 
 #include <d2d1_1.h>
 #include <dcomp.h>
@@ -34,6 +38,7 @@ struct SelectionOverlayController::Impl {
     OverlayState state;
     OverlayCompletion completion;
     bool sessionActive = false;
+    WindowDetectorService* windowDetector = nullptr;  // FR-02 hover (App-owned)
 
     // D2D/DComp device stack.
     ComPtr<ID3D11Device> d3dDevice;
@@ -67,11 +72,21 @@ struct SelectionOverlayController::Impl {
             case WM_MOUSEMOVE: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 state.moveTracking({pt.x, pt.y});
+                // FR-02: hover highlight while idle (drag clears it in
+                // OverlayState::moveTracking via dragEngaged_).
+                if (windowDetector && !state.isDragEngaged()) {
+                    if (const auto win = windowDetector->windowUnderPoint({pt.x, pt.y})) {
+                        state.setHoverWindow(win->frame);
+                    } else {
+                        state.setHoverWindow(std::nullopt);
+                    }
+                }
                 renderFrame();
                 return 0;
             }
             case WM_LBUTTONDOWN: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                if (windowDetector) windowDetector->refreshSnapshot();  // cache at mouse-down
                 state.beginTracking({pt.x, pt.y});
                 renderFrame();
                 ::SetCapture(h);
@@ -391,6 +406,11 @@ void SelectionOverlayController::cancelSession() {
 
 bool SelectionOverlayController::isActive() const {
     return impl_->sessionActive;
+}
+
+void SelectionOverlayController::setWindowDetector(WindowDetectorService* detector) {
+    impl_->windowDetector = detector;
+    if (detector) detector->refreshSnapshot();
 }
 
 OverlayState& SelectionOverlayController::state() { return impl_->state; }

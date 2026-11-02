@@ -267,7 +267,7 @@ ResultWindowController::ResultWindowController() : impl_(new Impl) {}
 
 ResultWindowController::~ResultWindowController() {
     if (impl_->hwnd) ::DestroyWindow(impl_->hwnd);
-    delete impl_;
+    // impl_ (unique_ptr) releases itself.
 }
 
 bool ResultWindowController::show(const ResultWindowContent& content) {

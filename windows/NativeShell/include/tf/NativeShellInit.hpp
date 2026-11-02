@@ -9,6 +9,7 @@
 #include "tf/DisplayMonitor.hpp"
 #include "tf/HotkeyManager.hpp"
 #include "tf/OcrEngines.hpp"
+#include "tf/WindowDetector.hpp"
 
 #include <memory>
 

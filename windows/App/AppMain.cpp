@@ -71,6 +71,7 @@ struct AppState {
     // Shell services (main thread only).
     std::unique_ptr<tf::CaptureService> capture;
     std::unique_ptr<tf::DisplayMonitorService> displays;
+    std::unique_ptr<tf::WindowDetectorService> windowDetector;
     std::unique_ptr<tf::HotkeyManager> hotkeys;
     std::unique_ptr<tf::SelectionOverlayController> overlay;
     std::unique_ptr<tf::ResultWindowController> results;
@@ -453,8 +454,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // Composition root (NativeShellInit.cpp factories).
     g.capture = tf::makeCaptureService();
     g.displays = tf::makeDisplayMonitorService();
+    g.windowDetector = tf::makeWindowDetectorService(GetCurrentProcessId());
     g.hotkeys = tf::makeHotkeyManager();
     g.overlay = std::make_unique<tf::SelectionOverlayController>();
+    g.overlay->setWindowDetector(g.windowDetector.get());
     g.results = std::make_unique<tf::ResultWindowController>();
     g.ocr = tf::makeWindowsOcrEngine();
     g.textHost = std::make_unique<tf::Win32TextExtractorHost>();
@@ -477,8 +480,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     deps.builtinProvider = [](tf::TranslationEngineType t)
         -> tf::TranslationProviderPtr {
         if (t == tf::TranslationEngineType::MtranServer && g.mtran) {
-            return std::unique_ptr<tf::ITranslationProvider>(
-                new tf::MTranServerProvider(*g.mtran));
+            // Fresh provider instance per run sharing the WinHTTP session.
+            return std::make_unique<tf::MTranServerProvider>(g.mtran->configuration(),
+                                                             g.transport);
         }
         return nullptr;
     };
