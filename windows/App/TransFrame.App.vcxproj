@@ -26,8 +26,6 @@
     <RootNamespace>TransFrame</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
     <AppxPackage>false</AppxPackage>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <WindowsPackageType>MSIX</WindowsPackageType>
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
@@ -76,8 +74,10 @@
     </ProjectReference>
   </ItemGroup>
 
-  <!-- Windows App SDK (WinUI 3): restore via NuGet in CI. Task B switches the
-       entry point to XAML islands; until then the plain Win32 window stands in.
+  <!-- Windows App SDK (WinUI 3): intentionally NOT referenced yet — the
+       PackageReference forces /ZW, which is incompatible with /std:c++20 and
+       requires TargetPlatformMinVersion plumbing. Task B/C switch the entry
+       point to WinUI 3 and re-enable this block.
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.*" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.*" />
