@@ -34,9 +34,14 @@ jobs:
       - name: Run Catch2 tests
         # x64 runner cannot execute ARM64 binaries (no emulation on
         # windows-latest); ARM64 leg proves compile+link only.
+        # Run from windows/ so the fixture path Tests/fixtures/... resolves
+        # cwd-relative (same as the local dev invocation).
         if: matrix.platform == 'x64'
-        working-directory: windows/build/${{ matrix.platform }}/${{ matrix.configuration }}/TransFrame.Core.Tests
-        run: .\TransFrame.Core.Tests.exe
+        working-directory: windows
+        shell: pwsh
+        run: |
+          & "..\build\${{ matrix.platform }}\${{ matrix.configuration }}\TransFrame.Core.Tests\TransFrame.Core.Tests.exe"
+          exit $LASTEXITCODE
 
       - name: Upload test binaries on failure
         if: failure()
