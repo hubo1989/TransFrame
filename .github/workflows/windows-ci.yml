@@ -34,6 +34,9 @@ jobs:
         run: cmake --build windows/build --config ${{ matrix.configuration }} --parallel
 
       - name: Run Catch2 tests (Core)
+        # x64 runner cannot execute ARM64 binaries (no emulation on
+        # windows-latest); ARM64 leg proves compile+link only.
+        if: matrix.platform == 'x64'
         working-directory: windows/build/${{ matrix.configuration }}
         run: .\translation_tests.exe
 
