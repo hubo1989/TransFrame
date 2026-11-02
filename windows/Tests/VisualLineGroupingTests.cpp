@@ -166,15 +166,20 @@ TEST_CASE("user-edited flag propagates to the merged segment", "[visual-line-gro
 
 TEST_CASE("fixture file loads and every case reproduces its expectation",
           "[visual-line-grouping][fixture]") {
-    // Fixture resolution: cwd-relative first (repo-root runs), then relative
-    // to the executable (Windows MSBuild output dir gets a copy).
+    // Fixture resolution, in order: cwd-relative (repo root), repo-root
+    // windows/ path, exe-relative (MSBuild copies <none> items as
+    // <none> -> fixtures/ subdir preserved), then exe dir directly.
     std::ifstream in("Tests/fixtures/visual-line-grouping.json");
     if (!in) {
         in.open("windows/Tests/fixtures/visual-line-grouping.json");
     }
     if (!in) {
         // MSBuild output layout: .../build/<plat>/<cfg>/TransFrame.Core.Tests/
-        // with fixtures copied next to the exe.
+        // CopyToOutputDirectory preserves the relative path from the project
+        // root, so the copy lands in fixtures/ next to the exe.
+        in.open("fixtures/visual-line-grouping.json");
+    }
+    if (!in) {
         in.open("visual-line-grouping.json");
     }
     REQUIRE(in.is_open());
