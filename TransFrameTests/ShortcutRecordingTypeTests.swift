@@ -15,10 +15,11 @@ final class ShortcutRecordingTypeTests: XCTestCase {
             .selection,
             .translationMode,
             .textSelectionTranslation,
-            .translateAndInsert
+            .translateAndInsert,
+            .pickColor
         ]
 
-        XCTAssertEqual(allCases.count, 5)
+        XCTAssertEqual(allCases.count, 6)
     }
 
     // MARK: - Equatable
@@ -38,7 +39,8 @@ final class ShortcutRecordingTypeTests: XCTestCase {
             .selection,
             .translationMode,
             .textSelectionTranslation,
-            .translateAndInsert
+            .translateAndInsert,
+            .pickColor
         ]
 
         for type in types {
@@ -53,6 +55,8 @@ final class ShortcutRecordingTypeTests: XCTestCase {
             case .textSelectionTranslation:
                 XCTAssertTrue(true)
             case .translateAndInsert:
+                XCTAssertTrue(true)
+            case .pickColor:
                 XCTAssertTrue(true)
             }
         }
