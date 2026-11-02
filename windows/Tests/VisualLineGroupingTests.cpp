@@ -191,7 +191,7 @@ TEST_CASE("fixture file loads and every case reproduces its expectation",
             input.push_back(seg(s.at("text").get<std::string>().c_str(),
                                 s.at("x").get<double>(), s.at("y").get<double>(),
                                 s.at("width").get<double>(), s.at("height").get<double>(),
-                                s.value("confidence", 1.0),
+                                static_cast<float>(s.value("confidence", 1.0)),
                                 s.value("isUserEdited", false)));
         }
         const auto merged = tf::core::VisualLineGrouping::mergeLines(input);
