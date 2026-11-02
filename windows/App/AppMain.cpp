@@ -296,7 +296,7 @@ void runTextSelectionFlow(bool insertMode) {
         tf::ResultWindowContent c;
         c.translatedText = L"未获取到选中文本";
         c.statusLine = L"划词失败";
-        c.anchorPhysical = Rect{200, 200, 400, 100};
+        c.anchorPhysical = tf::Rect{200, 200, 400, 100};
         showResultOnMain(c);
         return;
     }
@@ -338,7 +338,7 @@ void runTextSelectionFlow(bool insertMode) {
     c.sourceText = toWide(src);
     c.translatedText = toWide(translated);
     c.statusLine = insertMode ? L"翻译并插入" : L"划词翻译";
-    c.anchorPhysical = Rect{200, 200, 400, 100};
+    c.anchorPhysical = tf::Rect{200, 200, 400, 100};
     showResultOnMain(c);
 }
 
