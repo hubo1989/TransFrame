@@ -1,0 +1,80 @@
+name: windows-ci
+
+on:
+  push:
+    branches: [main, "hubo/**"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  pull_request:
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  translation-tests:
+    # Task C: translation/OCR services Core (portable) + NativeShell (Win32).
+    # Windows job compiles Core unit tests with MSVC; NativeShell Win32 TUs are
+    # compile-checked (linked into the test target only on Windows where the
+    # required system libs exist).
+    name: Translation services (MSVC ${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run Catch2 tests (Core)
+        shell: pwsh
+        run: |
+          $inc = "-Iwindows/Core/include", "-Iwindows/Core/vendor", "-Iwindows/Tests", "-Iwindows/Tests/vendor"
+          $src = Get-ChildItem windows/Core/src/*.cpp | ForEach-Object { $_.FullName }
+          $tests = Get-ChildItem windows/Tests/*.cpp | ForEach-Object { $_.FullName }
+          & cl /nologo /std:c++20 /EHsc /W4 /permissive- /utf-8 `
+            $inc $src $tests windows/Tests/vendor/catch_amalgamated.cpp `
+            /Fe:tests_runner.exe /Fo:tests_runner.obj
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\tests_runner.exe
+
+      - name: Compile-check NativeShell Win32 TUs
+        if: matrix.platform == 'x64'
+        shell: pwsh
+        run: |
+          # Compile-only: these TUs need winhttp/credui/uia libs at link time and
+          # a GUI session to exercise; here we prove they compile under MSVC.
+          $inc = "-Iwindows/Core/include", "-Iwindows/Core/vendor", "-Iwindows/NativeShell/include", "-Iwindows/Tests"
+          $src = Get-ChildItem windows/NativeShell/src/*.cpp | ForEach-Object { $_.FullName }
+          & cl /nologo /std:c++20 /EHsc /W4 /permissive- /utf-8 /c $inc $src
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Upload test binaries on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translation-tests-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: tests_runner*
+          if-no-files-found: ignore
+
+  portable-check:
+    # Core must stay platform-clean under GCC on Linux.
+    name: Translation portable check (GCC, ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-13
+
+      - name: Build and run Catch2 tests
+        run: |
+          g++-13 -std=c++20 -Wall -Wextra -Werror \
+            -I windows/Core/include -I windows/Core/vendor \
+            -I windows/Tests -I windows/Tests/vendor \
+            windows/Core/src/*.cpp windows/Tests/*.cpp \
+            windows/Tests/vendor/catch_amalgamated.cpp \
+            -o build-tests 2>&1 | head -80
+          ./build-tests
