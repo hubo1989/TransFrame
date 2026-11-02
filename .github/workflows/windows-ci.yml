@@ -1,0 +1,64 @@
+name: windows-ci
+
+on:
+  push:
+    branches: [main, "hubo/**"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  pull_request:
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  native-shell-tests:
+    # Task B: capture shell. Portable policy core + (on Windows) Win32/D2D/WGC TUs.
+    name: NativeShell (MSVC ${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S windows/NativeShell -B windows/NativeShell/build -A ${{ matrix.platform }} -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+
+      - name: Build
+        run: cmake --build windows/NativeShell/build --config ${{ matrix.configuration }} --parallel
+
+      - name: Run Catch2 tests
+        working-directory: windows/NativeShell/build/${{ matrix.configuration }}
+        run: .\native_shell_tests.exe
+
+      - name: Upload test binaries on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nativeshell-tests-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: windows/NativeShell/build
+          if-no-files-found: ignore
+
+  portable-check:
+    # Prove the portable policy core stays platform-clean under GCC on Linux.
+    name: NativeShell portable check (GCC, ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-13 cmake
+
+      - name: Configure and build
+        run: |
+          cmake -S windows/NativeShell -B windows/NativeShell/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-13
+          cmake --build windows/NativeShell/build --parallel
+
+      - name: Run tests
+        working-directory: windows/NativeShell/build
+        run: ./native_shell_tests
