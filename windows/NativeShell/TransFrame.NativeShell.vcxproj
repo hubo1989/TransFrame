@@ -59,9 +59,6 @@
       <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
       <AdditionalOptions>/Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <Lib>
-      <AdditionalDependencies>dwmapi.lib;shcore.lib;dxgi.lib;d2d1.lib;dcomp.lib;d3d11.lib;windowsapp.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Lib>
   </ItemDefinitionGroup>
 
   <!-- Policy sources (portable): no pch, no Win32 includes. -->
