@@ -136,6 +136,9 @@
     <ClCompile Include="src\TranslationScheduler.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="src\VisualLineGrouping.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
