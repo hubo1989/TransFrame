@@ -58,7 +58,9 @@ WindowsOcrEngine::Recognizer MakeWinRtRecognizer() {
 
             Language lang = nullptr;
             for (const auto& tag : languageTags) {
-                lang = Language::CreateLanguage(winrt::to_hstring(tag));
+                // Language has no static factory; the ctor parses the BCP-47
+                // tag (throws on malformed input -> caught below).
+                lang = Language(winrt::to_hstring(tag));
                 if (OcrEngine::IsLanguageSupported(lang)) break;
                 lang = nullptr;
             }
@@ -83,7 +85,9 @@ WindowsOcrEngine::Recognizer MakeWinRtRecognizer() {
                 return ProviderError::content("Bitmap conversion failed");
             }
 
-            OcrResult result = engine.RecognizeAsync(bitmap).get();
+            // Qualify: an unqualified OcrResult resolves to tf::OcrResult
+            // (the Core model), which is not the WinRT projection type.
+            winrt::Windows::Media::Ocr::OcrResult result = engine.RecognizeAsync(bitmap).get();
             for (const auto& line : result.Lines()) {
                 WindowsOcrEngine::RawLine raw;
                 raw.text = winrt::to_string(line.Text());
