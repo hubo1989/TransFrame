@@ -32,6 +32,9 @@ jobs:
         run: msbuild TransFrame.sln /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
 
       - name: Run Catch2 tests
+        # x64 runner cannot execute ARM64 binaries (no emulation on
+        # windows-latest); ARM64 leg proves compile+link only.
+        if: matrix.platform == 'x64'
         working-directory: windows/build/${{ matrix.platform }}/${{ matrix.configuration }}/TransFrame.Core.Tests
         run: .\TransFrame.Core.Tests.exe
 
