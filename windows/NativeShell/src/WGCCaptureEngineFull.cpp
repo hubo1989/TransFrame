@@ -22,7 +22,8 @@ struct MonitorItem {
     wgc::GraphicsCaptureItem item{nullptr};
     wgc::Direct3D11CaptureFramePool pool{nullptr};
     wgc::GraphicsCaptureSession session{nullptr};
-    wdx::Direct3D11CaptureFrame frame{};  // note: actual type below
+    // Direct3D11CaptureFrame lives in the Capture namespace, not DirectX.
+    wgc::Direct3D11CaptureFrame frame{nullptr};
 };
 
 winrt::Windows::Foundation::IInspectable getInspectable(IDXGIObject* obj) {

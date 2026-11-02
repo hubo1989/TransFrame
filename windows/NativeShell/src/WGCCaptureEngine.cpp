@@ -16,6 +16,7 @@
 
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.System.h>
+#include <winrt/Windows.Foundation.Metadata.h>
 
 namespace tf {
 namespace winrt = ::winrt;

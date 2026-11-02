@@ -238,7 +238,6 @@ struct SelectionOverlayController::Impl {
     void renderFrame() {
         if (!d2dContext || !d2dTargetBitmap) return;
         const PaintList pl = state.paintList();
-        const auto f = static_cast<float>(1.0f);
         d2dContext->BeginDraw();
         d2dContext->Clear();  // fully transparent; DComp keeps desktop visible
 
