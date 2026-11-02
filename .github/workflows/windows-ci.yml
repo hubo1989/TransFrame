@@ -32,6 +32,9 @@ jobs:
         run: cmake --build windows/NativeShell/build --config ${{ matrix.configuration }} --parallel
 
       - name: Run Catch2 tests
+        # x64 runner cannot execute ARM64 binaries (no emulation on
+        # windows-latest); ARM64 leg proves compile+link only.
+        if: matrix.platform == 'x64'
         working-directory: windows/NativeShell/build/${{ matrix.configuration }}
         run: .\native_shell_tests.exe
 
