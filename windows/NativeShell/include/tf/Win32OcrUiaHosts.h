@@ -34,6 +34,15 @@ PaddleOcrEngine::TempImageWriter MakeWin32TempImageWriter();
 /// (Swift PaddleOCRChecker.performFullCheck shape).
 PaddleOcrEngine::AvailabilityChecker MakeWin32AvailabilityChecker();
 
+/// UIA focused-element factory for Win32TextExtractorHost::focusedElement:
+/// per-call CoCreateInstance(CUIAutomation8) → IUIAutomation::GetFocusedElement,
+/// wrapped as IUiaElement (TextPattern GetSelection / ValuePattern
+/// editability / GetRuntimeId joined with '.'). Returns nullptr when UIA is
+/// unavailable (COM not initialized, no focused element). Stateless and
+/// thread-safe; assign once at composition:
+///   textHost->focusedElement = tf::MakeWin32UiaFocusedElement();
+std::function<UiaElementPtr()> MakeWin32UiaFocusedElement();
+
 /// UIA + clipboard + SendInput host for TextExtractor / InsertionService.
 /// - focusedElement: IUIAutomation::GetFocusedElement → TextPattern wrapper
 /// - clipboard: OpenClipboard/EmptyClipboard/SetClipboardData(CF_UNICODETEXT)

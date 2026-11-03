@@ -368,7 +368,7 @@ void runTextSelectionFlow(bool insertMode) {
     const tf::ExtractionOutcome extraction = extractor.captureSelectedText(insertMode);
     if (!extraction.selection) {
         tf::ResultWindowContent c;
-        c.translatedText = L"当前版本暂不支持划词取文本，已停止使用剪贴板以保护其内容";
+        c.translatedText = L"当前应用不支持划词";
         c.statusLine = L"划词失败";
         c.anchorPhysical = tf::Rect{200, 200, 400, 100};
         showResultOnMain(c);
@@ -590,6 +590,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.results = std::make_unique<tf::ResultWindowController>();
     g.ocr = tf::makeWindowsOcrEngine();
     g.textHost = std::make_unique<tf::Win32TextExtractorHost>();
+    // FR-28 UIA route: focused element → TextPattern.GetSelection.
+    // Clipboard fallback stays disabled (runTextSelectionFlow) to protect
+    // non-text clipboard formats, so UIA is the only extraction route.
+    g.textHost->focusedElement = tf::MakeWin32UiaFocusedElement();
 
     // Translation stack: WinHTTP transport + MTranServer (default engine).
     // Endpoint override: TRANSFRAME_MTRAN_URL=http://host:port.

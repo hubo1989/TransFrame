@@ -10,6 +10,12 @@
 
 #include <windows.h>
 
+// WIN32_LEAN_AND_MEAN (pch.h) omits the OLE headers; UIA client activation
+// needs CoCreateInstance plus the SafeArray/BSTR helpers explicitly.
+#include <objbase.h>
+#include <oleauto.h>
+#include <UIAutomation.h>
+
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Globalization.h>
@@ -259,9 +265,9 @@ PaddleOcrEngine::TempImageWriter MakeWin32TempImageWriter() {
 // Win32TextExtractorHost (UIA + clipboard + SendInput)
 // ===========================================================================
 struct Win32TextExtractorHost::Impl {
-    // IUIAutomation instance is created lazily; the header avoids pulling
-    // UIAutomation.h into Core. NativeShell owns the raw pointer.
-    void* automation = nullptr;
+    // Reserved. The IUIAutomation client is activated per focusedElement()
+    // call inside MakeWin32UiaFocusedElement below: stateless, so overlapping
+    // worker threads share nothing and a failed activation is never cached.
 };
 
 namespace {
@@ -333,6 +339,101 @@ bool RunClipboardOp(const std::function<bool()>& op) {
 }
 
 }  // namespace
+
+// ===========================================================================
+// UIA focused element (FR-28): TextPattern.GetSelection → IUiaElement
+// ===========================================================================
+namespace {
+
+/// IUiaElement over a live IUIAutomationElement. The instance owns a COM
+/// reference; the underlying provider runs in the target process, so every
+/// call is fallible — failures degrade to "pattern absent / empty identity"
+/// instead of throwing (Core maps that to the clipboard-disabled error path).
+class Win32UiaElement final : public IUiaElement {
+public:
+    explicit Win32UiaElement(Microsoft::WRL::ComPtr<IUIAutomationElement> element)
+        : element_(std::move(element)) {}
+
+    std::optional<std::string> getSelectionText() const override {
+        Microsoft::WRL::ComPtr<IUIAutomationTextPattern> textPattern;
+        if (FAILED(element_.As(&textPattern)) || !textPattern) return std::nullopt;
+        Microsoft::WRL::ComPtr<IUIAutomationTextRangeArray> ranges;
+        if (FAILED(textPattern->GetSelection(ranges.ReleaseAndGetAddressOf())) ||
+            !ranges) {
+            return std::nullopt;
+        }
+        int32_t count = 0;
+        if (FAILED(ranges->get_Length(&count)) || count <= 0) return std::nullopt;
+        Microsoft::WRL::ComPtr<IUIAutomationTextRange> range;
+        if (FAILED(ranges->GetElement(0, range.ReleaseAndGetAddressOf())) || !range) {
+            return std::nullopt;
+        }
+        // -1 = no truncation (caller's contract is the full selection).
+        BSTR raw = nullptr;
+        if (FAILED(range->GetText(-1, &raw)) || raw == nullptr) return std::nullopt;
+        std::string out = ToUtf8(
+            std::wstring(raw, static_cast<std::size_t>(::SysStringLen(raw))));
+        ::SysFreeString(raw);
+        return out;
+    }
+
+    bool isEditable() const override {
+        // "Editable" = ValuePattern present AND not read-only (mirrors the
+        // macOS AXWritable check feeding the paste-revalidation binding).
+        Microsoft::WRL::ComPtr<IUIAutomationValuePattern> valuePattern;
+        if (FAILED(element_.As(&valuePattern)) || !valuePattern) return false;
+        BOOL readOnly = TRUE;
+        return SUCCEEDED(valuePattern->get_CurrentIsReadOnly(&readOnly)) &&
+               readOnly == FALSE;
+    }
+
+    std::string runtimeId() const override {
+        SAFEARRAY* ids = nullptr;
+        std::string out;
+        if (FAILED(element_->GetRuntimeId(&ids)) || ids == nullptr) return out;
+        long lower = 0;
+        long upper = -1;
+        if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+            SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper))) {
+            for (long i = lower; i <= upper; ++i) {
+                LONG value = 0;
+                if (FAILED(SafeArrayGetElement(ids, &i, &value))) break;
+                if (i > lower) out += '.';
+                out += std::to_string(value);
+            }
+        }
+        SafeArrayDestroy(ids);
+        return out;
+    }
+
+private:
+    Microsoft::WRL::ComPtr<IUIAutomationElement> element_;
+};
+
+}  // namespace
+
+std::function<UiaElementPtr()> MakeWin32UiaFocusedElement() {
+    return []() -> UiaElementPtr {
+        // Per-call activation: CUIAutomation8 is in-proc (sub-ms after first
+        // load) and a fresh instance sidesteps apartment-lifetime assumptions
+        // on the transient worker threads that run the 划词 flows.
+        Microsoft::WRL::ComPtr<IUIAutomation> automation;
+        if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr,
+                                      CLSCTX_INPROC_SERVER,
+                                      __uuidof(IUIAutomation),
+                                      automation.ReleaseAndGetAddressOf())) ||
+            !automation) {
+            return nullptr;
+        }
+        Microsoft::WRL::ComPtr<IUIAutomationElement> focused;
+        if (FAILED(automation->GetFocusedElement(
+                focused.ReleaseAndGetAddressOf())) ||
+            !focused) {
+            return nullptr;
+        }
+        return std::make_unique<Win32UiaElement>(std::move(focused));
+    };
+}
 
 Win32TextExtractorHost::Win32TextExtractorHost() : impl_(new Impl) {}
 
