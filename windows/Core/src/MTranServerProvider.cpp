@@ -60,11 +60,15 @@ std::optional<MTranServerProvider::Configuration> MTranServerProvider::Configura
         portStr = host.substr(colon + 1);
         host = host.substr(0, colon);
         if (portStr.empty()) return std::nullopt;
+        int port = 0;
         for (char c : portStr) {
             if (!std::isdigit(static_cast<unsigned char>(c))) return std::nullopt;
+            const int digit = c - '0';
+            if (port > (65535 - digit) / 10) return std::nullopt;
+            port = port * 10 + digit;
         }
-        out.serverPort = std::stoi(portStr);
-        if (out.serverPort <= 0 || out.serverPort > 65535) return std::nullopt;
+        out.serverPort = port;
+        if (out.serverPort <= 0) return std::nullopt;
     }
     if (host.empty()) return std::nullopt;
     for (char c : host) {

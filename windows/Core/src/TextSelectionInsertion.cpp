@@ -134,7 +134,10 @@ InsertionOutcome InsertionService::insert(const InsertRequest& request, std::str
     // Paste window: save clipboard → set translated text → Ctrl+V → wait →
     // restore original clipboard (Swift PasteboardBackup flow).
     const auto backup = host_.backupClipboard();
-    host_.setClipboardText(request.translatedText);
+    if (host_.setClipboardText(request.translatedText) < 0) {
+        outError = "Failed to set clipboard text";
+        return InsertionOutcome::Failed;
+    }
     if (!host_.sendPasteShortcut()) {
         host_.restoreClipboard(backup);
         outError = "Failed to simulate Ctrl+V";

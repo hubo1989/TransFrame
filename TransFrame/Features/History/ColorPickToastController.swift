@@ -108,7 +108,8 @@ final class ColorPickToastController {
     }
 
     private func positionPanel(near anchor: CGRect) {
-        guard let panel, let screen = NSScreen.main else { return }
+        let point = CGPoint(x: anchor.midX, y: anchor.midY)
+        guard let panel, let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main else { return }
 
         let contentSize = hostingView?.frame.size ?? NSSize(width: 260, height: 44)
         // Place above the cursor (or at the anchor's top edge); flip below

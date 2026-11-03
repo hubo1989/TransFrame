@@ -54,6 +54,7 @@ TEST_CASE("mtran: configuration parsing rejects paths and bad hosts", "[mtran]")
     REQUIRE_FALSE(MTranServerProvider::Configuration::parse("http://host/path").has_value());
     REQUIRE_FALSE(MTranServerProvider::Configuration::parse("bad host!").has_value());
     REQUIRE_FALSE(MTranServerProvider::Configuration::parse("host:notaport").has_value());
+    REQUIRE_FALSE(MTranServerProvider::Configuration::parse("host:999999999999999999999").has_value());
 }
 
 TEST_CASE("mtran: 503 maps to network error", "[mtran]") {
@@ -195,10 +196,18 @@ TEST_CASE("llm: refuses API key over plain HTTP for non-localhost",
 TEST_CASE("llm: localhost keyless base keeps openai available", "[llm]") {
     EngineConfig cfg = EngineConfig::make(TranslationEngineType::OpenAI);
     cfg.baseURL = "http://localhost:1234/v1";
+    auto transport = std::make_shared<MockHttpTransport>();
+    transport->routes["http://127.0.0.1:1234/v1/chat/completions"] = {
+        200, R"({"choices":[{"message":{"content":"你好"}}]})"};
     LLMChatProvider provider(TranslationEngineType::OpenAI, cfg,
-                             std::make_shared<MockCredentialStore>(),
-                             std::make_shared<MockHttpTransport>());
+                             std::make_shared<MockCredentialStore>(), transport);
     REQUIRE(provider.isAvailable());
+    TranslateRequest req;
+    req.texts = {"hello"};
+    req.targetLanguage = "zh";
+    auto result = provider.translate(req);
+    REQUIRE(result.results.has_value());
+    REQUIRE(result.results->at(0).translatedText == "你好");
 }
 
 // ===========================================================================
@@ -371,6 +380,28 @@ TEST_CASE("baidu: 54003 → quota, 54004 → auth", "[baidu]") {
 // ===========================================================================
 // Compatible instances
 // ===========================================================================
+TEST_CASE("compatible: retries individual items when separators disappear", "[compatible]") {
+    auto transport = std::make_shared<MockHttpTransport>();
+    transport->routes["http://127.0.0.1:8000/v1/chat/completions"] = {
+        200, R"({"choices":[{"message":{"content":"译文"}}]})"};
+    CompatibleConfig config;
+    config.id = Uuid::random().toString();
+    config.baseURL = "http://localhost:8000/v1";
+    config.modelName = "test";
+    config.hasAPIKey = false;
+    CompatibleChatProvider provider(config, EngineConfig::make(TranslationEngineType::Custom),
+                                    std::make_shared<MockCredentialStore>(), transport);
+    TranslateRequest request;
+    request.texts = {"one", "two"};
+    request.targetLanguage = "zh";
+    auto outcome = provider.translate(request);
+    REQUIRE(outcome.results.has_value());
+    REQUIRE(outcome.results->size() == 2);
+    REQUIRE(outcome.results->at(0).sourceText == "one");
+    REQUIRE(outcome.results->at(1).sourceText == "two");
+    REQUIRE(transport->requests.size() == 3);
+}
+
 TEST_CASE("compatible: multi-instance identity and request shape", "[compatible]") {
     auto transport = std::make_shared<MockHttpTransport>();
     transport->routes["http://127.0.0.1:8000/v1/chat/completions"] = {

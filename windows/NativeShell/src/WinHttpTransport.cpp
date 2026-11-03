@@ -99,15 +99,18 @@ HttpOutcome WinHttpTransport::send(const HttpRequest& request) {
     const DWORD timeoutMs = static_cast<DWORD>(request.timeoutSeconds) * 1000;
     WinHttpSetTimeouts(hRequest, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
-    // Headers.
+    // Headers. Content-Type belongs in the block: WinHttpSendRequest takes
+    // the header string verbatim and strict servers reject JSON posts
+    // without the media type (400/415).
     std::wstring headerBlock;
+    if (const auto ct = request.headers.find("Content-Type");
+        ct != request.headers.end()) {
+        headerBlock += L"Content-Type: " + toWide(ct->second) + L"\r\n";
+    }
     for (const auto& [k, v] : request.headers) {
-        if (k == "Content-Type") continue;  // passed as the explicit type below
+        if (k == "Content-Type") continue;
         headerBlock += toWide(k + ": " + v) + L"\r\n";
     }
-    const std::wstring contentType =
-        request.headers.count("Content-Type") ? toWide(request.headers.at("Content-Type"))
-                                              : std::wstring(L"application/json");
 
     // Body as bytes.
     const void* bodyPtr = request.body.empty() ? WINHTTP_NO_REQUEST_DATA

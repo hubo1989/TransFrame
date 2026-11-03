@@ -68,6 +68,9 @@
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="UpdateService.cpp" />
     <ResourceCompile Include="App.rc" />
+    <!-- The static library cannot embed the manifest in the app EXE; merge
+         it here so physical-pixel coordinates remain PerMonitorV2. -->
+    <Manifest Include="..\NativeShell\app.manifest" />
   </ItemGroup>
 
   <ItemGroup>

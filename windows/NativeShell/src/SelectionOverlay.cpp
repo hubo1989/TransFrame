@@ -22,6 +22,7 @@
 #include "tf/OverlayRenderer.hpp"
 #include "tf/WindowDetector.hpp"
 
+#include <algorithm>
 #include <d2d1_1.h>
 #include <dcomp.h>
 #include <d3d11.h>
@@ -70,7 +71,12 @@ struct SelectionOverlayController::Impl {
     LRESULT handleMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         switch (msg) {
             case WM_MOUSEMOVE: {
-                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                // Mouse messages carry client coordinates; the overlay spans
+                // the virtual desktop, so with any display left of/above the
+                // origin the client origin differs from the screen origin.
+                // State and the window detector both work in screen coords.
+                ::ClientToScreen(h, &pt);
                 state.moveTracking({pt.x, pt.y});
                 // FR-02: hover highlight while idle (drag clears it in
                 // OverlayState::moveTracking via dragEngaged_).
@@ -85,7 +91,8 @@ struct SelectionOverlayController::Impl {
                 return 0;
             }
             case WM_LBUTTONDOWN: {
-                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                ::ClientToScreen(h, &pt);  // tracking + detector use screen coords
                 if (windowDetector) windowDetector->refreshSnapshot();  // cache at mouse-down
                 state.beginTracking({pt.x, pt.y});
                 renderFrame();
@@ -236,8 +243,7 @@ struct SelectionOverlayController::Impl {
         const int y = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
         const int w = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
         const int h = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-        ::SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                       SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        ::SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
         state.setDesktop(Rect{x, y, w, h});
         DXGI_SWAP_CHAIN_DESC1 desc{};
         swapChain->GetDesc1(&desc);
@@ -255,13 +261,35 @@ struct SelectionOverlayController::Impl {
         const PaintList pl = state.paintList();
         d2dContext->BeginDraw();
         d2dContext->Clear();  // fully transparent; DComp keeps desktop visible
+        // PaintList coordinates are virtual-screen coordinates; the swap
+        // chain starts at the virtual desktop's upper-left corner.
+        d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(
+            -static_cast<float>(pl.desktop.x), -static_cast<float>(pl.desktop.y)));
 
         // 1) 40% dim over the whole desktop.
         ComPtr<ID2D1SolidColorBrush> dimBrush;
         d2dContext->CreateSolidColorBrush(
             D2D1::ColorF(0.f, 0.f, 0.f, state.visuals().dimAlpha), dimBrush.GetAddressOf());
         const auto dr = toD2D(pl.dimRegion);
-        d2dContext->FillRectangle(&dr, dimBrush.Get());
+        if (pl.punchThrough) {
+            const auto raw = toD2D(*pl.punchThrough);
+            const D2D1_RECT_F sel{std::clamp(raw.left, dr.left, dr.right),
+                                  std::clamp(raw.top, dr.top, dr.bottom),
+                                  std::clamp(raw.right, dr.left, dr.right),
+                                  std::clamp(raw.bottom, dr.top, dr.bottom)};
+            const D2D1_RECT_F areas[] = {
+                {dr.left, dr.top, dr.right, sel.top},
+                {dr.left, sel.bottom, dr.right, dr.bottom},
+                {dr.left, sel.top, sel.left, sel.bottom},
+                {sel.right, sel.top, dr.right, sel.bottom}
+            };
+            for (const auto& area : areas) {
+                if (area.left < area.right && area.top < area.bottom)
+                    d2dContext->FillRectangle(&area, dimBrush.Get());
+            }
+        } else {
+            d2dContext->FillRectangle(&dr, dimBrush.Get());
+        }
 
         const auto accent = D2D1::ColorF(state.visuals().accentR,
                                          state.visuals().accentG,
@@ -269,10 +297,7 @@ struct SelectionOverlayController::Impl {
 
         // 2) selection punch-through + 1px stroke + badge.
         if (pl.punchThrough) {
-            // Undim: clear the selection area to transparent.
             const auto sel = toD2D(*pl.punchThrough);
-            d2dContext->PushAxisAlignedClip(&sel, D2D1_ANTIALIAS_MODE_ALIASED);
-            // (Clear is clipped: selection becomes un-dimmed.)
             // 1px stroke.
             ComPtr<ID2D1SolidColorBrush> stroke;
             d2dContext->CreateSolidColorBrush(accent, stroke.GetAddressOf());
@@ -281,7 +306,6 @@ struct SelectionOverlayController::Impl {
             const D2D1_RECT_F outline{sel.left + onePx / 2, sel.top + onePx / 2,
                                       sel.right - onePx / 2, sel.bottom - onePx / 2};
             d2dContext->DrawRectangle(&outline, stroke.Get(), onePx);
-            d2dContext->PopAxisAlignedClip();
         }
 
         // 3) hovered-window highlight: tint fill + 1px stroke (FR-02).
@@ -304,8 +328,8 @@ struct SelectionOverlayController::Impl {
                                               white.GetAddressOf());
             const float cx = static_cast<float>(pl.crosshairAt.x);
             const float cy = static_cast<float>(pl.crosshairAt.y);
-            D2D1_POINT_2F h0{0.f, cy}, h1{static_cast<float>(pl.desktop.right()), cy};
-            D2D1_POINT_2F v0{cx, 0.f}, v1{cx, static_cast<float>(pl.desktop.bottom())};
+            D2D1_POINT_2F h0{static_cast<float>(pl.desktop.x), cy}, h1{static_cast<float>(pl.desktop.right()), cy};
+            D2D1_POINT_2F v0{cx, static_cast<float>(pl.desktop.y)}, v1{cx, static_cast<float>(pl.desktop.bottom())};
             d2dContext->DrawLine(h0, h1, white.Get(), 1.f);
             d2dContext->DrawLine(v0, v1, white.Get(), 1.f);
         }

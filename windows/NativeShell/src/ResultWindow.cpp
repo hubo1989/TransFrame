@@ -109,18 +109,23 @@ struct ResultWindowController::Impl {
                 ::EndPaint(h, &ps);
                 return 0;
             }
-            case WM_LBUTTONDOWN:
-            case WM_NCLBUTTONDOWN: {
+            case WM_LBUTTONDOWN: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 // Buttons swallow the press (no drag from a button).
                 if (::PtInRect(&layout.copyBtn, pt) || ::PtInRect(&layout.closeBtn, pt)) {
                     return 0;
                 }
-                // Drag anywhere else on the popup (no caption).
+                // Drag anywhere else on the popup (no caption). Re-post as a
+                // non-client caption click; DefWindowProc runs the move loop.
                 ::ReleaseCapture();
                 ::SendMessageW(h, WM_NCLBUTTONDOWN, HTCAPTION, 0);
                 return 0;
             }
+            case WM_NCLBUTTONDOWN:
+                // The synthetic caption click above re-enters here; handling
+                // it in the WM_LBUTTONDOWN branch recursed forever (stack
+                // overflow). Let DefWindowProc start the drag loop.
+                break;
             case WM_LBUTTONUP: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 if (::PtInRect(&layout.copyBtn, pt)) {

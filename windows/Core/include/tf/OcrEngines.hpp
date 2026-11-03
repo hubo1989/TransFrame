@@ -134,8 +134,31 @@ public:
     /// probe (Swift PaddleOCRChecker.performFullCheck).
     using AvailabilityChecker = std::function<bool(const std::string& executablePath)>;
 
+    /// A temporary image file materialized on disk for the child process.
+    /// dispose() deletes the file; it is idempotent (safe to call twice) and
+    /// a no-op when empty (Swift: `defer { try? FileManager.removeItem }`).
+    struct TempImage {
+        std::string path;               // path embedded in argv after `-i`
+        std::function<void()> dispose;  // deletes the temp file, best-effort
+    };
+
+    /// Temp-image seam: encodes the OcrImage pixels into a uniquely named
+    /// temporary file and reports its path + cleanup. argv never carries
+    /// raw pixels — recognize() routes the real path through this seam
+    /// (Swift saveImageToTempFile). Tests substitute scratch-dir writers.
+    using TempImageWriter = std::function<std::optional<ProviderError>(
+        const OcrImage& image, TempImage& out)>;
+
+    /// Portable 24-bit BMP temp-image writer (OpenCV — hence the PaddleOCR
+    /// CLI — reads BMP natively, so no WIC/PNG dependency leaves a
+    /// Windows-only, host-untestable code path). Exclusive-create unique
+    /// names; tempDir empty → system temp dir. Used as the default writer
+    /// and by the unit tests.
+    static TempImageWriter makeBmpTempImageWriter(const std::string& tempDir = {});
+
     PaddleOcrEngine(Configuration config, ProcessRunner runner,
-                    AvailabilityChecker availability);
+                    AvailabilityChecker availability,
+                    TempImageWriter tempImageWriter = {});
 
     std::string id() const override { return "paddleocr"; }
     std::string name() const override { return "PaddleOCR"; }
@@ -173,6 +196,7 @@ private:
     Configuration config_;
     ProcessRunner runner_;
     AvailabilityChecker availability_;
+    TempImageWriter tempWriter_;
 };
 
 // ---------------------------------------------------------------------------

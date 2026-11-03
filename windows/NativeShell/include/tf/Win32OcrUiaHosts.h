@@ -24,6 +24,12 @@ WindowsOcrEngine::Recognizer MakeWinRtRecognizer();
 /// stdout/stderr; hard timeout kill).
 PaddleOcrEngine::ProcessRunner MakeWin32ProcessRunner();
 
+/// Temp-image writer for PaddleOCR: GetTempPathA base dir + Core's portable
+/// BMP writer (exclusive-create unique names; recognize() deletes the file
+/// on every exit path). ANSI paths, matching the CreateProcessA runner
+/// above.
+PaddleOcrEngine::TempImageWriter MakeWin32TempImageWriter();
+
 /// Filesystem availability probe: executable exists + `--version` exit 0
 /// (Swift PaddleOCRChecker.performFullCheck shape).
 PaddleOcrEngine::AvailabilityChecker MakeWin32AvailabilityChecker();

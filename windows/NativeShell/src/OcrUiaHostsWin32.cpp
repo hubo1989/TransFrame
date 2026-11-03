@@ -244,6 +244,17 @@ PaddleOcrEngine::AvailabilityChecker MakeWin32AvailabilityChecker() {
     };
 }
 
+PaddleOcrEngine::TempImageWriter MakeWin32TempImageWriter() {
+    // GetTempPathA (ANSI, trailing separator) keeps the writer on the same
+    // path-encoding convention as the CreateProcessA runner; the BMP
+    // encoding + exclusive-create naming + cleanup contract live in Core
+    // (PaddleOcrEngine::makeBmpTempImageWriter) and are host-testable there.
+    char tempDir[MAX_PATH];
+    const DWORD len = GetTempPathA(static_cast<DWORD>(sizeof(tempDir)), tempDir);
+    if (len == 0 || len >= sizeof(tempDir)) tempDir[0] = '\0';  // → Core default dir
+    return PaddleOcrEngine::makeBmpTempImageWriter(std::string(tempDir));
+}
+
 // ===========================================================================
 // Win32TextExtractorHost (UIA + clipboard + SendInput)
 // ===========================================================================

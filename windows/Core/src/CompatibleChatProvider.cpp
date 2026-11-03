@@ -131,11 +131,17 @@ TranslationOutcome CompatibleChatProvider::translate(const TranslateRequest& req
                                  request.targetLanguage);
             }
         } else {
-            // Single text (or split failure): the combined text maps to the
-            // whole response (Swift translateSingleBatch fallback).
-            all.emplace_back(combined, translated,
-                             request.sourceLanguage.empty() ? "Auto" : request.sourceLanguage,
-                             request.targetLanguage);
+            // A missing separator makes the batch ambiguous; retry each item
+            // independently so results remain aligned with their inputs.
+            for (const auto& text : batch) {
+                auto single = callApi(buildPrompt(text, request.sourceLanguage,
+                                                  request.targetLanguage, request.promptTemplate),
+                                      creds ? &*creds : nullptr, request.cancelToken);
+                if (!single.isOk()) return TranslationOutcome::fail(single.error);
+                all.emplace_back(text, trimCopy(single.value),
+                                 request.sourceLanguage.empty() ? "Auto" : request.sourceLanguage,
+                                 request.targetLanguage);
+            }
         }
     }
     return TranslationOutcome::ok(std::move(all));

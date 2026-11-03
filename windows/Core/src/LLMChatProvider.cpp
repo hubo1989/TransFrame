@@ -134,8 +134,13 @@ TranslationOutcome LLMChatProvider::translate(const TranslateRequest& request) {
 
     std::optional<StoredCredentials> creds;
     if (translationEngineRequiresApiKey(engine_) && engine_ != TranslationEngineType::Ollama) {
-        creds = credentials_->load(credentialAccount(engine_));
-        if (!creds.has_value()) {
+        if (credentials_) creds = credentials_->load(credentialAccount(engine_));
+        // Local OpenAI-compatible servers may intentionally run without a
+        // key; keep translate() consistent with isAvailable().
+        const auto parsed = config_.baseURL.empty() ? std::nullopt : parseUrl(config_.baseURL);
+        const bool keylessLocal = engine_ == TranslationEngineType::OpenAI &&
+                                  parsed && isLocalhostHost(parsed->host);
+        if (!creds.has_value() && !keylessLocal) {
             return TranslationOutcome::fail(ProviderError::configuration(
                 "API key required for " + std::string(translationEngineRaw(engine_))));
         }

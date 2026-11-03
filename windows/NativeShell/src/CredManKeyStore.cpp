@@ -52,10 +52,9 @@ void CredManKeyStore::save(const std::string& account, const StoredCredentials& 
     const std::string blob = j.dump();
 
     const std::wstring target = targetFor(account);
-    // Replace semantics: delete-then-write (CredWrite fails on existing
-    // unless CRED_PERSIST is updated via CredWrite with same type).
-    CredDeleteW(target.c_str(), CRED_TYPE_GENERIC, 0);
-
+    // CredWriteW on an existing generic credential replaces the blob in
+    // place — write directly. Delete-first would lose the previous working
+    // credential whenever the subsequent write fails (policy, size, transient).
     CREDENTIALW cred{};
     cred.Type = CRED_TYPE_GENERIC;
     cred.TargetName = const_cast<LPWSTR>(target.c_str());

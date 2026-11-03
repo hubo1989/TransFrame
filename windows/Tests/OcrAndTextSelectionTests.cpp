@@ -7,6 +7,14 @@
 #include "tf/VisualLineGrouping.hpp"
 #include "catch_amalgamated.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
 using namespace tf;
 using namespace tf::tests;
 
@@ -205,6 +213,317 @@ TEST_CASE("paddle: health cache TTL", "[ocr][paddle]") {
     REQUIRE_FALSE(cache.cached("paddleocr", 6.5).has_value());  // stale
     cache.invalidateAll();
     REQUIRE_FALSE(cache.cached("paddleocr", 6.6).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// PaddleOcrEngine temp-image lifecycle: recognize() must materialize the
+// pixels into a uniquely named real file (never the "<image>" placeholder),
+// hand its path to the runner, and delete it on every exit path.
+// ---------------------------------------------------------------------------
+namespace {
+
+/// Per-run scratch directory: temp-file tests never touch the shared system
+/// temp dir and always clean up after themselves.
+class TempScratchDir {
+public:
+    TempScratchDir() {
+        static std::atomic<unsigned> counter{0};
+        std::error_code ec;
+        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        path_ = std::filesystem::temp_directory_path(ec) /
+                ("tf-paddle-ocr-test-" + std::to_string(now) + "-" +
+                 std::to_string(counter.fetch_add(1)));
+        std::filesystem::remove_all(path_, ec);
+        std::filesystem::create_directories(path_, ec);
+    }
+    ~TempScratchDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+    }
+    TempScratchDir(const TempScratchDir&) = delete;
+    TempScratchDir& operator=(const TempScratchDir&) = delete;
+    const std::filesystem::path& path() const { return path_; }
+
+private:
+    std::filesystem::path path_;
+};
+
+/// w×h image whose pixel at (x, y) encodes as B=x, G=y, R=x+y, A=255 —
+/// deterministic bytes for BMP round-trip assertions.
+OcrImage makePatternImage(std::int64_t w, std::int64_t h) {
+    OcrImage image;
+    image.width = w;
+    image.height = h;
+    image.bgra.assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4, '\0');
+    for (std::int64_t y = 0; y < h; ++y) {
+        for (std::int64_t x = 0; x < w; ++x) {
+            const std::size_t at =
+                (static_cast<std::size_t>(y) * static_cast<std::size_t>(w) +
+                 static_cast<std::size_t>(x)) * 4;
+            image.bgra[at + 0] = static_cast<char>(x);
+            image.bgra[at + 1] = static_cast<char>(y);
+            image.bgra[at + 2] = static_cast<char>(x + y);
+            image.bgra[at + 3] = '\xff';
+        }
+    }
+    return image;
+}
+
+PaddleOcrEngine::Configuration paddleConfig() {
+    PaddleOcrEngine::Configuration cfg;
+    cfg.mode = PaddleOcrEngine::Mode::Fast;
+    cfg.executablePath = "paddleocr";
+    return cfg;
+}
+
+/// Image path handed to the child: the argv element right after "-i".
+std::string imagePathFromArgs(const std::vector<std::string>& args) {
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] == "-i") return args[i + 1];
+    }
+    return {};
+}
+
+std::uint32_t le32(const std::string& b, std::size_t at) {
+    return static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[at])) |
+           (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[at + 1])) << 8) |
+           (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[at + 2])) << 16) |
+           (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[at + 3])) << 24);
+}
+
+std::uint16_t le16(const std::string& b, std::size_t at) {
+    return static_cast<std::uint16_t>(static_cast<std::uint8_t>(b[at]) |
+                                      (static_cast<std::uint8_t>(b[at + 1]) << 8));
+}
+
+}  // namespace
+
+TEST_CASE("paddle: recognize writes a real temp image and cleans it up",
+          "[ocr][paddle]") {
+    TempScratchDir scratch;
+    std::string pathDuringRun;
+    bool fileExistedDuringRun = false;
+    std::string bytesDuringRun;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>& args, int,
+            std::string& outStdout, std::string&) -> std::optional<ProviderError> {
+            pathDuringRun = imagePathFromArgs(args);
+            std::error_code ec;
+            fileExistedDuringRun = std::filesystem::exists(pathDuringRun, ec);
+            std::ifstream in(pathDuringRun, std::ios::binary);
+            bytesDuringRun.assign(std::istreambuf_iterator<char>(in),
+                                  std::istreambuf_iterator<char>());
+            outStdout =
+                R"({"res":{"rec_texts":["ok"],"rec_scores":[0.9],"rec_boxes":[[0,0,10,10]]}})";
+            return std::nullopt;
+        },
+        [](const std::string&) { return true; },
+        PaddleOcrEngine::makeBmpTempImageWriter(scratch.path().string()));
+
+    const auto outcome = engine.recognize(makePatternImage(4, 3));
+    REQUIRE(outcome.isOk());
+    REQUIRE(outcome.value.observations.size() == 1);
+    REQUIRE(outcome.value.observations[0].text == "ok");
+
+    // The placeholder is gone from argv; a real BMP existed while the child
+    // ran and is deleted once recognize() returns.
+    REQUIRE(pathDuringRun != "<image>");
+    REQUIRE(pathDuringRun.rfind(".bmp") == pathDuringRun.size() - 4);
+    REQUIRE(fileExistedDuringRun);
+    REQUIRE(bytesDuringRun.size() >= 54);
+    REQUIRE(bytesDuringRun[0] == 'B');
+    REQUIRE(bytesDuringRun[1] == 'M');
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(pathDuringRun, ec));
+}
+
+TEST_CASE("paddle: temp image deleted when the process fails", "[ocr][paddle]") {
+    TempScratchDir scratch;
+    std::string pathDuringRun;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>& args, int, std::string&,
+            std::string&) -> std::optional<ProviderError> {
+            pathDuringRun = imagePathFromArgs(args);
+            return ProviderError::network("PaddleOCR timed out");
+        },
+        [](const std::string&) { return true; },
+        PaddleOcrEngine::makeBmpTempImageWriter(scratch.path().string()));
+
+    const auto outcome = engine.recognize(makePatternImage(2, 2));
+    REQUIRE_FALSE(outcome.isOk());
+    REQUIRE(outcome.error.message == "PaddleOCR timed out");
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(pathDuringRun, ec));
+}
+
+TEST_CASE("paddle: temp image deleted when output has no JSON", "[ocr][paddle]") {
+    TempScratchDir scratch;
+    std::string pathDuringRun;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>& args, int, std::string&,
+            std::string&) -> std::optional<ProviderError> {
+            pathDuringRun = imagePathFromArgs(args);
+            return std::nullopt;  // process fine, output empty
+        },
+        [](const std::string&) { return true; },
+        PaddleOcrEngine::makeBmpTempImageWriter(scratch.path().string()));
+
+    const auto outcome = engine.recognize(makePatternImage(2, 2));
+    REQUIRE_FALSE(outcome.isOk());
+    REQUIRE(outcome.error.message.find("no JSON") != std::string::npos);
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(pathDuringRun, ec));
+}
+
+TEST_CASE("paddle: temp image paths are unique across runs", "[ocr][paddle]") {
+    TempScratchDir scratch;
+    const auto writer = PaddleOcrEngine::makeBmpTempImageWriter(scratch.path().string());
+    std::vector<std::string> paths;
+    bool firstFileGoneBeforeSecondRun = false;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>& args, int,
+            std::string& outStdout, std::string&) -> std::optional<ProviderError> {
+            paths.push_back(imagePathFromArgs(args));
+            if (paths.size() == 2) {
+                std::error_code ec;
+                firstFileGoneBeforeSecondRun =
+                    !std::filesystem::exists(paths.front(), ec);
+            }
+            outStdout = R"({"res":{"rec_texts":["a"],"rec_scores":[0.9],"rec_boxes":[]}})";
+            return std::nullopt;
+        },
+        [](const std::string&) { return true; }, writer);
+
+    REQUIRE(engine.recognize(makePatternImage(2, 2)).isOk());
+    REQUIRE(engine.recognize(makePatternImage(2, 2)).isOk());
+    REQUIRE(paths.size() == 2);
+    REQUIRE(paths[0] != paths[1]);
+    REQUIRE(firstFileGoneBeforeSecondRun);
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(paths[0], ec));
+    REQUIRE_FALSE(std::filesystem::exists(paths[1], ec));
+}
+
+TEST_CASE("paddle: writer failure propagates without spawning the process",
+          "[ocr][paddle]") {
+    bool runnerCalled = false;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>&, int, std::string&,
+            std::string&) -> std::optional<ProviderError> {
+            runnerCalled = true;
+            return std::nullopt;
+        },
+        [](const std::string&) { return true; },
+        [](const OcrImage&, PaddleOcrEngine::TempImage&) -> std::optional<ProviderError> {
+            return ProviderError::content("disk full");
+        });
+
+    const auto outcome = engine.recognize(makePatternImage(2, 2));
+    REQUIRE_FALSE(outcome.isOk());
+    REQUIRE(outcome.error.message == "disk full");
+    REQUIRE_FALSE(runnerCalled);
+}
+
+TEST_CASE("paddle: truncated pixel buffer rejected before writer runs",
+          "[ocr][paddle]") {
+    bool runnerCalled = false;
+    bool writerCalled = false;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>&, int, std::string&,
+            std::string&) -> std::optional<ProviderError> {
+            runnerCalled = true;
+            return std::nullopt;
+        },
+        [](const std::string&) { return true; },
+        [&](const OcrImage&, PaddleOcrEngine::TempImage&) -> std::optional<ProviderError> {
+            writerCalled = true;
+            return std::nullopt;
+        });
+
+    OcrImage truncated;
+    truncated.width = 4;
+    truncated.height = 4;
+    truncated.bgra.assign(10, '\0');  // < 4*4*4
+    const auto outcome = engine.recognize(truncated);
+    REQUIRE_FALSE(outcome.isOk());
+    REQUIRE(outcome.error.message.find("width*height*4") != std::string::npos);
+    REQUIRE_FALSE(writerCalled);
+    REQUIRE_FALSE(runnerCalled);
+}
+
+TEST_CASE("paddle: BMP temp file is a well-formed 24-bit bitmap", "[ocr][paddle]") {
+    TempScratchDir scratch;
+    PaddleOcrEngine::TempImage temp;
+    const auto image = makePatternImage(3, 2);  // rows of 9 bytes pad to 12
+    REQUIRE_FALSE(PaddleOcrEngine::makeBmpTempImageWriter(scratch.path().string())(
+        image, temp));
+    REQUIRE(std::filesystem::path(temp.path).parent_path() == scratch.path());
+
+    std::ifstream in(temp.path, std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(in),
+                            std::istreambuf_iterator<char>()};
+    in.close();  // Windows: an open handle blocks deletion
+    temp.dispose();
+    temp.dispose();  // idempotent
+
+    REQUIRE(bytes.size() == 54 + 12 * 2);
+    REQUIRE(bytes[0] == 'B');
+    REQUIRE(bytes[1] == 'M');
+    REQUIRE(le32(bytes, 2) == bytes.size());       // file size field
+    REQUIRE(le32(bytes, 10) == 54);                // pixel data offset
+    REQUIRE(le32(bytes, 14) == 40);                // BITMAPINFOHEADER
+    REQUIRE(le32(bytes, 18) == 3);                 // width
+    REQUIRE(le32(bytes, 22) == 2);                 // height (positive → bottom-up)
+    REQUIRE(le16(bytes, 26) == 1);                 // planes
+    REQUIRE(le16(bytes, 28) == 24);                // bits per pixel
+    REQUIRE(le32(bytes, 30) == 0);                 // BI_RGB
+    REQUIRE(le32(bytes, 34) == 24);                // pixel byte count
+    // Row 0 in the file is the BOTTOM image row (y=1): B=x, G=1, R=x+1.
+    const std::size_t row0 = 54;
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 0]) == 0);      // (0,1) B
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 1]) == 1);      // (0,1) G
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 2]) == 1);      // (0,1) R
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 3]) == 1);      // (1,1) B
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 5]) == 2);      // (1,1) R
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 6]) == 2);      // (2,1) B
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 8]) == 3);      // (2,1) R
+    REQUIRE(static_cast<std::uint8_t>(bytes[row0 + 9]) == 0);      // pad byte
+    // Second file row is the TOP image row (y=0).
+    const std::size_t row1 = row0 + 12;
+    REQUIRE(static_cast<std::uint8_t>(bytes[row1 + 1]) == 0);      // (0,0) G
+    REQUIRE(static_cast<std::uint8_t>(bytes[row1 + 3]) == 1);      // (1,0) B
+    REQUIRE(static_cast<std::uint8_t>(bytes[row1 + 5]) == 1);      // (1,0) R
+
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(temp.path, ec));
+}
+
+TEST_CASE("paddle: default writer engages when none is passed", "[ocr][paddle]") {
+    // Existing 3-arg construction sites keep compiling and get the portable
+    // default writer (system temp dir).
+    std::string pathDuringRun;
+    PaddleOcrEngine engine(
+        paddleConfig(),
+        [&](const std::string&, const std::vector<std::string>& args, int,
+            std::string& outStdout, std::string&) -> std::optional<ProviderError> {
+            pathDuringRun = imagePathFromArgs(args);
+            std::error_code ec;
+            REQUIRE(std::filesystem::exists(pathDuringRun, ec));
+            outStdout = R"({"res":{"rec_texts":["a"],"rec_scores":[0.9],"rec_boxes":[]}})";
+            return std::nullopt;
+        },
+        [](const std::string&) { return true; });
+
+    REQUIRE(engine.recognize(makePatternImage(2, 2)).isOk());
+    REQUIRE(pathDuringRun != "<image>");
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(pathDuringRun, ec));
 }
 
 // ===========================================================================
@@ -429,6 +748,7 @@ public:
     int pasteCalls = 0;
     bool failCopy = false;
     bool failPaste = false;
+    bool failSetClipboard = false;
 
     ClipboardBackup backupClipboard() override {
         ClipboardBackup b;
@@ -445,6 +765,7 @@ public:
         sequence += 1;
     }
     std::int64_t setClipboardText(const std::string& text) override {
+        if (failSetClipboard) return -1;
         clipboardTextValue = text;
         clipboardHistory.push_back(text);
         sequence += 1;
@@ -563,6 +884,22 @@ TEST_CASE("insertion: valid target pastes translated text then restores",
     REQUIRE(host.clipboardHistory.front() == "你好");
     // Clipboard restored after the paste window.
     REQUIRE(host.clipboardTextValue == "user's clipboard");
+}
+
+TEST_CASE("insertion: clipboard write failure never pastes", "[insertion]") {
+    MockHost host;
+    host.uiaSelection = "hello";
+    host.failSetClipboard = true;
+    host.clipboardTextValue = "old clipboard";
+    InsertRequest request;
+    request.translatedText = "translated";
+    request.capturedSelection.text = "hello";
+    request.capturedSelection.sourceProcessId = 4242;
+    request.capturedSelection.insertionTargetId = "rt-1";
+    std::string error;
+    REQUIRE(InsertionService(host).insert(request, error) == InsertionOutcome::Failed);
+    REQUIRE(host.pasteCalls == 0);
+    REQUIRE(host.clipboardTextValue == "old clipboard");
 }
 
 TEST_CASE("insertion: selection changed → abort, never paste", "[insertion]") {

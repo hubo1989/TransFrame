@@ -29,6 +29,7 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -91,19 +92,14 @@ struct AppState {
     std::unique_ptr<tf::Win32TextExtractorHost> textHost;
 
     std::atomic<bool> pipelineBusy{false};
-    // Watchdog anchor (steady-clock ms) for when pipelineBusy was armed. If
-    // a worker dies inside a system call (unresponsive clipboard owner etc.)
-    // and never clears the flag, dispatch re-arms after kPipelineStuckSeconds
-    // so hotkeys stay usable instead of locking up forever.
-    std::atomic<std::int64_t> pipelineBusySinceMs{0};
-    // Generation token paired with pipelineBusy: re-arming over a (possibly
-    // still-alive) stuck worker bumps the generation, so the old worker's
-    // finish no longer clears the new pipeline's busy flag, and a healthy
-    // but slow worker cannot be double-entered while it still runs.
     std::atomic<std::uint64_t> pipelineGeneration{0};
-};
+    tf::CancellationToken shutdownToken;
 
-constexpr int kPipelineStuckSeconds = 15;
+    // Pipeline workers, kept joinable: teardown waits for in-flight
+    // OCR/HTTP instead of the CRT reaping detached threads mid-call.
+    std::mutex workersMutex;
+    std::vector<std::thread> workers;
+};
 
 AppState g;
 
@@ -160,6 +156,7 @@ std::string translateTexts(const std::vector<std::string>& texts) {
     req.sourceLanguage = "";  // auto-detect (MTranServer default)
     req.targetLanguage = toUtf8(g_targetLang);
     req.scene = tf::TranslationScene::Screenshot;
+    req.cancelToken = g.shutdownToken;
 
     const tf::SchedulerOutcome out = g.scheduler->translateOrdered(req);
     if (out.isSuccess()) {
@@ -285,10 +282,13 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t g
         // Anchor the popup to the captured region (not the whole display).
         cap.screenshot.sourceDisplay.framePhysical = result.regionPhysical;
     }
-    std::thread([cap = std::move(cap), gen]() mutable {
-        runScreenshotPipeline(cap);
-        finishPipeline(gen);
-    }).detach();
+    {
+        std::lock_guard<std::mutex> lock(g.workersMutex);
+        g.workers.emplace_back([cap = std::move(cap), gen]() mutable {
+            runScreenshotPipeline(cap);
+            finishPipeline(gen);
+        });
+    }
 }
 
 /// Full-screen flow entry: primary display capture -> pipeline.
@@ -305,10 +305,13 @@ void onFullScreen(std::uint64_t gen) {
     }
     tf::CaptureResult cap =
         g.capture->captureDisplay(*primary, tf::CaptureTrigger::HotkeyFullScreen);
-    std::thread([cap = std::move(cap), gen]() mutable {
-        runScreenshotPipeline(cap);
-        finishPipeline(gen);
-    }).detach();
+    {
+        std::lock_guard<std::mutex> lock(g.workersMutex);
+        g.workers.emplace_back([cap = std::move(cap), gen]() mutable {
+            runScreenshotPipeline(cap);
+            finishPipeline(gen);
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -346,12 +349,14 @@ void runTextSelectionFlow(bool insertMode) {
         }
     }
 
-    tf::TextExtractor extractor(*g.textHost, /*allowClipboardFallback=*/true);
+    // The current Windows host cannot preserve non-text clipboard formats.
+    // Disable the fallback until a lossless snapshot and restore is available.
+    tf::TextExtractor extractor(*g.textHost, /*allowClipboardFallback=*/false);
 
     const tf::ExtractionOutcome extraction = extractor.captureSelectedText(insertMode);
     if (!extraction.selection) {
         tf::ResultWindowContent c;
-        c.translatedText = L"未获取到选中文本";
+        c.translatedText = L"当前版本暂不支持划词取文本，已停止使用剪贴板以保护其内容";
         c.statusLine = L"划词失败";
         c.anchorPhysical = tf::Rect{200, 200, 400, 100};
         showResultOnMain(c);
@@ -403,24 +408,22 @@ void runTextSelectionFlow(bool insertMode) {
 // Action dispatch (hotkey + tray)
 // ---------------------------------------------------------------------------
 
-/// Pipeline ticket: nullopt = busy (a live worker holds it). On success
-/// returns the generation token the caller must pass to finishPipeline; the
-/// watchdog path re-arms over a stuck worker with a fresh generation so the
-/// stuck worker's late finish cannot clobber the new pipeline.
+/// Returns a ticket only when no pipeline is active.
 std::optional<std::uint64_t> tryBeginPipeline() {
-    const std::int64_t nowMs =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count();
     if (!g.pipelineBusy.exchange(true)) {
-        g.pipelineBusySinceMs.store(nowMs);
+        // The previous worker has released the busy flag and can be reaped
+        // before starting the next one; retain no completed thread handles.
+        {
+            std::lock_guard<std::mutex> lock(g.workersMutex);
+            for (auto& worker : g.workers) {
+                if (worker.joinable()) worker.join();
+            }
+            g.workers.clear();
+        }
         return g.pipelineGeneration.fetch_add(1) + 1;
     }
-    const std::int64_t since = g.pipelineBusySinceMs.load();
-    if (since != 0 && nowMs - since > kPipelineStuckSeconds * 1000) {
-        g.pipelineBusySinceMs.store(nowMs);  // re-arm over the stuck worker
-        return g.pipelineGeneration.fetch_add(1) + 1;
-    }
+    // A running operation retains ownership until it finishes. Elapsed time
+    // cannot distinguish a stuck operation from a slow valid one.
     return std::nullopt;
 }
 
@@ -458,10 +461,11 @@ void dispatchAction(tf::HotkeyAction action) {
             if (const auto gen = tryBeginPipeline()) {
                 const bool insert = action == tf::HotkeyAction::TranslateInsert;
                 const std::uint64_t myGen = *gen;
-                std::thread([insert, myGen] {
+                std::lock_guard<std::mutex> lock(g.workersMutex);
+                g.workers.emplace_back([insert, myGen] {
                     runTextSelectionFlow(insert);
                     finishPipeline(myGen);
-                }).detach();
+                });
             }
             break;
         default:
@@ -630,7 +634,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             continue;
         }
         if (msg.message == kAppQuit) {
-            ::DestroyWindow(g.hwnd);
             break;
         }
         ::TranslateMessage(&msg);
@@ -640,5 +643,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // Teardown.
     g.hotkeys->unregisterAll();
     g.tray->remove();
+    g.shutdownToken.cancel();
+    // Wait for in-flight pipeline workers (OCR/HTTP) before process exit —
+    // the CRT would otherwise kill detached threads mid-system-call.
+    {
+        std::lock_guard<std::mutex> lock(g.workersMutex);
+        for (auto& worker : g.workers) {
+            if (worker.joinable()) worker.join();
+        }
+    }
+    MSG pending{};
+    while (::PeekMessageW(&pending, g.hwnd, kShowResult, kShowResult, PM_REMOVE)) {
+        delete reinterpret_cast<ResultBox*>(pending.lParam);
+    }
+    ::DestroyWindow(g.hwnd);
     return static_cast<int>(msg.wParam);
 }

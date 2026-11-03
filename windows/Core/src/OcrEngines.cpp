@@ -3,8 +3,26 @@
 #include "tf/Json.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+// Exclusive file creation shim (O_EXCL) for temp-image safety; CRT/POSIX
+// only — Core stays free of Win32/WinRT API headers.
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <process.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace tf {
 
@@ -104,13 +122,178 @@ Outcome<OcrResult, ProviderError> WindowsOcrEngine::recognize(const OcrImage& im
 // PaddleOcrEngine
 // ===========================================================================
 PaddleOcrEngine::PaddleOcrEngine(Configuration config, ProcessRunner runner,
-                                 AvailabilityChecker availability)
+                                 AvailabilityChecker availability,
+                                 TempImageWriter tempImageWriter)
     : config_(std::move(config)), runner_(std::move(runner)),
-      availability_(std::move(availability)) {}
+      availability_(std::move(availability)),
+      tempWriter_(tempImageWriter ? std::move(tempImageWriter)
+                                  : makeBmpTempImageWriter()) {}
 
 bool PaddleOcrEngine::isAvailable() const {
     if (config_.executablePath.empty()) return false;
     return availability_ ? availability_(config_.executablePath) : false;
+}
+
+namespace {
+
+// --- Temp-image plumbing ---------------------------------------------------
+// The child PaddleOCR process only reads files, so recognize() must
+// materialize the OcrImage pixels on disk first. Everything below is pure
+// C++ so the full temp-file lifecycle (unique creation, encoding, cleanup)
+// is exercisable by the portable Catch2 suite on any host.
+
+constexpr int kBadFd = -1;
+
+#ifdef _WIN32
+using FileDescriptor = int;
+FileDescriptor openExclusive(const char* path) {
+    return _open(path, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IWRITE);
+}
+bool writeAll(FileDescriptor fd, const char* data, std::size_t size) {
+    std::size_t done = 0;
+    while (done < size) {
+        const unsigned chunk = static_cast<unsigned>(
+            std::min<std::size_t>(size - done, 1u << 20));
+        const int written = _write(fd, data + done, chunk);
+        if (written <= 0) return false;
+        done += static_cast<std::size_t>(written);
+    }
+    return true;
+}
+void closeFile(FileDescriptor fd) { _close(fd); }
+std::uint64_t currentProcessId() { return static_cast<std::uint64_t>(_getpid()); }
+#else
+using FileDescriptor = int;
+FileDescriptor openExclusive(const char* path) {
+    return ::open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+}
+bool writeAll(FileDescriptor fd, const char* data, std::size_t size) {
+    std::size_t done = 0;
+    while (done < size) {
+        const std::size_t chunk = std::min<std::size_t>(size - done, 1u << 20);
+        const ssize_t written = ::write(fd, data + done, chunk);
+        if (written <= 0) return false;
+        done += static_cast<std::size_t>(written);
+    }
+    return true;
+}
+void closeFile(FileDescriptor fd) { ::close(fd); }
+std::uint64_t currentProcessId() { return static_cast<std::uint64_t>(::getpid()); }
+#endif
+
+/// 24-bit bottom-up BMP: BITMAPFILEHEADER + BITMAPINFOHEADER + BGR rows
+/// padded to 4 bytes. PaddleOCR reads images through OpenCV, which decodes
+/// BMP on every platform, so this stays dependency-free (no WIC/PNG path
+/// that would only compile — untested — on Windows). Returns empty on
+/// oversize/truncated input.
+std::string encodeBmp24(const OcrImage& image) {
+    const std::int64_t width = image.width;
+    const std::int64_t height = image.height;
+    const std::int64_t rowSize = ((width * 3 + 3) / 4) * 4;
+    const std::int64_t pixelBytes = rowSize * height;
+    const std::int64_t fileSize = 14 + 40 + pixelBytes;
+    // BMP header fields are 32-bit; reject anything that cannot be encoded.
+    if (width <= 0 || height <= 0 || width > 0x7fffffff || height > 0x7fffffff ||
+        fileSize > 0xffffffff) {
+        return {};
+    }
+    const std::size_t stride = static_cast<std::size_t>(width) * 4;
+    if (image.bgra.size() < stride * static_cast<std::size_t>(height)) return {};
+
+    const auto put16 = [](std::string& s, std::size_t at, std::uint16_t v) {
+        s[at] = static_cast<char>(v & 0xff);
+        s[at + 1] = static_cast<char>((v >> 8) & 0xff);
+    };
+    const auto put32 = [](std::string& s, std::size_t at, std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) s[at + static_cast<std::size_t>(i)] =
+            static_cast<char>((v >> (8 * i)) & 0xff);
+    };
+
+    std::string bmp(static_cast<std::size_t>(fileSize), '\0');
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    put32(bmp, 2, static_cast<std::uint32_t>(fileSize));
+    put32(bmp, 6, 0);   // reserved
+    put32(bmp, 10, 54);  // pixel data offset
+    put32(bmp, 14, 40);  // BITMAPINFOHEADER size
+    put32(bmp, 18, static_cast<std::uint32_t>(width));
+    put32(bmp, 22, static_cast<std::uint32_t>(height));  // positive → bottom-up
+    put16(bmp, 26, 1);                                   // planes
+    put16(bmp, 28, 24);                                  // bits per pixel
+    put32(bmp, 30, 0);                                   // BI_RGB
+    put32(bmp, 34, static_cast<std::uint32_t>(pixelBytes));
+    put32(bmp, 38, 2835);  // 72 DPI
+    put32(bmp, 42, 2835);
+    put32(bmp, 46, 0);     // colors used
+    put32(bmp, 50, 0);     // colors important
+
+    std::size_t dst = 54;
+    for (std::int64_t y = height - 1; y >= 0; --y) {
+        const char* row = image.bgra.data() + static_cast<std::size_t>(y) * stride;
+        for (std::int64_t x = 0; x < width; ++x) {
+            bmp[dst++] = row[static_cast<std::size_t>(x) * 4];       // B
+            bmp[dst++] = row[static_cast<std::size_t>(x) * 4 + 1];   // G
+            bmp[dst++] = row[static_cast<std::size_t>(x) * 4 + 2];   // R (A dropped)
+        }
+        dst += static_cast<std::size_t>(rowSize - width * 3);  // pad to 4 bytes
+    }
+    return bmp;
+}
+
+/// Per-candidate name: pid + process-wide counter + clock. pid isolates
+/// concurrent processes, the counter isolates threads within one process,
+/// the clock disambiguates pid reuse; O_EXCL closes the residual window.
+std::string uniqueTempStem() {
+    static std::atomic<std::uint64_t> counter{0};
+    const std::uint64_t seq = counter.fetch_add(1, std::memory_order_relaxed);
+    const auto nanos = std::chrono::steady_clock::now().time_since_epoch().count();
+    return "TransFrame-PaddleOCR-" + std::to_string(currentProcessId()) + "-" +
+           std::to_string(seq) + "-" + std::to_string(nanos);
+}
+
+/// Best-effort delete (Swift `try? FileManager.removeItem`): never throws,
+/// never reports — cleanup must not mask the OCR outcome. Narrow path on
+/// purpose: the whole PaddleOCR seam is ANSI (CreateProcessA runner), so a
+/// codepage round-trip here matches how the child process saw the file.
+void removeFileBestEffort(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(path), ec);
+}
+
+}  // namespace
+
+PaddleOcrEngine::TempImageWriter PaddleOcrEngine::makeBmpTempImageWriter(const std::string& tempDir) {
+    return [dir = tempDir](const OcrImage& image, TempImage& out) -> std::optional<ProviderError> {
+        const std::string bmp = encodeBmp24(image);
+        if (bmp.empty()) {
+            return ProviderError::content("Image cannot be encoded for PaddleOCR "
+                                          "(oversize or truncated pixel buffer)");
+        }
+        std::string base = dir;
+        if (base.empty()) {
+            std::error_code ec;
+            base = std::filesystem::temp_directory_path(ec).string();
+            if (base.empty()) base = ".";
+        }
+        // GetTempPathA-style dirs end in a separator; POSIX ones may not —
+        // accept both without doubling.
+        if (!base.empty() && base.back() != '/' && base.back() != '\\') base += '/';
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            const std::string path = base + uniqueTempStem() + ".bmp";
+            const FileDescriptor fd = openExclusive(path.c_str());
+            if (fd == kBadFd) continue;  // name taken / transient failure → new name
+            const bool ok = writeAll(fd, bmp.data(), bmp.size());
+            closeFile(fd);
+            if (!ok) {
+                removeFileBestEffort(path);
+                return ProviderError::content("Failed writing PaddleOCR temp image file");
+            }
+            out.path = path;
+            out.dispose = [path] { removeFileBestEffort(path); };
+            return std::nullopt;
+        }
+        return ProviderError::content("Could not create a unique PaddleOCR temp image file");
+    };
 }
 
 std::vector<std::string> PaddleOcrEngine::buildArguments(const std::string& imagePath) const {
@@ -140,19 +323,41 @@ Outcome<OcrResult, ProviderError> PaddleOcrEngine::recognize(const OcrImage& ima
         return Outcome<OcrResult, ProviderError>::makeError(
             ProviderError::content("Invalid image"));
     }
+    // Size guard before any pixel read: a buffer shorter than width*height*4
+    // would read out of bounds inside the BMP encoder.
+    const std::size_t requiredBytes = static_cast<std::size_t>(image.width) *
+                                      static_cast<std::size_t>(image.height) * 4;
+    if (image.bgra.size() < requiredBytes) {
+        return Outcome<OcrResult, ProviderError>::makeError(
+            ProviderError::content("Invalid image: pixel buffer smaller than "
+                                   "width*height*4"));
+    }
     if (!isAvailable()) {
         return Outcome<OcrResult, ProviderError>::makeError(
             ProviderError::configuration("PaddleOCR executable not installed"));
     }
-    // The image is written to a temp PNG by NativeShell; this layer receives
-    // its path via the runner seam contract (first argv slot after -i).
-    // For the pure-logic build the caller passes the path through the
-    // runner's captured context; here we synthesize the protocol shape.
+    if (!tempWriter_) {
+        return Outcome<OcrResult, ProviderError>::makeError(
+            ProviderError::configuration("PaddleOCR temp-image writer not configured"));
+    }
+    // Materialize the pixels into a uniquely named temp file (Swift
+    // saveImageToTempFile); its real path is what argv carries — the child
+    // process cannot read in-memory buffers.
+    TempImage tempImage;
+    if (auto err = tempWriter_(image, tempImage)) {
+        return Outcome<OcrResult, ProviderError>::makeError(*err);
+    }
+    // Delete the temp file on every exit path — success, process failure,
+    // parse failure (Swift `defer`); dispose itself is idempotent.
+    struct DisposeGuard {
+        TempImage& held;
+        ~DisposeGuard() {
+            if (held.dispose) held.dispose();
+        }
+    } disposeOnExit{tempImage};
+
     std::string stdoutText, stderrText;
-    // The imagePath is embedded in the argv; the runner owns temp-file
-    // handling in NativeShell. Pure tests exercise parseFastMode/
-    // parsePreciseMode directly.
-    if (auto err = runner_(config_.executablePath, buildArguments("<image>"),
+    if (auto err = runner_(config_.executablePath, buildArguments(tempImage.path),
                            config_.mode == Mode::Fast ? 60 : 900, stdoutText, stderrText)) {
         return Outcome<OcrResult, ProviderError>::makeError(*err);
     }
