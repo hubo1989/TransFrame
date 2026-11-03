@@ -25,9 +25,10 @@ App（`windows/App`）将各模块接入完整用户流程：托盘 + 全局热�
 windows/
 ├── App/                    # 应用入口（AppMain.cpp：托盘+热键+选区+管线）
 ├── Core/                   # 纯逻辑：跨平台，无 UI/Win32 依赖
-│   ├── include/tf/         # 公共头（所有服务接口）
+│   ├── include/tf/         # 公共头（所有服务接口；含 EngineConfigStore/HistoryStore）
 │   ├── src/                # 实现
-│   └── vendor/nlohmann/    # JSON（与任务 B 共享）
+│   ├── vendor/nlohmann/    # JSON（与任务 B 共享）
+│   └── vendor/sqlite/      # SQLite 3.45.1 amalgamation（FR-30 history.db）
 ├── NativeShell/            # Win32 实现（仅 _WIN32 编译）
 │   ├── include/tf/         # WinHttpTransport / CredManKeyStore / Win32 hosts
 │   └── src/                # 捕获链 / 选区覆盖层 / 托盘 / 结果窗 / OCR 胶水
@@ -43,11 +44,14 @@ windows/
 macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 13+ 等价）：
 
 ```bash
+# sqlite3.c 先单独按 C 编译（amalgamation 按 C++ 编译会有大量告警）
+clang -x c -c -O1 -w -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION \
+  windows/Core/vendor/sqlite/sqlite3.c -o /tmp/sqlite3.o
 clang++ -std=c++20 \
-  -I windows/Core/include -I windows/Core/vendor \
-  -I windows/Tests -I windows/Tests/vendor \
-  windows/Core/src/*.cpp windows/Tests/*.cpp \
-  windows/Tests/vendor/catch_amalgamated.cpp \
+  -I windows/Core/include -I windows/Core -I windows/Core/vendor \
+  -I windows/external -I windows/Tests -I windows/Tests/vendor -I windows \
+  windows/Core/src/*.cpp windows/Core/*.cpp windows/Tests/*.cpp \
+  windows/Tests/vendor/catch_amalgamated.cpp /tmp/sqlite3.o \
   -o tests_runner && ./tests_runner
 ```
 
@@ -74,7 +78,20 @@ cl /std:c++20 /EHsc ^
 ./tests_runner "[health][cache]"   # 组合过滤
 ```
 
-当前：**105 test cases / 370 assertions 全绿**（macOS arm64, Apple clang 21.0.0）。
+当前：**207 test cases / 830 assertions 全绿**（macOS arm64, Apple clang；含
+EngineConfigStore / HotkeySettingsStore / HistoryStore 三个 wt-settings 套件）。
+
+## 设置与历史（wt-settings 分支）
+
+- 设置窗口（FR-35 最小版）：托盘「设置」→ 通用页（目标语言 + MTranServer 端点）与
+  快捷键页（改键录制 + 冲突标红）。端点/语言写入 `%APPDATA%\TransFrame\engines.json`
+  （共享契约：`docs/engines-config-shared.md`）；快捷键写入
+  `%APPDATA%\TransFrame\settings.json`；改后即时生效，无需重启。
+- 翻译历史（FR-30）：SQLite/WAL `%LOCALAPPDATA%\TransFrame\history.db`，schema v1
+  + 迁移表；LIKE 检索（无 FTS5，PRD 决策 2）。托盘「历史记录」打开列表窗口
+  （搜索 / 收藏 / 删除）。每次翻译成功自动入库。
+- 技术选型：本周期 Win32 自绘过渡，不上 WinUI 3；依据与重评估触发条件见
+  `docs/winui3-migration.md`。
 
 ## 引擎文档
 

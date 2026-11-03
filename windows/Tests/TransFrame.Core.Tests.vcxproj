@@ -39,7 +39,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -68,6 +68,10 @@
     <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
     <ClCompile Include="TranslationPromptConfigTests.cpp" />
     <ClCompile Include="VisualLineGroupingTests.cpp" />
+    <!-- wt-settings: config/history stores (needs Core\include for tf/). -->
+    <ClCompile Include="EngineConfigStoreTests.cpp" />
+    <ClCompile Include="HotkeySettingsStoreTests.cpp" />
+    <ClCompile Include="HistoryStoreTests.cpp" />
     <ClCompile Include="..\external\catch2\catch_amalgamated.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

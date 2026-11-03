@@ -98,6 +98,8 @@
     <ClCompile Include="src\SelectionOverlay.cpp"/>
     <ClCompile Include="src\TrayIcon.cpp"/>
     <ClCompile Include="src\ResultWindow.cpp"/>
+    <ClCompile Include="src\SettingsWindow.cpp"/>
+    <ClCompile Include="src\HistoryWindow.cpp"/>
     <ClCompile Include="src\WinHttpTransport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
