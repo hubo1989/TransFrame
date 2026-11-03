@@ -128,6 +128,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate MSIX update descriptors
+        run: python3 -m unittest discover -s windows/scripts -v
+
       - name: Install compiler
         run: sudo apt-get update && sudo apt-get install -y g++-13 cmake
 

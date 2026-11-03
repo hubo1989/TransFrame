@@ -21,6 +21,7 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include "UpdateService.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -59,6 +60,7 @@ namespace {
 // ---------------------------------------------------------------------------
 constexpr wchar_t kHiddenWndClass[] = L"TransFrameMainWnd";
 constexpr UINT kAppQuit = WM_APP + 0x100;
+const UINT kTaskbarCreated = ::RegisterWindowMessageW(L"TaskbarCreated");
 
 // Default target language (PRD default: auto → zh). Settings UI lands later;
 // env override: TRANSFRAME_TARGET_LANG=ja etc.
@@ -389,6 +391,9 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
         case tf::TrayCommand::Translate:  dispatchAction(tf::HotkeyAction::Translate); break;
         case tf::TrayCommand::TextSelection: dispatchAction(tf::HotkeyAction::TextSelection); break;
         case tf::TrayCommand::TranslateInsert: dispatchAction(tf::HotkeyAction::TranslateInsert); break;
+        case tf::TrayCommand::CheckUpdates:
+            tf::checkForAppUpdate(g.hwnd);
+            break;
         case tf::TrayCommand::Exit:
             ::PostMessageW(g.hwnd, kAppQuit, 0, 0);
             break;
@@ -405,6 +410,13 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
 // ---------------------------------------------------------------------------
 
 LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (kTaskbarCreated != 0 && msg == kTaskbarCreated && g.tray) {
+        g.tray->remove();
+        if (!g.tray->install()) {
+            ::OutputDebugStringW(L"TransFrame: failed to restore tray icon after Explorer restart\n");
+        }
+        return 0;
+    }
     switch (msg) {
         case kShowResult: {
             auto* box = reinterpret_cast<ResultBox*>(lp);
@@ -437,7 +449,7 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.instance = instance;
 
-    // Hidden message window (tray parent + hotkey target). RegisterHotKey
+    // Hidden top-level window (popup owner + Explorer restart broadcasts). RegisterHotKey
     // with nullptr hwnd posts WM_HOTKEY to the registering thread's queue —
     // pumping here covers both.
     WNDCLASSEXW wc{};
@@ -445,10 +457,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     wc.lpfnWndProc = mainWndProc;
     wc.hInstance = instance;
     wc.lpszClassName = kHiddenWndClass;
+    wc.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(101));
+    wc.hIconSm = wc.hIcon;
     if (!::RegisterClassExW(&wc)) return 1;
 
     g.hwnd = ::CreateWindowExW(0, kHiddenWndClass, L"TransFrame", WS_OVERLAPPEDWINDOW,
-                               0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, nullptr);
+                               0, 0, 0, 0, nullptr, nullptr, instance, nullptr);
     if (!g.hwnd) return 1;
 
     // Composition root (NativeShellInit.cpp factories).

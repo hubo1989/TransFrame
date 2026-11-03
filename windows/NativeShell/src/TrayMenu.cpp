@@ -35,9 +35,14 @@ std::vector<TrayMenuItem> buildTrayMenu(const std::vector<RecentShot>& recentSho
     items.push_back({L"置顶管理", TrayCommand::PinnedManager, false, false, -1, {}});
     items.push_back({L"历史记录", TrayCommand::History, false, false, -1, {}});
     items.push_back({L"设置", TrayCommand::Settings, false, false, -1, {}});
-    items.push_back({L"检查更新", TrayCommand::CheckUpdates, false, false, -1, {}});
+    items.push_back({L"检查更新", TrayCommand::CheckUpdates, true, false, -1, {}});
     items.push_back({L"退出", TrayCommand::Exit, true, false, -1, {}});
     return items;
+}
+
+const TrayMenuItem* trayMenuItemForId(const std::vector<TrayMenuItem>& items, unsigned id) {
+    if (id == 0 || id > items.size() || !items[id - 1].enabled) return nullptr;
+    return &items[id - 1];
 }
 
 } // namespace tf

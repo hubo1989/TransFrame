@@ -80,7 +80,6 @@ TEST_CASE("capture commands are enabled; future slots are disabled placeholders"
             case TrayCommand::PinnedManager:
             case TrayCommand::History:
             case TrayCommand::Settings:
-            case TrayCommand::CheckUpdates:
                 CHECK_FALSE(i.enabled);  // placeholders until tasks C/D land
                 break;
             default:
@@ -99,4 +98,17 @@ TEST_CASE("recent-shot labels default to a generated name when empty", "[tray][r
     REQUIRE(it != items.end());
     CHECK_FALSE(it->label.empty());
     CHECK(it->thumbnailHint.empty());  // no thumbnail path supplied
+}
+
+TEST_CASE("popup IDs dispatch first and last actions without offset", "[tray][menu]") {
+    const auto items = buildTrayMenu({});
+    CHECK(trayMenuItemForId(items, 0) == nullptr);
+    CHECK(trayMenuItemForId(items, 999) == nullptr);
+    REQUIRE(trayMenuItemForId(items, 1));
+    CHECK(trayMenuItemForId(items, 1)->command == TrayCommand::FullScreen);
+    REQUIRE(trayMenuItemForId(items, 10));
+    CHECK(trayMenuItemForId(items, 10)->command == TrayCommand::Exit);
+    CHECK(trayMenuItemForId(items, 6) == nullptr); // disabled placeholder
+    REQUIRE(trayMenuItemForId(items, 9));
+    CHECK(trayMenuItemForId(items, 9)->command == TrayCommand::CheckUpdates);
 }

@@ -80,3 +80,72 @@ cl /std:c++20 /EHsc ^
 
 每引擎请求/响应/错误映射：`docs/windows/engines/<engine>.md` ×9
 （mtran / openai / claude / gemini / ollama / google / deepl / baidu / custom）。
+
+## Windows 图标、右键菜单与自动更新
+
+EXE、托盘、结果窗口和 MSIX 开始菜单使用同一套 TransFrame 图标，
+资源在 `App/Assets`（ICO 含 16/24/32/48/64/128/256 像素）。
+托盘左键、右键均可打开菜单；Explorer 重启后会重新注册托盘图标。
+这里的右键菜单是**系统托盘菜单**，不注册资源管理器文件右键扩展。
+
+自动更新采用 Windows App Installer：安装 `.appinstaller` 后，系统在启动时检查，
+并通过后台任务定期检查更新（系统通常约每 8 小时一次，受系统策略和网络影响）。
+托盘「检查更新」会异步查询当前安装关联的更新源，发现新版后可打开系统安装程序。
+网络错误、无更新源和免安装版分别显示明确提示。
+直接运行 EXE 或只安装 MSIX 不会自动关联更新源；请通过 `.appinstaller` 安装。
+
+### 生成签名安装包及更新源
+
+在 Windows SDK 开发者命令行中构建 Release，再运行（示例值必须替换）：
+
+```powershell
+msbuild windows/TransFrame.sln /m /p:Configuration=Release /p:Platform=x64
+python windows/scripts/build_msix.py `
+  --exe windows/build/x64/Release/TransFrame.App/TransFrame.App.exe `
+  --output windows/dist/x64-1.0.5 `
+  --version 1.0.5.0 --arch x64 `
+  --vclibs C:/downloads/Microsoft.VCLibs.x64.14.00.Desktop.appx `
+  --publisher "CN=Your actual certificate subject" `
+  --certificate-thumbprint YOUR_40_HEX_CERTIFICATE_THUMBPRINT `
+  --base-url https://your-download-host.example/windows
+```
+
+- 证书需已存在于 CurrentUser/My，Publisher 必须与证书 Subject 完全相符。
+  脚本不会生成证书、修改信任设置或上传文件；签名验证失败会停止。
+- ARM64 使用 `/p:Platform=ARM64`、对应 EXE 和 `--arch arm64`，输出独立更新源。
+- 每次发布递增四段版本号，保持包 Name、Publisher、架构及更新源 URL 稳定。
+- 先上传版本化 `.msix` 和生成目录中的 VCLibs `.appx`，再替换同架构的 `TransFrame-x64.appinstaller`
+  或 `TransFrame-arm64.appinstaller`。两者必须可通过 HTTPS 下载。
+- 下载站应为 `.appinstaller` 返回 `application/appinstaller`，为 `.msix` 返回
+  `application/msix`；首次安装需要 App Installer 和受系统信任的签名证书。
+- 从微软官方下载匹配架构的 VCLibs Desktop 运行库（例如
+  `https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx`），用 `--vclibs` 传入。
+  脚本验证签名、包标识和架构，读取实际版本并生成固定下载路径，避免运行库
+  下载别名更新后与描述文件里的版本不匹配。
+- `App/TransFrame.Package.wapproj` 是旧包装骨架；此流程直接调用 SDK 的
+  MakeAppx / SignTool，并使用 `App/Package.appxmanifest` 生成实际包清单。
+
+### 验证
+
+```bash
+python3 -m unittest discover -s windows/scripts -v
+```
+
+菜单回归在 `NativeShell/tests/TrayMenuTests.cpp`，覆盖取消、首尾命令 ID、
+禁用命令拦截和「检查更新」可用状态；安装描述测试覆盖双架构、版本与
+Publisher 一致性、图标引用、后台更新设置、错误 URL/版本拒绝。
+
+Windows 实机验收（macOS 单测无法替代）：
+
+1. 构建 x64 / ARM64，确认 EXE 文件图标、托盘图标、结果窗口图标正确。
+2. 左/右键托盘：全屏截图和退出分别触发正确动作；按 Esc 或点菜单外关闭。
+   重启 Explorer，确认图标恢复且菜单仍可用。
+3. 直接运行 EXE，点「检查更新」应提示安装 MSIX；不会声称已是最新版。
+4. 将受信任签名的 N 版 MSIX 与 `.appinstaller` 放到 HTTPS 站点，通过
+   `.appinstaller` 安装；开始菜单应显示图标。
+5. 发布同证书、同架构、较高版本 N+1，替换稳定 `.appinstaller`；手动检查
+   应发现新版，允许打开系统安装程序，取消则保持当前版本。
+6. 保持 N 版安装，验证系统后台/下次启动升级到 N+1，确认安装后的版本号。
+7. 断网、不可达更新源、签名不匹配分别验证：不声称最新、不安装不可信包。
+
+当前仓库未配置生产 Windows 签名证书或下载站，此步骤不代表已发布更新服务。

@@ -19,7 +19,7 @@ constexpr UINT kTrayCallbackMessage = WM_APP + 0x5446;  // 'TF'
 
 HMENU buildHMenu(const std::vector<TrayMenuItem>& items) {
     HMENU menu = ::CreatePopupMenu();
-    UINT index = 0;
+    UINT index = 1;
     for (const auto& item : items) {
         if (item.command == TrayCommand::None && !item.label.empty()) {
             // (no None entries produced by buildTrayMenu today)
@@ -54,7 +54,8 @@ bool TrayIconService::install() {
     nid.uID = kTrayIconId;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = kTrayCallbackMessage;
-    nid.hIcon = ::LoadIconW(nullptr, IDI_APPLICATION);  // camera icon: task C asset
+    nid.hIcon = ::LoadIconW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    if (!nid.hIcon) return false;
     ::wcscpy_s(nid.szTip, L"TransFrame");
 
     installed_ = ::Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
@@ -72,6 +73,7 @@ void TrayIconService::remove() {
     if (!installed_) return;
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
     nid.uID = kTrayIconId;
     ::Shell_NotifyIconW(NIM_DELETE, &nid);
     installed_ = false;
@@ -83,21 +85,22 @@ void TrayIconService::setRecentShots(std::vector<RecentShot> shots) {
 
 void TrayIconService::showMenuAtCursor() {
     const auto items = buildTrayMenu(recent_);
+    const auto owner = static_cast<HWND>(callbackWindow_);
+    if (!owner) return;
     HMENU menu = buildHMenu(items);
+    if (!menu) return;
     POINT pt;
     ::GetCursorPos(&pt);
     // TPM_RIGHTBUTTON + return-on-click; SetForegroundWindow is required by
     // the Shell_NotifyIcon contract so the menu dismisses when clicking away.
-    ::SetForegroundWindow(::GetForegroundWindow());
+    ::SetForegroundWindow(owner);
     const BOOL picked = ::TrackPopupMenuEx(
         menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-        pt.x, pt.y, nullptr, nullptr);
+        pt.x, pt.y, owner, nullptr);
     ::DestroyMenu(menu);
-    if (picked == 0) return;  // dismissed without choice
-
-    const std::size_t idx = static_cast<std::size_t>(picked) - 1;
-    if (idx < items.size()) {
-        dispatch(items[idx].command, items[idx].recentIndex);
+    ::PostMessageW(owner, WM_NULL, 0, 0);
+    if (const auto* item = trayMenuItemForId(items, static_cast<unsigned>(picked))) {
+        dispatch(item->command, item->recentIndex);
     }
 }
 

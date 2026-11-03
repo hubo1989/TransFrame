@@ -260,6 +260,8 @@ bool ResultWindowController::registerClass(HINSTANCE instance) {
     wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
     wc.lpszClassName = kResultWndClass;
+    wc.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(101));
+    wc.hIconSm = wc.hIcon;
     return ::RegisterClassExW(&wc) != 0 || ::GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
 }
 

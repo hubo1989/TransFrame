@@ -26,7 +26,7 @@ enum class TrayCommand : std::uint8_t {
     PinnedManager,     // 置顶管理 (placeholder, task D)
     History,           // 历史 (placeholder)
     Settings,          // 设置 (placeholder)
-    CheckUpdates,      // 检查更新 (placeholder)
+    CheckUpdates,      // 检查更新
     Exit,              // 退出
     RecentShot,        // recent screenshot #n (index in payload)
 };
@@ -53,6 +53,9 @@ using TrayCommandHandler = std::function<void(TrayCommand command, int recentInd
 /// Pure menu construction: actions + placeholders + recent strip (<= 5).
 std::vector<TrayMenuItem> buildTrayMenu(const std::vector<RecentShot>& recentShots);
 
+/// Win32 popup IDs start at 1; 0 means dismissed. Disabled IDs cannot dispatch.
+const TrayMenuItem* trayMenuItemForId(const std::vector<TrayMenuItem>& items, unsigned id);
+
 class TrayIconService {
 public:
     explicit TrayIconService(TrayCommandHandler handler);
@@ -74,7 +77,7 @@ public:
     /// Swap recent-shot list; menu rebuilds on next open (FR-34: 5 thumbnails).
     void setRecentShots(std::vector<RecentShot> shots);
 
-    /// Left-click opens menu (Win11 style); right-click is a no-op here.
+    /// Left-click and right-click both open the menu.
     void showMenuAtCursor();
 
     bool isInstalled() const { return installed_; }
