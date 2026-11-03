@@ -9,6 +9,7 @@
 #include "pch.h"
 
 #include "tf/ResultWindow.hpp"
+#include "tf/PreviewWindow.hpp"
 
 #include <windowsx.h>
 
@@ -22,6 +23,7 @@ constexpr int kWindowHeight = 320;
 
 struct Layout {
     RECT status;
+    RECT previewBtn;
     RECT copyBtn;
     RECT closeBtn;
     RECT source;
@@ -33,7 +35,9 @@ Layout computeLayout(const RECT& client, int fontHeight) {
     const int btnH = fontHeight + 10;
     const int btnW = 78;
     Layout l{};
-    l.status = {pad, pad, client.right - pad - 2 * (btnW + 8), pad + btnH};
+    l.status = {pad, pad, client.right - pad - 3 * (btnW + 8), pad + btnH};
+    l.previewBtn = {client.right - pad - 3 * btnW - 16, pad,
+                    client.right - pad - 2 * btnW - 16, pad + btnH};
     l.copyBtn = {client.right - pad - 2 * btnW - 8, pad,
                  client.right - pad - btnW - 8, pad + btnH};
     l.closeBtn = {client.right - pad - btnW, pad, client.right - pad, pad + btnH};
@@ -112,7 +116,8 @@ struct ResultWindowController::Impl {
             case WM_LBUTTONDOWN: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 // Buttons swallow the press (no drag from a button).
-                if (::PtInRect(&layout.copyBtn, pt) || ::PtInRect(&layout.closeBtn, pt)) {
+                if (::PtInRect(&layout.copyBtn, pt) || ::PtInRect(&layout.closeBtn, pt) ||
+                    (content.previewImage && ::PtInRect(&layout.previewBtn, pt))) {
                     return 0;
                 }
                 // Drag anywhere else on the popup (no caption). Re-post as a
@@ -128,6 +133,15 @@ struct ResultWindowController::Impl {
                 break;
             case WM_LBUTTONUP: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                if (::PtInRect(&layout.previewBtn, pt) && content.previewImage) {
+                    // FR-07 entry: open the preview/annotation window with the
+                    // captured pixels (shared buffer, no copy).
+                    PreviewWindowSpec spec;
+                    spec.image = content.previewImage;
+                    PreviewWindowController::instance().show(spec);
+                    ::ShowWindow(h, SW_HIDE);
+                    return 0;
+                }
                 if (::PtInRect(&layout.copyBtn, pt)) {
                     copyToClipboard(h, content.translatedText);
                     flashStatus(h);
@@ -142,7 +156,8 @@ struct ResultWindowController::Impl {
             case WM_SETCURSOR: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 if (LOWORD(lp) == HTCLIENT &&
-                    (::PtInRect(&layout.copyBtn, pt) || ::PtInRect(&layout.closeBtn, pt))) {
+                    (::PtInRect(&layout.copyBtn, pt) || ::PtInRect(&layout.closeBtn, pt) ||
+                     (content.previewImage && ::PtInRect(&layout.previewBtn, pt)))) {
                     ::SetCursor(::LoadCursorW(nullptr, IDC_HAND));
                     return TRUE;
                 }
@@ -197,7 +212,10 @@ struct ResultWindowController::Impl {
         ::DrawTextW(dc, content.statusLine.c_str(), -1, &st,
                     DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 
-        // Buttons: Copy / Close (owner draw: border + centered text).
+        // Buttons: Preview (when pixels exist) / Copy / Close (owner draw).
+        if (content.previewImage) {
+            drawButton(dc, layout.previewBtn, L"预览", RGB(16, 124, 16));
+        }
         drawButton(dc, layout.copyBtn, L"复制译文", RGB(0, 120, 215));
         drawButton(dc, layout.closeBtn, L"关闭", RGB(60, 64, 74));
 

@@ -13,20 +13,28 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Core portable sources + Catch2 tests
 # ---------------------------------------------------------------------------
 file(GLOB CORE_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/src/*.cpp)
+# Model-layer sources live in Core/ root (mirrors Core.vcxproj; the src/
+# glob above misses them).
+set(CORE_MODEL_SRC
+    Core/AnnotationDocument.cpp
+)
 set(TEST_SRC
     Tests/TranslationSchedulerTests.cpp
     Tests/ProvidersTests.cpp
     Tests/LLMTranslationCoreTests.cpp
     Tests/EngineHealthCheckerTests.cpp
     Tests/OcrAndTextSelectionTests.cpp
+    Tests/AnnotationDocumentTests.cpp
 )
 
 add_executable(translation_tests
     ${CORE_SRC}
+    ${CORE_MODEL_SRC}
     ${TEST_SRC}
     Tests/vendor/catch_amalgamated.cpp
 )
 target_include_directories(translation_tests PRIVATE
+    Core
     Core/include
     Core/vendor
     Tests

@@ -249,6 +249,9 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
     const auto tEnd = std::chrono::steady_clock::now();
 
     tf::ResultWindowContent c;
+    // FR-07 preview entry: share the captured pixels with the result popup
+    // (shared_ptr; the box hands it to the main thread).
+    c.previewImage = std::make_shared<tf::PixelBuffer>(cap.screenshot.pixels);
     std::string full;
     for (const auto& seg : ocrOutcome.value.observations) {
         if (!full.empty()) full += "\n";

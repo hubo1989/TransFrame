@@ -98,6 +98,8 @@
     <ClCompile Include="src\SelectionOverlay.cpp"/>
     <ClCompile Include="src\TrayIcon.cpp"/>
     <ClCompile Include="src\ResultWindow.cpp"/>
+    <ClCompile Include="src\PreviewWindow.cpp"/>
+    <ClCompile Include="src\ImageExporter.cpp"/>
     <ClCompile Include="src\WinHttpTransport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -119,6 +121,8 @@
     <ClInclude Include="include\tf\SelectionOverlay.hpp"/>
     <ClInclude Include="include\tf\TrayIcon.hpp"/>
     <ClInclude Include="include\tf\ResultWindow.hpp"/>
+    <ClInclude Include="include\tf\PreviewWindow.hpp"/>
+    <ClInclude Include="include\tf\ImageExporter.hpp"/>
     <ClInclude Include="src\pch.h"/>
   </ItemGroup>
 

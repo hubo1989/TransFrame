@@ -44,9 +44,9 @@ macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 
 
 ```bash
 clang++ -std=c++20 \
-  -I windows/Core/include -I windows/Core/vendor \
+  -I windows/Core -I windows/Core/include -I windows/Core/vendor \
   -I windows/Tests -I windows/Tests/vendor \
-  windows/Core/src/*.cpp windows/Tests/*.cpp \
+  windows/Core/src/*.cpp windows/Core/AnnotationDocument.cpp windows/Tests/*.cpp \
   windows/Tests/vendor/catch_amalgamated.cpp \
   -o tests_runner && ./tests_runner
 ```
@@ -74,7 +74,8 @@ cl /std:c++20 /EHsc ^
 ./tests_runner "[health][cache]"   # 组合过滤
 ```
 
-当前：**105 test cases / 370 assertions 全绿**（macOS arm64, Apple clang 21.0.0）。
+当前：**126 test cases / 507 assertions 全绿**（macOS arm64, Apple clang 21；含
+AnnotationDocument 标注几何/撤销栈 11 例）。
 
 ## 引擎文档
 

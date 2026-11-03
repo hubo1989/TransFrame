@@ -65,6 +65,7 @@
 
   <ItemGroup>
     <ClInclude Include="Annotation.h" />
+    <ClInclude Include="AnnotationDocument.h" />
     <ClInclude Include="AppLanguage.h" />
     <ClInclude Include="CaptureDocument.h" />
     <ClInclude Include="EngineSelectionV2.h" />
@@ -90,6 +91,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Annotation.cpp" />
+    <ClCompile Include="AnnotationDocument.cpp" />
     <ClCompile Include="CaptureDocument.cpp" />
     <ClCompile Include="Json.cpp" />
     <ClCompile Include="LLMTranslationCore.cpp" />
