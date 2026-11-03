@@ -21,6 +21,7 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include <winrt/Windows.Foundation.h>
 #include "UpdateService.hpp"
 
 #include <atomic>
@@ -95,11 +96,20 @@ struct AppState {
     // and never clears the flag, dispatch re-arms after kPipelineStuckSeconds
     // so hotkeys stay usable instead of locking up forever.
     std::atomic<std::int64_t> pipelineBusySinceMs{0};
+    // Generation token paired with pipelineBusy: re-arming over a (possibly
+    // still-alive) stuck worker bumps the generation, so the old worker's
+    // finish no longer clears the new pipeline's busy flag, and a healthy
+    // but slow worker cannot be double-entered while it still runs.
+    std::atomic<std::uint64_t> pipelineGeneration{0};
 };
 
 constexpr int kPipelineStuckSeconds = 15;
 
 AppState g;
+
+// Defined with the dispatch helpers below; forward-declared for the early
+// flow functions that finish a pipeline run.
+void finishPipeline(std::uint64_t gen);
 
 // ---------------------------------------------------------------------------
 // UTF-8 <-> UTF-16 helpers
@@ -172,6 +182,13 @@ std::string translateTexts(const std::vector<std::string>& texts) {
 /// Screenshot flow: pixels -> OCR -> line merge -> translate -> result popup.
 /// Runs on a worker thread (OCR + HTTP block); the popup shows via PostMessage.
 void runScreenshotPipeline(const tf::CaptureResult& cap) {
+    // Worker threads have no COM apartment by default; Windows OCR (WinRT)
+    // activation fails without one. Idempotent-safe: a mismatched apartment
+    // is ignored (the call site owns the threading model).
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (...) {
+    }
     if (!cap.ok) {
         tf::ResultWindowContent c;
         c.translatedText = L"截图失败: " + cap.error;
@@ -243,9 +260,9 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
 /// Region flow entry (overlay confirmed): capture region -> pipeline.
 /// Called on the main thread; capture is fast (GDI/WGC sync); the heavy
 /// OCR + translate stages run on a worker thread.
-void onRegionConfirmed(const tf::SelectionOverlayResult& result) {
+void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t gen) {
     if (!result.confirmed) {
-        g.pipelineBusy = false;  // Esc / focus loss
+        finishPipeline(gen);  // Esc / focus loss
         return;
     }
 
@@ -255,7 +272,7 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result) {
         tf::ResultWindowContent c;
         c.translatedText = L"无法定位该区域所在的显示器";
         showResultOnMain(c);
-        g.pipelineBusy = false;
+        finishPipeline(gen);
         return;
     }
 
@@ -268,14 +285,14 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result) {
         // Anchor the popup to the captured region (not the whole display).
         cap.screenshot.sourceDisplay.framePhysical = result.regionPhysical;
     }
-    std::thread([cap = std::move(cap)]() mutable {
+    std::thread([cap = std::move(cap), gen]() mutable {
         runScreenshotPipeline(cap);
-        g.pipelineBusy = false;
+        finishPipeline(gen);
     }).detach();
 }
 
 /// Full-screen flow entry: primary display capture -> pipeline.
-void onFullScreen() {
+void onFullScreen(std::uint64_t gen) {
     const auto displays = g.displays->displays();
     const auto primary = std::find_if(displays.begin(), displays.end(),
                                       [](const tf::DisplayInfo& d) { return d.isPrimary; });
@@ -283,14 +300,14 @@ void onFullScreen() {
         tf::ResultWindowContent c;
         c.translatedText = L"未找到主显示器";
         showResultOnMain(c);
-        g.pipelineBusy = false;
+        finishPipeline(gen);
         return;
     }
     tf::CaptureResult cap =
         g.capture->captureDisplay(*primary, tf::CaptureTrigger::HotkeyFullScreen);
-    std::thread([cap = std::move(cap)]() mutable {
+    std::thread([cap = std::move(cap), gen]() mutable {
         runScreenshotPipeline(cap);
-        g.pipelineBusy = false;
+        finishPipeline(gen);
     }).detach();
 }
 
@@ -299,6 +316,12 @@ void onFullScreen() {
 // ---------------------------------------------------------------------------
 
 void runTextSelectionFlow(bool insertMode) {
+    // Detached worker thread: no COM apartment yet, and later stages (WinRT
+    // OCR on the insert path) need one.
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (...) {
+    }
     // Shell-foreground guard: on the desktop / shell UI, Ctrl+C copies FILES
     // (not text) and the shell's clipboard-owner path is the exact
     // synchronous surface that can freeze the taskbar when disturbed while
@@ -380,41 +403,50 @@ void runTextSelectionFlow(bool insertMode) {
 // Action dispatch (hotkey + tray)
 // ---------------------------------------------------------------------------
 
-/// True when the pipeline may start: not busy, or busy for longer than the
-/// watchdog window (a previous worker never returned from a system call —
-/// treat it as dead and re-arm so hotkeys keep working).
-bool tryBeginPipeline() {
+/// Pipeline ticket: nullopt = busy (a live worker holds it). On success
+/// returns the generation token the caller must pass to finishPipeline; the
+/// watchdog path re-arms over a stuck worker with a fresh generation so the
+/// stuck worker's late finish cannot clobber the new pipeline.
+std::optional<std::uint64_t> tryBeginPipeline() {
     const std::int64_t nowMs =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count();
     if (!g.pipelineBusy.exchange(true)) {
         g.pipelineBusySinceMs.store(nowMs);
-        return true;
+        return g.pipelineGeneration.fetch_add(1) + 1;
     }
     const std::int64_t since = g.pipelineBusySinceMs.load();
     if (since != 0 && nowMs - since > kPipelineStuckSeconds * 1000) {
         g.pipelineBusySinceMs.store(nowMs);  // re-arm over the stuck worker
-        return true;
+        return g.pipelineGeneration.fetch_add(1) + 1;
     }
-    return false;
+    return std::nullopt;
+}
+
+/// Only the current generation's worker may clear the busy flag.
+void finishPipeline(std::uint64_t gen) {
+    if (g.pipelineGeneration.load() == gen) g.pipelineBusy = false;
 }
 
 void startRegionCapture() {
-    if (!tryBeginPipeline()) return;
-    const bool began = g.overlay->beginSession([](tf::SelectionOverlayResult result) {
-        // Runs on the main thread (overlay pumps our message loop).
-        onRegionConfirmed(result);
-    });
-    if (!began) g.pipelineBusy = false;
+    const auto gen = tryBeginPipeline();
+    if (!gen) return;
+    const std::uint64_t myGen = *gen;
+    const bool began = g.overlay->beginSession(
+        [myGen](tf::SelectionOverlayResult result) {
+            // Runs on the main thread (overlay pumps our message loop).
+            onRegionConfirmed(result, myGen);
+        });
+    if (!began) finishPipeline(myGen);
 }
 
 void dispatchAction(tf::HotkeyAction action) {
     switch (action) {
         case tf::HotkeyAction::FullScreen:
-            if (tryBeginPipeline()) {
-                onFullScreen();
-                // worker thread clears pipelineBusy when done
+            if (const auto gen = tryBeginPipeline()) {
+                onFullScreen(*gen);
+                // worker thread finishes the pipeline when done
             }
             break;
         case tf::HotkeyAction::Region:
@@ -423,11 +455,12 @@ void dispatchAction(tf::HotkeyAction action) {
             break;
         case tf::HotkeyAction::TextSelection:
         case tf::HotkeyAction::TranslateInsert:
-            if (tryBeginPipeline()) {
+            if (const auto gen = tryBeginPipeline()) {
                 const bool insert = action == tf::HotkeyAction::TranslateInsert;
-                std::thread([insert] {
+                const std::uint64_t myGen = *gen;
+                std::thread([insert, myGen] {
                     runTextSelectionFlow(insert);
-                    g.pipelineBusy = false;
+                    finishPipeline(myGen);
                 }).detach();
             }
             break;
@@ -500,6 +533,13 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.instance = instance;
+
+    // Main thread COM apartment for the WinRT pieces (tray update check and
+    // any main-thread WinRT calls).
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (...) {
+    }
 
     // Hidden top-level window (popup owner + Explorer restart broadcasts). RegisterHotKey
     // with nullptr hwnd posts WM_HOTKEY to the registering thread's queue —

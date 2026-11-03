@@ -22,6 +22,13 @@ winrt::fire_and_forget checkInstalledFeed() {
     // No application objects are captured: quitting while the request is in
     // flight cannot dereference a destroyed AppState or hidden window.
     co_await winrt::resume_background();
+    // resume_background lands on a thread-pool thread with no apartment;
+    // Package::Current() activation needs one (ignore mismatch — the pool
+    // thread model is ours).
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (...) {
+    }
     struct Reset { ~Reset() { checking = false; } } reset;
     try {
         using namespace winrt::Windows::ApplicationModel;
