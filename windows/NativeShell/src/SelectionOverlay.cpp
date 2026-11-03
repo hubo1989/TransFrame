@@ -32,6 +32,29 @@ namespace tf {
 
 using Microsoft::WRL::ComPtr;
 
+// Diagnostic: precreate failures used to vanish silently inside the MSIX
+// container while the same Win32 calls succeed in a plain process. Append
+// each step's outcome to %TEMP%\TransFrameOverlayInit.log.
+namespace {
+void initLog(const char* step, long hr) {
+    char path[MAX_PATH];
+    const DWORD n = ::GetTempPathA(MAX_PATH, path);
+    if (n == 0 || n >= MAX_PATH) return;
+    lstrcatA(path, "TransFrameOverlayInit.log");
+    HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    char line[128];
+    const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s hr=0x%08lX\n",
+                                step, (unsigned long)hr);
+    if (len > 0) {
+        DWORD written = 0;
+        ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+    }
+    ::CloseHandle(f);
+}
+}  // namespace
+
 struct SelectionOverlayController::Impl {
     HWND hwnd = nullptr;
     static constexpr wchar_t kClassName[] = L"TransFrameOverlayWnd";
@@ -170,38 +193,46 @@ struct SelectionOverlayController::Impl {
         HRESULT hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
                                          flags, nullptr, 0, D3D11_SDK_VERSION,
                                          d3dDevice.GetAddressOf(), &fl, nullptr);
+        initLog("D3D11-HARDWARE", static_cast<long>(hr));
         if (FAILED(hr)) {
             hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags,
                                      nullptr, 0, D3D11_SDK_VERSION,
                                      d3dDevice.GetAddressOf(), &fl, nullptr);
+            initLog("D3D11-WARP", static_cast<long>(hr));
         }
         if (FAILED(hr)) return false;
         d3dDevice.As(&dxgiDevice);
 
         // D2D 1.1 factory + device.
         D2D1_FACTORY_OPTIONS fo{};
-        if (FAILED(::D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                                       __uuidof(ID2D1Factory1),
-                                       &fo, reinterpret_cast<void**>(d2dFactory.GetAddressOf())))) {
-            return false;
-        }
-        if (FAILED(d2dFactory->CreateDevice(dxgiDevice.Get(), d2dDevice.GetAddressOf()))) return false;
-        if (FAILED(d2dDevice->CreateDeviceContext(
-                D2D1_DEVICE_CONTEXT_OPTIONS_NONE, d2dContext.GetAddressOf()))) {
-            return false;
-        }
+        hr = ::D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                                 __uuidof(ID2D1Factory1),
+                                 &fo, reinterpret_cast<void**>(d2dFactory.GetAddressOf()));
+        initLog("D2D1CreateFactory", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        hr = d2dFactory->CreateDevice(dxgiDevice.Get(), d2dDevice.GetAddressOf());
+        initLog("D2D-CreateDevice", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        hr = d2dDevice->CreateDeviceContext(
+                D2D1_DEVICE_CONTEXT_OPTIONS_NONE, d2dContext.GetAddressOf());
+        initLog("D2D-CreateDeviceContext", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
 
         // DirectComposition device + target bound to our HWND.
-        if (FAILED(::DCompositionCreateDevice(
+        hr = ::DCompositionCreateDevice(
                 dxgiDevice.Get(), __uuidof(IDCompositionDevice),
-                reinterpret_cast<void**>(dcompDevice.GetAddressOf())))) {
-            return false;
-        }
-        if (FAILED(dcompDevice->CreateTargetForHwnd(hwnd, TRUE, dcompTarget.GetAddressOf()))) {
-            return false;
-        }
-        if (FAILED(dcompDevice->CreateVisual(dcompVisual.GetAddressOf()))) return false;
-        if (FAILED(dcompTarget->SetRoot(dcompVisual.Get()))) return false;
+                reinterpret_cast<void**>(dcompDevice.GetAddressOf()));
+        initLog("DCompositionCreateDevice", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        hr = dcompDevice->CreateTargetForHwnd(hwnd, TRUE, dcompTarget.GetAddressOf());
+        initLog("CreateTargetForHwnd", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        hr = dcompDevice->CreateVisual(dcompVisual.GetAddressOf());
+        initLog("CreateVisual", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        hr = dcompTarget->SetRoot(dcompVisual.Get());
+        initLog("SetRoot", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
 
         // Swap chain (flip model) for the DComp content, 2 buffers.
         DXGI_SWAP_CHAIN_DESC1 scd{};
@@ -219,10 +250,15 @@ struct SelectionOverlayController::Impl {
                            reinterpret_cast<void**>(factory.GetAddressOf()));
         if (FAILED(factory->CreateSwapChainForComposition(
                 d3dDevice.Get(), &scd, nullptr, swapChain.GetAddressOf()))) {
+            initLog("CreateSwapChainForComposition", -1);
             return false;
         }
-        if (FAILED(dcompVisual->SetContent(swapChain.Get()))) return false;
-        return createTargetBitmap();
+        hr = dcompVisual->SetContent(swapChain.Get());
+        initLog("SetContent", static_cast<long>(hr));
+        if (FAILED(hr)) return false;
+        const bool ok = createTargetBitmap();
+        initLog("createTargetBitmap", ok ? 0 : -1);
+        return ok;
     }
 
     bool createTargetBitmap() {
@@ -375,6 +411,7 @@ constexpr wchar_t SelectionOverlayController::Impl::kClassName[];
 SelectionOverlayController::SelectionOverlayController() : impl_(std::make_unique<Impl>()) {}
 SelectionOverlayController::~SelectionOverlayController() = default;
 
+
 bool SelectionOverlayController::precreate() {
     auto& impl = *impl_;
     if (impl.hwnd) return true;
@@ -388,7 +425,10 @@ bool SelectionOverlayController::precreate() {
         wc.hInstance = hInst;
         wc.hCursor = ::LoadCursorW(nullptr, IDC_CROSS);
         wc.lpszClassName = Impl::kClassName;
-        if (!::RegisterClassExW(&wc)) return false;
+        if (!::RegisterClassExW(&wc)) {
+            initLog("RegisterClassExW", static_cast<long>(::GetLastError()));
+            return false;
+        }
         impl.registered = true;
     }
 
@@ -398,10 +438,18 @@ bool SelectionOverlayController::precreate() {
         Impl::kClassName, L"TransFrame Selection Overlay",
         WS_POPUP,
         0, 0, 1, 1, nullptr, nullptr, hInst, &impl);
-    if (!impl.hwnd) return false;
+    if (!impl.hwnd) {
+        initLog("CreateWindowExW", static_cast<long>(::GetLastError()));
+        return false;
+    }
+    initLog("CreateWindowExW-ok", 0);
 
-    if (!impl.createDeviceStack()) return false;
+    if (!impl.createDeviceStack()) {
+        initLog("createDeviceStack", 0);
+        return false;
+    }
     impl.resizeToVirtualDesktop();
+    initLog("precreate-ok", 0);
     return true;
 }
 
