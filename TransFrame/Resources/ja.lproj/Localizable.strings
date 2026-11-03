@@ -282,6 +282,7 @@
 "settings.shortcut.translation.mode" = "翻訳モード";
 "settings.shortcut.text.selection.translation" = "テキスト選択翻訳";
 "settings.shortcut.translate.and.insert" = "翻訳して挿入";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "キーを押してください...";
 "settings.shortcut.reset" = "デフォルトに戻す";
 "settings.shortcut.error.no.modifier" = "ショートカットには Command、Control、または Option を含める必要があります";
@@ -960,3 +961,27 @@
 "translation.provider.recovery.translationFailed" = "翻訳に失敗しました。再試行してください。";
 "translation.provider.recovery.unsupportedLanguage" = "この言語ペアはサポートされていません。別の対象言語を選択してください。";
 "translation.unknown" = "不明";
+
+/* Color History Window — TODO: translate (English placeholder) */
+"menu.color.history" = "Color History";
+"colorHistory.title" = "Color History";
+"colorHistory.search.placeholder" = "Search colors (HEX)...";
+"colorHistory.filter.favoritesOnly" = "Favorites only";
+"colorHistory.copy.format" = "Copy format";
+"colorHistory.format.hex" = "HEX";
+"colorHistory.format.rgb" = "RGB";
+"colorHistory.clear.all" = "Clear all colors";
+"colorHistory.clear.alert.title" = "Clear Color History";
+"colorHistory.clear.alert.message" = "Are you sure you want to delete all picked colors? Translation and screenshot history will not be affected. This action cannot be undone.";
+"colorHistory.copy.hex" = "Copy HEX";
+"colorHistory.copy.rgb" = "Copy RGB";
+"colorHistory.favorite" = "Favorite";
+"colorHistory.unfavorite" = "Unfavorite";
+"colorHistory.copied" = "Copied";
+"colorHistory.empty.title" = "No Picked Colors";
+"colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
+"colorHistory.no.results.title" = "No Matching Colors";
+"colorHistory.no.results.message" = "No colors match your search";
+"colorHistory.toast.viewHistory" = "View History";

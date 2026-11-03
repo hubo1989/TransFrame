@@ -16,7 +16,7 @@ final class HistoryWindowController: NSObject {
     private var window: NSWindow?
 
     /// The history store
-    private let store: HistoryStore
+    let store: HistoryStore
 
     // MARK: - Initialization
 

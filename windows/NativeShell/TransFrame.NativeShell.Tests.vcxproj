@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Catch2 tests for the NativeShell policy layer (portable).
+       Runs on any platform via CMake (see CMakeLists.txt) and on Windows via
+       this vcxproj inside the TransFrame solution. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{B0000000-0000-0000-0000-00000000000C}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>TransFrame</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IncludePath>$(ProjectDir)tests;$(ProjectDir)include;$(IncludePath)</IncludePath>
+    <LanguageStandard>stdcpp20</LanguageStandard>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <ConformanceMode>true</ConformanceMode>
+      <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="tests\TestMain.cpp"/>
+    <ClCompile Include="tests\catch_amalgamated.cpp"/>
+    <ClCompile Include="tests\GeoTests.cpp"/>
+    <ClCompile Include="tests\DisplayMonitorTests.cpp"/>
+    <ClCompile Include="tests\DpiScalingTests.cpp"/>
+    <ClCompile Include="tests\WindowDetectorTests.cpp"/>
+    <ClCompile Include="tests\HotkeyManagerTests.cpp"/>
+    <ClCompile Include="tests\CaptureServiceTests.cpp"/>
+    <ClCompile Include="tests\OverlayRendererTests.cpp"/>
+    <ClCompile Include="tests\TrayMenuTests.cpp"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NativeShell\TransFrame.NativeShell.vcxproj">
+      <Project>{B0000000-0000-0000-0000-00000000000B}</Project>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

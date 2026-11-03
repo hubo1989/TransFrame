@@ -55,6 +55,15 @@ struct KeyboardShortcut: Equatable, Codable, Sendable {
         modifiers: UInt32(cmdKey | shiftKey)
     )
 
+    /// Default screen color pick shortcut: Control + Command + C.
+    /// Distinct from the system-wide Cmd+C copy: adds Control, keeping it in
+    /// the same "family" as the capture hotkeys while avoiding the plain
+    /// clipboard binding (spec §4.2 empty-state hint references this).
+    static let pickColorDefault = KeyboardShortcut(
+        keyCode: UInt32(kVK_ANSI_C),
+        modifiers: UInt32(cmdKey | controlKey)
+    )
+
     // MARK: - Validation
 
     /// Checks if the shortcut includes at least one modifier key

@@ -290,6 +290,7 @@
 "settings.shortcut.translation.mode" = "翻译模式";
 "settings.shortcut.text.selection.translation" = "文本选择翻译";
 "settings.shortcut.translate.and.insert" = "翻译并插入";
+"settings.shortcut.pick.color" = "屏幕取色";
 "settings.shortcut.recording" = "按下快捷键...";
 "settings.shortcut.reset" = "恢复默认";
 "settings.shortcut.error.no.modifier" = "快捷键必须包含 Command、Control 或 Option";
@@ -546,6 +547,30 @@
 
 "history.clear.alert.title" = "清除历史";
 "history.clear.alert.message" = "确定要删除所有翻译历史吗？此操作无法撤销。";
+
+/* 取色历史窗口 */
+"menu.color.history" = "取色历史";
+"colorHistory.title" = "取色历史";
+"colorHistory.search.placeholder" = "搜索颜色 (HEX)...";
+"colorHistory.filter.favoritesOnly" = "仅显示收藏";
+"colorHistory.copy.format" = "复制格式";
+"colorHistory.format.hex" = "HEX";
+"colorHistory.format.rgb" = "RGB";
+"colorHistory.clear.all" = "清空全部颜色";
+"colorHistory.clear.alert.title" = "清空取色历史";
+"colorHistory.clear.alert.message" = "确定要删除所有取色记录吗？翻译与截图历史不受影响。此操作无法撤销。";
+"colorHistory.copy.hex" = "复制 HEX";
+"colorHistory.copy.rgb" = "复制 RGB";
+"colorHistory.favorite" = "收藏";
+"colorHistory.unfavorite" = "取消收藏";
+"colorHistory.copied" = "已复制";
+"colorHistory.empty.title" = "还没有取色记录";
+"colorHistory.empty.message" = "使用取色器拾取屏幕颜色后，颜色会显示在这里";
+"colorHistory.empty.shortcut" = "任意界面按 %@ 即可拾取屏幕颜色";
+"colorHistory.empty.trayHint" = "从托盘菜单选择：屏幕取色";
+"colorHistory.no.results.title" = "没有匹配的颜色";
+"colorHistory.no.results.message" = "没有颜色匹配您的搜索";
+"colorHistory.toast.viewHistory" = "查看历史";
 
 
 /* ========================================
