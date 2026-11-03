@@ -66,6 +66,7 @@
 
   <ItemGroup>
     <ClCompile Include="AppMain.cpp" />
+    <ClCompile Include="EngineBootstrap.cpp" />
     <ClCompile Include="UpdateService.cpp" />
     <ResourceCompile Include="App.rc" />
     <!-- The static library cannot embed the manifest in the app EXE; merge

@@ -16,8 +16,10 @@ App（`windows/App`）将各模块接入完整用户流程：托盘 + 全局热�
 - `Ctrl+Alt+I` 翻译并插入：划词 → 翻译 → 目标重验证（PID/UIA 锚点）→
   仅验证通过才 Ctrl+V（FR-29 绝不盲贴）。
 - `Esc` 取消选区；托盘菜单提供相同动作 + 退出。
-- 翻译引擎默认 MTranServer `http://localhost:8989`，
-  环境变量 `TRANSFRAME_MTRAN_URL` / `TRANSFRAME_TARGET_LANG`（默认 `zh`）可覆盖。
+- 翻译引擎默认 MTranServer `http://localhost:8989`；`%APPDATA%\TransFrame\engines.json`
+  （可选，见 `docs/engines-config.md`）配置 9 引擎注册表、兼容多实例、
+  场景绑定与三层 Prompt；环境变量 `TRANSFRAME_MTRAN_URL` /
+  `TRANSFRAME_TARGET_LANG`（默认 `zh`）可覆盖。
 
 ## 目录
 
@@ -40,18 +42,25 @@ windows/
 
 ## 构建（Core 单测 — 任意平台）
 
-macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 13+ 等价）：
+macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 13+ 等价）。
+文件清单与 `CMakeLists.txt` 的 `translation_tests` 目标一致（EngineBootstrap
+虽在 `App/`，但平台无关，同样编入）：
 
 ```bash
 clang++ -std=c++20 \
-  -I windows/Core/include -I windows/Core/vendor \
-  -I windows/Tests -I windows/Tests/vendor \
-  windows/Core/src/*.cpp windows/Tests/*.cpp \
+  -I windows/Core/include -I windows/Core/vendor -I windows/external \
+  -I windows/App -I windows/Tests -I windows/Tests/vendor \
+  windows/Core/src/*.cpp windows/App/EngineBootstrap.cpp \
+  windows/Tests/TranslationSchedulerTests.cpp windows/Tests/ProvidersTests.cpp \
+  windows/Tests/LLMTranslationCoreTests.cpp windows/Tests/EngineHealthCheckerTests.cpp \
+  windows/Tests/OcrAndTextSelectionTests.cpp windows/Tests/EngineBootstrapTests.cpp \
   windows/Tests/vendor/catch_amalgamated.cpp \
   -o tests_runner && ./tests_runner
 ```
 
-**不要**把 `windows/NativeShell/src/*.cpp` 编入 — 它们是 `_WIN32`-only。
+**不要**把 `windows/NativeShell/src/*.cpp` 编入 — 它们是 `_WIN32`-only；
+也不要 glob `windows/Tests/*.cpp`（CoreModels/VisualLineGrouping 等测试
+依赖 `tf::core` 实现，不在本目标的文件清单里，混入会链接失败）。
 
 ## 构建（Windows 全量，含 NativeShell）
 
@@ -74,7 +83,8 @@ cl /std:c++20 /EHsc ^
 ./tests_runner "[health][cache]"   # 组合过滤
 ```
 
-当前：**105 test cases / 370 assertions 全绿**（macOS arm64, Apple clang 21.0.0）。
+当前：**126 test cases / 531 assertions 全绿**（macOS arm64, Apple clang 21.0.0；
+含 `[bootstrap]` 引擎接线套件 11 例）。
 
 ## 引擎文档
 
