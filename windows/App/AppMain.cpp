@@ -53,6 +53,7 @@
 
 // Core (translation services)
 #include "EngineBootstrap.hpp"
+#include "tf/MTranServerProvider.hpp"
 #include "tf/CoreModels.hpp"
 #include "tf/CredManKeyStore.h"
 #include "tf/TranslationScheduler.hpp"
@@ -880,9 +881,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
         g.engineConfig = next;
         g_targetLang = toWide(next.targetLang);
-        // Live apply: rebuild the provider (engine construction itself is
-        // untouched); the scheduler picks it up on the next run.
-        g.mtran = std::make_unique<tf::MTranServerProvider>(*parsed, g.transport);
+        // The engine bootstrap reads engines.json at startup, so the new
+        // endpoint takes effect on the next app launch.
         return {};
     };
     settingsCallbacks.currentSpecs = [] { return g.hotkeySpecs; };

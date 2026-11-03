@@ -33,7 +33,7 @@ std::wstring utf8ToWide(const std::string& utf8) {
     const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
     if (n <= 0) return {};
     std::wstring out(static_cast<std::size_t>(n), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, out.data());
+    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, out.data(), n);
     out.resize(out.size() - 1);
     return out;
 }
@@ -307,8 +307,8 @@ HistoryWindowController::HistoryWindowController(core::HistoryStore* store)
 }
 
 HistoryWindowController::~HistoryWindowController() {
-    if (impl_->hwnd) ::DestroyWindow(impl_->hwnd);
-    delete impl_;
+    if (impl_ && impl_->hwnd) ::DestroyWindow(impl_->hwnd);
+    impl_.reset();
 }
 
 bool HistoryWindowController::registerClass(HINSTANCE instance) {

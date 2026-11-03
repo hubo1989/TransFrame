@@ -297,9 +297,10 @@ PixelBuffer renderComposited(const PixelBuffer& base,
     if (!wic || !d2d) return out;
 
     ComPtr<IWICBitmap> wicBitmap;
-    if (FAILED(wic->CreateWICBitmap(static_cast<UINT>(base.width),
-                                    static_cast<UINT>(base.height),
-                                    GUID_WICPixelFormat32bppBGRA, &wicBitmap))) {
+    if (FAILED(wic->CreateBitmap(static_cast<UINT>(base.width),
+                                 static_cast<UINT>(base.height),
+                                 GUID_WICPixelFormat32bppBGRA, WICBitmapCacheOnLoad,
+                                 &wicBitmap))) {
         return out;
     }
     const D2D1_PIXEL_FORMAT pixelFormat = D2D1::PixelFormat(
@@ -307,7 +308,7 @@ PixelBuffer renderComposited(const PixelBuffer& base,
     const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_SOFTWARE, pixelFormat);
     ComPtr<ID2D1RenderTarget> rt;
-    if (FAILED(d2d->CreateWicRenderTarget(wicBitmap.Get(), props, &rt))) return out;
+    if (FAILED(d2d->CreateWicBitmapRenderTarget(wicBitmap.Get(), props, &rt))) return out;
 
     ComPtr<ID2D1Bitmap> baseBitmap;
     if (FAILED(rt->CreateBitmapFromWicBitmap(wicBitmap.Get(), &baseBitmap))) return out;
@@ -316,8 +317,8 @@ PixelBuffer renderComposited(const PixelBuffer& base,
     rt->DrawBitmap(baseBitmap.Get(),
                    D2D1_RECT_F{0.f, 0.f, static_cast<FLOAT>(base.width),
                                static_cast<FLOAT>(base.height)},
-                   1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST);
-    drawAnnotations(*rt, document.annotations());
+                   1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    drawAnnotations(*rt.Get(), document.annotations());
     if (FAILED(rt->EndDraw())) return out;
 
     const std::int32_t stride = base.width * 4;

@@ -71,7 +71,10 @@ Point shiftConstrain(Point start, Point current, bool square) {
     if (dx == 0 && dy == 0) { return current; }
     // Snap to the nearest multiple of 45°, extending by the dominant drag
     // axis so near-horizontal drags keep the mouse's x (projection feel).
-    const double snapped = std::round(std::atan2(dy, dx) / (M_PI / 4.0)) * (M_PI / 4.0);
+    // MSVC's <cmath> hides M_PI behind _USE_MATH_DEFINES; a local constant
+    // keeps this portable.
+    constexpr double kQuarterPi = 0.78539816339744830962;
+    const double snapped = std::round(std::atan2(dy, dx) / kQuarterPi) * kQuarterPi;
     const double s = std::max(std::abs(dx), std::abs(dy));
     return Point{start.x + s * std::cos(snapped),
                  start.y + s * std::sin(snapped)};

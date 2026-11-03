@@ -52,7 +52,7 @@ std::wstring utf8ToWide(const std::string& utf8) {
     const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
     if (n <= 0) return {};
     std::wstring out(static_cast<std::size_t>(n), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, out.data());
+    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, out.data(), n);
     out.resize(out.size() - 1);
     return out;
 }
@@ -125,7 +125,10 @@ struct SettingsWindowController::Impl {
         ::GetClientRect(hwnd, &rc);
         UINT dpi = ::GetDpiForWindow(hwnd);
         const int pad = dpiScaled(dpi, 14);
-        RECT page{rc.left + pad, rc.top + pad + dpiScaled(dpi, 30), rc.right - pad, rc.bottom - pad};
+        RECT page{static_cast<LONG>(rc.left + pad),
+                  static_cast<LONG>(rc.top + pad + dpiScaled(dpi, 30)),
+                  static_cast<LONG>(rc.right - pad),
+                  static_cast<LONG>(rc.bottom - pad)};
         return page;
     }
 
@@ -244,12 +247,12 @@ struct SettingsWindowController::Impl {
         const core::EngineConfig current = callbacks.loadEngineConfig();
         if (langCombo) {
             const std::wstring lang = utf8ToWide(current.targetLang);
-            LRESULT found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, -1,
+            LRESULT found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1),
                                            reinterpret_cast<LPARAM>(lang.c_str()));
             if (found == CB_ERR) {
                 ::SendMessageW(langCombo, CB_ADDSTRING, 0,
                                reinterpret_cast<LPARAM>(lang.c_str()));
-                found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, -1,
+                found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1),
                                        reinterpret_cast<LPARAM>(lang.c_str()));
             }
             ::SendMessageW(langCombo, CB_SETCURSEL, found, 0);
@@ -453,7 +456,7 @@ SettingsWindowController::SettingsWindowController(SettingsWindowCallbacks callb
 
 SettingsWindowController::~SettingsWindowController() {
     close();
-    delete impl_;
+    impl_.reset();
 }
 
 bool SettingsWindowController::registerClass(HINSTANCE instance) {

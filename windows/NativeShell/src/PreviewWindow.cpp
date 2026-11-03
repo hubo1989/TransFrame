@@ -9,6 +9,8 @@
 // centered. Image px -> client px:  client = origin + imagePt * scale.
 #include "pch.h"
 
+#include <objbase.h>  // RPC_E_ALREADY_INITIALIZED
+
 #include "tf/PreviewWindow.hpp"
 #include "tf/ImageExporter.hpp"
 
@@ -42,7 +44,6 @@ using Microsoft::WRL::ComPtr;
 using tf::core::Annotation;
 using tf::core::AnnotationDocument;
 using tf::core::AnnotationTool;
-using tf::core::Point;
 using tf::core::Rect;
 
 constexpr wchar_t kPreviewWndClass[] = L"TransFramePreviewWnd";
@@ -53,11 +54,11 @@ constexpr int kMinWindowH = 400;
 
 // Small helpers shared with the annotation drawing path (static linkage;
 // ImageExporter.cpp keeps its own copies in its anonymous namespace).
-D2D1_POINT_2F toPoint2F(const Point& p) {
+D2D1_POINT_2F toPoint2F(const core::Point& p) {
     return D2D1_POINT_2F{static_cast<FLOAT>(p.x), static_cast<FLOAT>(p.y)};
 }
 
-D2D1_RECT_F toRectF(const Rect& r) {
+D2D1_RECT_F toRectF(const core::Rect& r) {
     return D2D1_RECT_F{static_cast<FLOAT>(r.minX()), static_cast<FLOAT>(r.minY()),
                        static_cast<FLOAT>(r.maxX()), static_cast<FLOAT>(r.maxY())};
 }
@@ -92,6 +93,12 @@ struct TextInputState {
     WNDPROC originalEditProc = nullptr;
     HWND edit = nullptr;
     bool confirmed = false;
+};
+
+/// Result of the modal text-input popup (Enter confirmed / Esc cancelled).
+struct TextInputResult {
+    bool confirmed = false;
+    std::wstring text;
 };
 
 /// One live modal input at a time (single UI thread).
@@ -183,7 +190,6 @@ TextInputResult showTextInput(HWND owner, const std::wstring& title,
         if (msg.hwnd == popup && msg.message == WM_CLOSE) {
             done = true;
         } else if (msg.message == WM_COMMAND) {
-            const int id = LOWORD(msg.wParam);
             const int code = HIWORD(msg.wParam);
             if (msg.hwnd == ok && code == BN_CLICKED) {
                 state.confirmed = true;
@@ -201,8 +207,7 @@ TextInputResult showTextInput(HWND owner, const std::wstring& title,
         const int len = ::GetWindowTextLengthW(edit) + 1;
         std::wstring text(static_cast<std::size_t>(len), L'\0');
         ::GetWindowTextW(edit, text.data(), len);
-        text.resize(text.find(L'\0') == std::wstring::npos ? text.size()
-                                                           : text.find(L'\0'));
+        text.resize(std::wcslen(text.c_str()));
         result.confirmed = !text.empty();
         result.text = text;
     }
@@ -218,6 +223,8 @@ constexpr int kBtnW = 64;
 constexpr int kBtnH = 28;
 constexpr int kBtnGap = 8;
 
+}  // namespace
+
 struct PreviewWindowController::Impl {
     HWND hwnd = nullptr;
     HINSTANCE instance = nullptr;
@@ -229,9 +236,9 @@ struct PreviewWindowController::Impl {
     // Drag state (image pixel coordinates).
     bool dragging = false;
     bool moving = false;
-    Point dragStart{};
-    Point dragCurrent{};
-    Point moveLast{};
+    core::Point dragStart{};
+    core::Point dragCurrent{};
+    core::Point moveLast{};
 
     // Toolbar child HWNDs keyed by ToolButton.
     HWND buttons[9] = {};
@@ -280,17 +287,17 @@ struct PreviewWindowController::Impl {
                                kToolbarHeight + (canvasH - imageH * scale) / 2};
     }
 
-    Point clientToImage(POINT pt) const {
-        if (scale <= 0) return Point{0, 0};
-        return Point{(pt.x - origin.x) / scale, (pt.y - origin.y) / scale};
+    core::Point clientToImage(POINT pt) const {
+        if (scale <= 0) return core::Point{0, 0};
+        return core::Point{(pt.x - origin.x) / scale, (pt.y - origin.y) / scale};
     }
 
-    Rect selectedBounds() const {
-        if (!selectedId) return Rect{};
+    core::Rect selectedBounds() const {
+        if (!selectedId) return core::Rect{};
         const Annotation* a = document.findById(*selectedId);
-        if (!a) return Rect{};
+        if (!a) return core::Rect{};
         return std::visit(
-            [](const auto& payload) -> Rect {
+            [](const auto& payload) -> core::Rect {
                 using T = std::decay_t<decltype(payload)>;
                 if constexpr (std::is_same_v<T, tf::core::TextAnnotation>) {
                     return tf::core::estimatedTextBounds(payload);
@@ -342,9 +349,10 @@ struct PreviewWindowController::Impl {
             return;
         }
         ComPtr<IWICBitmap> wicBitmap;
-        if (FAILED(wic->CreateWICBitmap(static_cast<UINT>(spec.image->width),
-                                        static_cast<UINT>(spec.image->height),
-                                        GUID_WICPixelFormat32bppBGRA, &wicBitmap))) {
+        if (FAILED(wic->CreateBitmap(static_cast<UINT>(spec.image->width),
+                                     static_cast<UINT>(spec.image->height),
+                                     GUID_WICPixelFormat32bppBGRA, WICBitmapCacheOnLoad,
+                                     &wicBitmap))) {
             return;
         }
         WICRect full{0, 0, spec.image->width, spec.image->height};
@@ -372,14 +380,14 @@ struct PreviewWindowController::Impl {
             rt->DrawBitmap(baseBitmap.Get(),
                            D2D1_RECT_F{0.f, 0.f, imageW, imageH}, 1.0f,
                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-            drawAnnotations(*rt, document.annotations());
+            drawAnnotations(*rt.Get(), document.annotations());
 
             // In-flight drag preview.
             if (dragging) {
-                drawDragPreview(*rt);
+                drawDragPreview(*rt.Get());
             }
             // Selection box (dashed, drawn in image space; scale via transform).
-            const Rect b = selectedBounds();
+            const core::Rect b = selectedBounds();
             if (b.width > 0 || b.height > 0) {
                 ComPtr<ID2D1SolidColorBrush> sel;
                 if (SUCCEEDED(rt->CreateSolidColorBrush(
@@ -406,7 +414,7 @@ struct PreviewWindowController::Impl {
             target.DrawRectangle(toRectF(normalizeRect(dragStart, dragCurrent)),
                                  brush.Get(), 1.5f / scale);
         } else if (activeTool == AnnotationTool::Arrow) {
-            const Point end = ::GetKeyState(VK_SHIFT) < 0
+            const core::Point end = ::GetKeyState(VK_SHIFT) < 0
                 ? shiftConstrain(dragStart, dragCurrent, false)
                 : dragCurrent;
             target.DrawLine(toPoint2F(dragStart), toPoint2F(end), brush.Get(),
@@ -507,7 +515,8 @@ struct PreviewWindowController::Impl {
             HRESULT hr;
             ~ComGuard() { if (SUCCEEDED(hr)) ::CoUninitialize(); }
         } comGuard{com};
-        if (FAILED(com) && com != RPC_E_ALREADY_INITIALIZED) {
+        constexpr HRESULT kRpcEAlreadyInitialized = 0x80010106;  // RPC_E_ALREADY_INITIALIZED
+        if (FAILED(com) && com != kRpcEAlreadyInitialized) {
             notify(L"COM 初始化失败，无法打开保存对话框");
             return;
         }
@@ -697,7 +706,7 @@ struct PreviewWindowController::Impl {
                 ::SetCapture(h);
                 ::SetFocus(h);
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                const Point img = clientToImage(pt);
+                const core::Point img = clientToImage(pt);
                 if (activeTool == AnnotationTool::Rectangle ||
                     activeTool == AnnotationTool::Arrow) {
                     dragging = true;
@@ -734,12 +743,13 @@ struct PreviewWindowController::Impl {
             case WM_MOUSEMOVE: {
                 if (::GetCapture() != h) break;
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                const Point img = clientToImage(pt);
+                const core::Point img = clientToImage(pt);
                 if (dragging) {
                     dragCurrent = img;
                 } else if (moving && selectedId) {
-                    document.translateDirect(*selectedId, img.x - moveLast.x,
-                                             img.y - moveLast.y);
+                    document.translateDirect(*selectedId,
+                                             static_cast<double>(img.x - moveLast.x),
+                                             static_cast<double>(img.y - moveLast.y));
                     moveLast = img;
                 }
                 ::InvalidateRect(h, nullptr, FALSE);
@@ -748,11 +758,11 @@ struct PreviewWindowController::Impl {
             case WM_LBUTTONUP: {
                 if (::GetCapture() == h) ::ReleaseCapture();
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                const Point img = clientToImage(pt);
+                const core::Point img = clientToImage(pt);
                 if (dragging) {
                     dragging = false;
                     if (activeTool == AnnotationTool::Rectangle) {
-                        const Point end = (::GetKeyState(VK_SHIFT) < 0)
+                        const core::Point end = (::GetKeyState(VK_SHIFT) < 0)
                                               ? shiftConstrain(dragStart, img, true)
                                               : img;
                         tf::core::RectangleAnnotation r;
@@ -764,7 +774,7 @@ struct PreviewWindowController::Impl {
                             syncHistoryButtons();
                         }
                     } else if (activeTool == AnnotationTool::Arrow) {
-                        const Point end = (::GetKeyState(VK_SHIFT) < 0)
+                        const core::Point end = (::GetKeyState(VK_SHIFT) < 0)
                                               ? shiftConstrain(dragStart, img, false)
                                               : img;
                         tf::core::ArrowAnnotation a;
@@ -792,7 +802,6 @@ struct PreviewWindowController::Impl {
     }
 };
 
-}  // anonymous namespace: helpers, text input, Impl
 
 // ------------------------------------------------- class external surface —
 

@@ -421,7 +421,8 @@ std::function<UiaElementPtr()> MakeWin32UiaFocusedElement() {
         if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr,
                                       CLSCTX_INPROC_SERVER,
                                       __uuidof(IUIAutomation),
-                                      automation.ReleaseAndGetAddressOf())) ||
+                                      reinterpret_cast<LPVOID*>(
+                                          automation.ReleaseAndGetAddressOf()))) ||
             !automation) {
             return nullptr;
         }

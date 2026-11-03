@@ -39,7 +39,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\App;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(ProjectDir)vendor;$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor\nlohmann;$(ProjectDir)..\App;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
 
     <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
   </PropertyGroup>
