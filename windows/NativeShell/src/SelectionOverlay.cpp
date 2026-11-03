@@ -161,14 +161,21 @@ struct SelectionOverlayController::Impl {
     }
 
     bool createDeviceStack() {
-        // D3D11 (BGRA support is mandatory for D2D interop).
+        // D3D11 (BGRA support is mandatory for D2D interop). Hardware first;
+        // WARP fallback — sessions without a usable GPU (RDP, restricted
+        // drivers) fail D3D_DRIVER_TYPE_HARDWARE, which used to kill the
+        // overlay silently. WARP is plenty for filled-rect frames.
         UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
         D3D_FEATURE_LEVEL fl{};
-        if (FAILED(::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                       flags, nullptr, 0, D3D11_SDK_VERSION,
-                                       d3dDevice.GetAddressOf(), &fl, nullptr))) {
-            return false;
+        HRESULT hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+                                         flags, nullptr, 0, D3D11_SDK_VERSION,
+                                         d3dDevice.GetAddressOf(), &fl, nullptr);
+        if (FAILED(hr)) {
+            hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags,
+                                     nullptr, 0, D3D11_SDK_VERSION,
+                                     d3dDevice.GetAddressOf(), &fl, nullptr);
         }
+        if (FAILED(hr)) return false;
         d3dDevice.As(&dxgiDevice);
 
         // D2D 1.1 factory + device.

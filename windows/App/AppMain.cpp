@@ -453,7 +453,14 @@ void startRegionCapture() {
             // Runs on the main thread (overlay pumps our message loop).
             onRegionConfirmed(result, myGen);
         });
-    if (!began) finishPipeline(myGen);
+    if (!began) {
+        finishPipeline(myGen);
+        tf::ResultWindowContent c;
+        c.translatedText = L"区域截图启动失败（会话被占用或图形设备不可用）";
+        c.statusLine = L"Overlay beginSession failed";
+        c.anchorPhysical = tf::Rect{200, 200, 400, 100};
+        showResultOnMain(c);
+    }
 }
 
 void dispatchAction(tf::HotkeyAction action) {
@@ -635,6 +642,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // Pre-create the overlay window + D2D/DComp stack (<= 60ms hotkey path).
     if (!g.overlay->precreate()) {
         // Region capture needs the overlay; full-screen/划词 still work.
+        // Surface the failure — a silent dead menu item looks like a hang.
+        tf::ResultWindowContent c;
+        c.translatedText = L"区域截图初始化失败（图形设备不可用）";
+        c.statusLine = L"Overlay precreate failed";
+        c.anchorPhysical = tf::Rect{200, 200, 400, 100};
+        showResultOnMain(c);
     }
 
     // Main loop. WM_HOTKEY arrives as a THREAD message (RegisterHotKey with
