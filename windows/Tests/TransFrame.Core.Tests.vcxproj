@@ -39,7 +39,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\App;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -65,9 +65,11 @@
   <ItemGroup>
     <ClCompile Include="TestMain.cpp" />
     <ClCompile Include="CoreModelsTests.cpp" />
+    <ClCompile Include="EngineBootstrapTests.cpp" />
     <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
     <ClCompile Include="TranslationPromptConfigTests.cpp" />
     <ClCompile Include="VisualLineGroupingTests.cpp" />
+    <ClCompile Include="..\App\EngineBootstrap.cpp" />
     <ClCompile Include="..\external\catch2\catch_amalgamated.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

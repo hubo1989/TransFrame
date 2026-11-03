@@ -28,9 +28,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -49,9 +52,9 @@
 #include "tf/Win32OcrUiaHosts.h"
 
 // Core (translation services)
+#include "EngineBootstrap.hpp"
 #include "tf/CoreModels.hpp"
-#include "tf/MTranServerProvider.hpp"
-#include "tf/TranslationProvider.hpp"
+#include "tf/CredManKeyStore.h"
 #include "tf/TranslationScheduler.hpp"
 #include "tf/VisualLineGrouping.hpp"
 #include "tf/WinHttpTransport.h"
@@ -82,9 +85,13 @@ struct AppState {
     std::unique_ptr<tf::ResultWindowController> results;
     std::unique_ptr<tf::TrayIconService> tray;
 
-    // Translation stack.
+    // Translation stack (FR-16..24 engine wiring). Declaration order here is
+    // load-bearing: the scheduler's closures capture g.engines, and members
+    // are destroyed in reverse declaration order — the scheduler (and its
+    // worker threads) must die before the bootstrap they read from.
     std::shared_ptr<tf::WinHttpTransport> transport;
-    std::unique_ptr<tf::MTranServerProvider> mtran;
+    std::shared_ptr<tf::ICredentialStore> credentials;
+    std::unique_ptr<tf::app::EngineBootstrap> engines;
     std::unique_ptr<tf::TranslationScheduler> scheduler;
 
     // OCR engine + Win32 text-selection host.
@@ -133,6 +140,39 @@ std::wstring toWide(const std::string& utf8) {
 }
 
 // ---------------------------------------------------------------------------
+// engines.json loading (FR-16..24 bootstrap)
+// ---------------------------------------------------------------------------
+
+/// %APPDATA%\TransFrame\engines.json (UTF-8 JSON). Absent %APPDATA% → empty
+/// path → the loader skips the file and the built-in defaults apply.
+std::wstring enginesJsonPath() {
+    const DWORD cap = ::GetEnvironmentVariableW(L"APPDATA", nullptr, 0);
+    if (cap == 0) return {};
+    std::wstring appdata(cap, L'\0');
+    const DWORD n = ::GetEnvironmentVariableW(L"APPDATA", appdata.data(), cap);
+    if (n == 0 || n >= cap) return {};
+    appdata.resize(n);
+    return appdata + L"\\TransFrame\\engines.json";
+}
+
+/// Reads a whole file as UTF-8 bytes (BOM stripped). Nullopt when missing or
+/// unreadable; the caller falls back to the built-in engine defaults.
+std::optional<std::string> readTextFileUtf8(const std::wstring& path) {
+    if (path.empty()) return std::nullopt;
+    std::ifstream in(std::filesystem::path(path), std::ios::binary);
+    if (!in) return std::nullopt;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    if (in.bad()) return std::nullopt;
+    std::string out = ss.str();
+    if (out.size() >= 3 && static_cast<unsigned char>(out[0]) == 0xEF &&
+        static_cast<unsigned char>(out[1]) == 0xBB && static_cast<unsigned char>(out[2]) == 0xBF) {
+        out.erase(0, 3);  // UTF-8 BOM
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Translation pipeline (worker thread; UI updates post back to the main thread)
 // ---------------------------------------------------------------------------
 
@@ -151,31 +191,78 @@ void showResultOnMain(const tf::ResultWindowContent& c) {
     }
 }
 
-std::string translateTexts(const std::vector<std::string>& texts) {
-    tf::ChainRequest req;
-    req.chain.push_back(tf::EngineChainItem::makeBuiltin(tf::TranslationEngineType::MtranServer));
-    req.texts = texts;
-    req.sourceLanguage = "";  // auto-detect (MTranServer default)
-    req.targetLanguage = toUtf8(g_targetLang);
-    req.scene = tf::TranslationScene::Screenshot;
-    req.cancelToken = g.shutdownToken;
-
-    const tf::SchedulerOutcome out = g.scheduler->translateOrdered(req);
-    if (out.isSuccess() && out.bundle && !out.bundle->results.empty()) {
-        const auto& results = out.bundle->results;
-        // First engine's joined translation.
-        std::string joined;
-        for (const auto& seg : results.front().segments) {
-            if (!joined.empty()) joined += "\n";
-            joined += seg.translated;
-        }
-        return joined;
+/// Joins the winning engine's segments (compare mode surfaces the first
+/// engine's text in the v1 popup; the compare side-by-side UI lands with the
+/// settings page). Empty when the whole chain/set failed.
+std::string joinedFirstResult(const tf::SchedulerOutcome& out) {
+    if (!out.isSuccess() || !out.bundle || out.bundle->results.empty()) return {};
+    std::string joined;
+    for (const auto& seg : out.bundle->results.front().segments) {
+        if (!joined.empty()) joined += "\n";
+        joined += seg.translated;
     }
+    return joined;
+}
+
+/// Aggregates scheduler failures the way the v1 flow expects: the popup flow
+/// checks for the "所有引擎失败" prefix to decide between translation and
+/// error display.
+std::string failureSummary(const tf::SchedulerOutcome& out) {
     std::string err = "所有引擎失败";
     for (const auto& f : out.failures) {
         err += "\n" + f.displayName + ": " + f.errorText;
     }
     return err;
+}
+
+/// Display label for the scene's primary engine (popup status line). Falls
+/// back to MTranServer when no bootstrap is present.
+std::wstring primaryEngineLabel(tf::TranslationScene scene) {
+    if (g.engines) {
+        const tf::app::SceneRoute route = g.engines->routeForScene(scene);
+        if (!route.items.empty()) {
+            const auto& item = route.items.front();
+            if (item.kind == tf::EngineChainItem::Kind::Compatible) {
+                if (const auto c = g.engines->compatibleById(item.compatibleId)) {
+                    return toWide(c->displayName);
+                }
+            }
+            return toWide(std::string(tf::translationEngineDisplayName(item.builtin)));
+        }
+    }
+    return L"MTranServer";
+}
+
+std::string translateTexts(const std::vector<std::string>& texts, tf::TranslationScene scene) {
+    if (!g.scheduler) return std::string("所有引擎失败\n翻译服务未初始化");
+    if (!g.engines) return std::string("所有引擎失败\n翻译服务未初始化");
+
+    // FR-23 routing: scene binding → global chain; compare-bound scenes run
+    // translateCompare and surface the first engine's text in the v1 popup.
+    const tf::app::SceneRoute route = g.engines->routeForScene(scene);
+    tf::SchedulerOutcome out;
+    if (route.useCompare) {
+        tf::CompareRequest creq;
+        creq.engines = route.items;
+        creq.texts = texts;
+        creq.sourceLanguage = "";  // auto-detect (v1 default)
+        creq.targetLanguage = toUtf8(g_targetLang);
+        creq.scene = scene;
+        creq.cancelToken = g.shutdownToken;
+        out = g.scheduler->translateCompare(creq);
+    } else {
+        tf::ChainRequest req;
+        req.chain = route.items;
+        req.texts = texts;
+        req.sourceLanguage = "";  // auto-detect (v1 default)
+        req.targetLanguage = toUtf8(g_targetLang);
+        req.scene = scene;
+        req.cancelToken = g.shutdownToken;
+        out = g.scheduler->translateOrdered(req);
+    }
+    std::string joined = joinedFirstResult(out);
+    if (!joined.empty()) return joined;
+    return failureSummary(out);
 }
 
 /// Screenshot flow: pixels -> OCR -> line merge -> translate -> result popup.
@@ -238,7 +325,7 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
     std::string translated;
     std::string errorNote;
     if (!texts.empty()) {
-        translated = translateTexts(texts);
+        translated = translateTexts(texts, tf::TranslationScene::Screenshot);
         if (translated.rfind("所有引擎失败", 0) == 0) {
             errorNote = translated;
             translated.clear();
@@ -256,7 +343,7 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
     }
     c.sourceText = toWide(full);
     c.translatedText = errorNote.empty() ? toWide(translated) : toWide(errorNote);
-    c.engineLabel = L"MTransServer";
+    c.engineLabel = primaryEngineLabel(tf::TranslationScene::Screenshot);
     const auto ms = [](auto a, auto b) {
         return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
     };
@@ -385,7 +472,8 @@ void runTextSelectionFlow(bool insertMode) {
 
     if (insertMode) {
         // Translate then re-validate the target before pasting (FR-29).
-        const std::string translated = translateTexts({src});
+        const std::string translated =
+            translateTexts({src}, tf::TranslationScene::TranslateAndInsert);
         if (translated.rfind("所有引擎失败", 0) == 0) {
             tf::ResultWindowContent c;
             c.translatedText = toWide(translated);
@@ -407,7 +495,7 @@ void runTextSelectionFlow(bool insertMode) {
         return;
     }
 
-    const std::string translated = translateTexts({src});
+    const std::string translated = translateTexts({src}, tf::TranslationScene::TextSelection);
     tf::ResultWindowContent c;
     c.sourceText = toWide(src);
     c.translatedText = toWide(translated);
@@ -591,36 +679,40 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.ocr = tf::makeWindowsOcrEngine();
     g.textHost = std::make_unique<tf::Win32TextExtractorHost>();
 
-    // Translation stack: WinHTTP transport + MTranServer (default engine).
-    // Endpoint override: TRANSFRAME_MTRAN_URL=http://host:port.
+    // Translation stack (FR-16..24 engine wiring): WinHTTP transport +
+    // Credential Manager store + engine bootstrap. engines.json
+    // (%APPDATA%\TransFrame\engines.json) drives the 9-engine registry,
+    // compatible multi-instance, scene bindings and prompt overrides;
+    // missing or malformed file → built-in defaults (MTranServer on
+    // localhost:8989, the v1 wiring).
     g.transport = std::make_shared<tf::WinHttpTransport>();
-    std::string mtranUrl = "http://localhost:8989";
+    g.credentials = std::make_shared<tf::CredManKeyStore>();
+
+    std::string mtranUrlOverride;
     if (const DWORD cap = ::GetEnvironmentVariableA("TRANSFRAME_MTRAN_URL", nullptr, 0);
         cap > 0) {
         std::string buf(cap, '\0');
         const DWORD n = ::GetEnvironmentVariableA("TRANSFRAME_MTRAN_URL", buf.data(), cap);
-        if (n > 0 && n < cap) mtranUrl = buf.substr(0, n);
+        if (n > 0 && n < cap) mtranUrlOverride = buf.substr(0, n);
     }
-    auto mtranConfig = tf::MTranServerProvider::Configuration::parse(mtranUrl);
-    if (!mtranConfig) mtranConfig = tf::MTranServerProvider::Configuration::makeDefault();
-    g.mtran = std::make_unique<tf::MTranServerProvider>(*mtranConfig, g.transport);
 
-    tf::SchedulerDependencies deps;
-    deps.builtinProvider = [](tf::TranslationEngineType t)
-        -> tf::TranslationProviderPtr {
-        if (t == tf::TranslationEngineType::MtranServer && g.mtran) {
-            // Fresh provider instance per run sharing the WinHTTP session.
-            return std::make_unique<tf::MTranServerProvider>(g.mtran->configuration(),
-                                                             g.transport);
+    tf::app::EngineBootstrapConfig enginesConfig = tf::app::defaultEngineConfig();
+    enginesConfig.mtranUrlOverride = mtranUrlOverride;
+    if (std::optional<std::string> jsonText = readTextFileUtf8(enginesJsonPath())) {
+        try {
+            enginesConfig = tf::app::parseEngineConfig(*jsonText);
+            enginesConfig.mtranUrlOverride = mtranUrlOverride;
+        } catch (const std::exception& e) {
+            // Keep the defaults; a broken config must not kill startup.
+            std::string note = "TransFrame: engines.json rejected, using defaults: ";
+            note += e.what();
+            ::OutputDebugStringA(note.c_str());
         }
-        return nullptr;
-    };
-    deps.compatibleProvider = [](const std::string&) -> tf::TranslationProviderPtr {
-        return nullptr;
-    };
-    deps.compatibleConfigs = [] { return std::vector<tf::CompatibleConfig>{}; };
-    deps.promptResolver = [](tf::TranslationEngineType, tf::TranslationScene,
-                             const std::string&) { return std::string(); };
+    }
+    g.engines = std::make_unique<tf::app::EngineBootstrap>(std::move(enginesConfig),
+                                                           g.credentials, g.transport);
+    tf::SchedulerDependencies deps;
+    g.engines->populate(deps);
     g.scheduler = std::make_unique<tf::TranslationScheduler>(std::move(deps));
 
     if (wchar_t buf[16]{}; ::GetEnvironmentVariableW(L"TRANSFRAME_TARGET_LANG", buf, 16)) {

@@ -19,16 +19,21 @@ set(TEST_SRC
     Tests/LLMTranslationCoreTests.cpp
     Tests/EngineHealthCheckerTests.cpp
     Tests/OcrAndTextSelectionTests.cpp
+    Tests/EngineBootstrapTests.cpp
 )
 
 add_executable(translation_tests
     ${CORE_SRC}
+    # Engine bootstrap lives under App/ but is platform-clean (no Win32), so
+    # the portable test runner builds it too (PRD FR-16..24 wiring tests).
+    App/EngineBootstrap.cpp
     ${TEST_SRC}
     Tests/vendor/catch_amalgamated.cpp
 )
 target_include_directories(translation_tests PRIVATE
     Core/include
     Core/vendor
+    App
     Tests
     Tests/vendor
 )
