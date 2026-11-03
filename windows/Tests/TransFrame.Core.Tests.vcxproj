@@ -66,6 +66,7 @@
     <ClCompile Include="TestMain.cpp" />
     <ClCompile Include="CoreModelsTests.cpp" />
     <ClCompile Include="EngineBootstrapTests.cpp" />
+    <ClCompile Include="AnnotationDocumentTests.cpp" />
     <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
     <ClCompile Include="TranslationPromptConfigTests.cpp" />
     <ClCompile Include="VisualLineGroupingTests.cpp" />

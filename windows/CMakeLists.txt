@@ -13,6 +13,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Core portable sources + Catch2 tests
 # ---------------------------------------------------------------------------
 file(GLOB CORE_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/src/*.cpp)
+# Model-layer sources live in Core/ root (mirrors Core.vcxproj; the src/
+# glob above misses them).
+set(CORE_MODEL_SRC
+    Core/AnnotationDocument.cpp
+)
 set(TEST_SRC
     Tests/TranslationSchedulerTests.cpp
     Tests/ProvidersTests.cpp
@@ -20,10 +25,12 @@ set(TEST_SRC
     Tests/EngineHealthCheckerTests.cpp
     Tests/OcrAndTextSelectionTests.cpp
     Tests/EngineBootstrapTests.cpp
+    Tests/AnnotationDocumentTests.cpp
 )
 
 add_executable(translation_tests
     ${CORE_SRC}
+    ${CORE_MODEL_SRC}
     # Engine bootstrap lives under App/ but is platform-clean (no Win32), so
     # the portable test runner builds it too (PRD FR-16..24 wiring tests).
     App/EngineBootstrap.cpp
@@ -31,6 +38,7 @@ add_executable(translation_tests
     Tests/vendor/catch_amalgamated.cpp
 )
 target_include_directories(translation_tests PRIVATE
+    Core
     Core/include
     Core/vendor
     App

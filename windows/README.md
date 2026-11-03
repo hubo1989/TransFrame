@@ -48,12 +48,15 @@ macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 
 
 ```bash
 clang++ -std=c++20 \
-  -I windows/Core/include -I windows/Core/vendor -I windows/external \
-  -I windows/App -I windows/Tests -I windows/Tests/vendor \
-  windows/Core/src/*.cpp windows/App/EngineBootstrap.cpp \
+  -I windows/Core -I windows/Core/include -I windows/Core/vendor \
+  -I windows/Core/vendor/nlohmann -I windows/App \
+  -I windows/Tests -I windows/Tests/vendor \
+  windows/Core/src/*.cpp windows/Core/AnnotationDocument.cpp \
+  windows/App/EngineBootstrap.cpp \
   windows/Tests/TranslationSchedulerTests.cpp windows/Tests/ProvidersTests.cpp \
   windows/Tests/LLMTranslationCoreTests.cpp windows/Tests/EngineHealthCheckerTests.cpp \
   windows/Tests/OcrAndTextSelectionTests.cpp windows/Tests/EngineBootstrapTests.cpp \
+  windows/Tests/AnnotationDocumentTests.cpp \
   windows/Tests/vendor/catch_amalgamated.cpp \
   -o tests_runner && ./tests_runner
 ```
@@ -83,8 +86,8 @@ cl /std:c++20 /EHsc ^
 ./tests_runner "[health][cache]"   # 组合过滤
 ```
 
-当前：**126 test cases / 531 assertions 全绿**（macOS arm64, Apple clang 21.0.0；
-含 `[bootstrap]` 引擎接线套件 11 例）。
+当前：**137 test cases（合并后以本地运行为准）**（macOS arm64, Apple clang 21；含
+`[bootstrap]` 引擎接线与 AnnotationDocument 标注几何/撤销栈套件）。
 
 ## 引擎文档
 

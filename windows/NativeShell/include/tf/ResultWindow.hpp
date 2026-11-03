@@ -20,6 +20,9 @@ struct ResultWindowContent {
     std::wstring engineLabel;     // e.g. "MTransServer"
     std::wstring statusLine;      // e.g. "OCR: Windows OCR · 68ms | Engine: 214ms"
     Rect anchorPhysical;          // captured region (physical px) — popup placed below
+    /// Captured pixels for the FR-07 preview window. Null hides the
+    /// "预览" button (non-screenshot callers stay unchanged).
+    std::shared_ptr<PixelBuffer> previewImage;
 };
 
 class ResultWindowController {
