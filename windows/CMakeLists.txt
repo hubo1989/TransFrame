@@ -56,7 +56,7 @@ if (WIN32)
     set(NS_SRC
         NativeShell/src/WinHttpTransport.cpp
         NativeShell/src/CredManKeyStore.cpp
-        NativeShell/src/Win32OcrUiaHosts.cpp
+        NativeShell/src/OcrUiaHostsWin32.cpp
     )
     # Smoke links Core sources too (per windows/README.md manual command).
     add_executable(nativeshell_smoke
