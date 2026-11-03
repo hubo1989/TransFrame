@@ -26,6 +26,7 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -89,7 +90,14 @@ struct AppState {
     std::unique_ptr<tf::Win32TextExtractorHost> textHost;
 
     std::atomic<bool> pipelineBusy{false};
+    // Watchdog anchor (steady-clock ms) for when pipelineBusy was armed. If
+    // a worker dies inside a system call (unresponsive clipboard owner etc.)
+    // and never clears the flag, dispatch re-arms after kPipelineStuckSeconds
+    // so hotkeys stay usable instead of locking up forever.
+    std::atomic<std::int64_t> pipelineBusySinceMs{0};
 };
+
+constexpr int kPipelineStuckSeconds = 15;
 
 AppState g;
 
@@ -291,6 +299,30 @@ void onFullScreen() {
 // ---------------------------------------------------------------------------
 
 void runTextSelectionFlow(bool insertMode) {
+    // Shell-foreground guard: on the desktop / shell UI, Ctrl+C copies FILES
+    // (not text) and the shell's clipboard-owner path is the exact
+    // synchronous surface that can freeze the taskbar when disturbed while
+    // the shell is busy. Refuse early with a clear message instead.
+    static const char* const kShellForeground[] = {
+        "explorer.exe",
+        "startmenuexperiencehost.exe",
+        "searchhost.exe",
+        "shellexperiencehost.exe",
+        "textinputhost.exe",
+        "dwm.exe",
+    };
+    const std::string fgProcess = g.textHost->foregroundProcessName();
+    for (const char* shell : kShellForeground) {
+        if (_stricmp(fgProcess.c_str(), shell) == 0) {
+            tf::ResultWindowContent c;
+            c.translatedText = L"前台是桌面/系统界面：请在可选择文本的应用中使用划词翻译";
+            c.statusLine = L"Text selection: shell foreground refused";
+            c.anchorPhysical = tf::Rect{200, 200, 400, 100};
+            showResultOnMain(c);
+            return;
+        }
+    }
+
     tf::TextExtractor extractor(*g.textHost, /*allowClipboardFallback=*/true);
 
     const tf::ExtractionOutcome extraction = extractor.captureSelectedText(insertMode);
@@ -348,8 +380,28 @@ void runTextSelectionFlow(bool insertMode) {
 // Action dispatch (hotkey + tray)
 // ---------------------------------------------------------------------------
 
+/// True when the pipeline may start: not busy, or busy for longer than the
+/// watchdog window (a previous worker never returned from a system call —
+/// treat it as dead and re-arm so hotkeys keep working).
+bool tryBeginPipeline() {
+    const std::int64_t nowMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    if (!g.pipelineBusy.exchange(true)) {
+        g.pipelineBusySinceMs.store(nowMs);
+        return true;
+    }
+    const std::int64_t since = g.pipelineBusySinceMs.load();
+    if (since != 0 && nowMs - since > kPipelineStuckSeconds * 1000) {
+        g.pipelineBusySinceMs.store(nowMs);  // re-arm over the stuck worker
+        return true;
+    }
+    return false;
+}
+
 void startRegionCapture() {
-    if (g.pipelineBusy.exchange(true)) return;
+    if (!tryBeginPipeline()) return;
     const bool began = g.overlay->beginSession([](tf::SelectionOverlayResult result) {
         // Runs on the main thread (overlay pumps our message loop).
         onRegionConfirmed(result);
@@ -360,7 +412,7 @@ void startRegionCapture() {
 void dispatchAction(tf::HotkeyAction action) {
     switch (action) {
         case tf::HotkeyAction::FullScreen:
-            if (!g.pipelineBusy.exchange(true)) {
+            if (tryBeginPipeline()) {
                 onFullScreen();
                 // worker thread clears pipelineBusy when done
             }
@@ -371,7 +423,7 @@ void dispatchAction(tf::HotkeyAction action) {
             break;
         case tf::HotkeyAction::TextSelection:
         case tf::HotkeyAction::TranslateInsert:
-            if (!g.pipelineBusy.exchange(true)) {
+            if (tryBeginPipeline()) {
                 const bool insert = action == tf::HotkeyAction::TranslateInsert;
                 std::thread([insert] {
                     runTextSelectionFlow(insert);

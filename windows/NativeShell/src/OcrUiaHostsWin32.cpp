@@ -1,4 +1,4 @@
-// Win32OcrUiaHosts.cpp — WinRT OCR + UIA + clipboard + SendInput seams.
+// OcrUiaHostsWin32.cpp — WinRT OCR + UIA + clipboard + SendInput seams.
 // NOT RUN on this macOS host (requires Windows SDK); compile under MSVC
 // (C++/WinRT + WindowsApp.lib). Structure mirrors the protocol contracts in
 // Core/include/tf/OcrEngines.hpp and TextSelectionInsertion.hpp.
@@ -19,8 +19,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
+#include <functional>
+#include <future>
 #include <optional>
+#include <string>
+#include <thread>
 
 #pragma comment(lib, "windowsapp")
 
@@ -283,6 +288,38 @@ bool SendCtrlShortcut(WORD key) {
     return SendInput(4, inputs, sizeof(INPUT)) == 4;
 }
 
+// Clipboard transactions can block forever when the current clipboard owner
+// is busy or unresponsive: GetClipboardData triggers a synchronous
+// WM_RENDERFORMAT send to a delayed-render owner, and EmptyClipboard sends
+// WM_DESTROYCLIPBOARD to the previous owner — both cross-process and
+// unbounded. When that owner is the shell (explorer owns the taskbar UI
+// thread), waiting freezes the taskbar. Run the whole transaction on a
+// sacrificial thread and give up after kClipboardTimeoutMs; the abandoned
+// thread finishes (or stays parked in the system call) on its own, and the
+// caller proceeds as if the clipboard were unavailable.
+constexpr DWORD kClipboardTimeoutMs = 800;
+
+bool RunClipboardOp(const std::function<bool()>& op) {
+    // Shared so the detached runner can still complete the promise after
+    // this function has returned on the timeout path.
+    auto done = std::make_shared<std::promise<bool>>();
+    std::future<bool> fut = done->get_future();
+    // Detached on purpose: if op() is stuck inside a system call we must
+    // not join it; the thread exits whenever the call returns.
+    std::thread([op, done]() mutable {
+        try {
+            done->set_value(op());
+        } catch (...) {
+            // Broken promise on timeout path is fine; swallow here.
+        }
+    }).detach();
+    if (fut.wait_for(std::chrono::milliseconds(kClipboardTimeoutMs)) ==
+        std::future_status::ready) {
+        return fut.get();
+    }
+    return false;  // timed out — clipboard state unknown, treat as failure
+}
+
 }  // namespace
 
 Win32TextExtractorHost::Win32TextExtractorHost() : impl_(new Impl) {}
@@ -293,24 +330,38 @@ TextExtractorHost::ClipboardBackup Win32TextExtractorHost::backupClipboard() {
     // CF_UNICODETEXT snapshot (Swift PasteboardBackup keeps formats it can
     // restore; text is the format this flow ever writes).
     ClipboardBackup backup;
-    if (!OpenClipboard(nullptr)) return backup;
-    backup.sequenceNumber = GetClipboardSequenceNumber();
-    if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
-        const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(h));
-        if (text) {
-            backup.text = ToUtf8(text);
-            GlobalUnlock(h);
+    const bool ok = RunClipboardOp([&backup]() {
+        if (!OpenClipboard(nullptr)) return false;
+        backup.sequenceNumber = GetClipboardSequenceNumber();
+        if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
+            const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(h));
+            if (text) {
+                backup.text = ToUtf8(text);
+                GlobalUnlock(h);
+            }
         }
-    }
-    CloseClipboard();
+        CloseClipboard();
+        return true;
+    });
+    if (!ok) return {};  // timed out — a partial snapshot may be inconsistent
     return backup;
 }
 
 void Win32TextExtractorHost::restoreClipboard(const ClipboardBackup& backup) {
-    if (!OpenClipboard(nullptr)) return;
-    EmptyClipboard();
-    if (!backup.text.empty()) {
-        const std::wstring wide = ToWide(backup.text);
+    if (backup.text.empty()) {
+        RunClipboardOp([]() {
+            if (OpenClipboard(nullptr)) {
+                EmptyClipboard();
+                CloseClipboard();
+            }
+            return true;
+        });
+        return;
+    }
+    const std::wstring wide = ToWide(backup.text);
+    RunClipboardOp([&wide]() {
+        if (!OpenClipboard(nullptr)) return false;
+        EmptyClipboard();
         const std::size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
         HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
         if (h) {
@@ -321,50 +372,65 @@ void Win32TextExtractorHost::restoreClipboard(const ClipboardBackup& backup) {
                 SetClipboardData(CF_UNICODETEXT, h);
             }
         }
-    }
-    CloseClipboard();
+        CloseClipboard();
+        return true;
+    });
 }
 
 void Win32TextExtractorHost::clearClipboard() {
-    if (OpenClipboard(nullptr)) {
-        EmptyClipboard();
-        CloseClipboard();
-    }
+    RunClipboardOp([]() {
+        if (OpenClipboard(nullptr)) {
+            EmptyClipboard();
+            CloseClipboard();
+        }
+        return true;
+    });
 }
 
 std::int64_t Win32TextExtractorHost::setClipboardText(const std::string& text) {
     const std::wstring wide = ToWide(text);
-    if (!OpenClipboard(nullptr)) return -1;
-    EmptyClipboard();
-    const std::size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
-    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (h) {
-        void* dst = GlobalLock(h);
-        if (dst) {
-            memcpy(dst, wide.c_str(), bytes);
-            GlobalUnlock(h);
-            SetClipboardData(CF_UNICODETEXT, h);
+    std::int64_t seq = -1;
+    const bool ok = RunClipboardOp([&wide, &seq]() {
+        if (!OpenClipboard(nullptr)) return false;
+        EmptyClipboard();
+        const std::size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
+        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (h) {
+            void* dst = GlobalLock(h);
+            if (dst) {
+                memcpy(dst, wide.c_str(), bytes);
+                GlobalUnlock(h);
+                SetClipboardData(CF_UNICODETEXT, h);
+            }
         }
-    }
-    CloseClipboard();
-    return GetClipboardSequenceNumber();
+        seq = GetClipboardSequenceNumber();
+        CloseClipboard();
+        return true;
+    });
+    return ok ? seq : -1;
 }
 
 std::int64_t Win32TextExtractorHost::clipboardSequenceNumber() {
+    // Sequence query never opens the clipboard — no owner interaction,
+    // cannot block, no timeout wrapper needed.
     return GetClipboardSequenceNumber();
 }
 
 std::optional<std::string> Win32TextExtractorHost::clipboardText() {
-    if (!OpenClipboard(nullptr)) return std::nullopt;
     std::optional<std::string> out;
-    if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
-        const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(h));
-        if (text) {
-            out = ToUtf8(text);
-            GlobalUnlock(h);
+    const bool ok = RunClipboardOp([&out]() {
+        if (!OpenClipboard(nullptr)) return false;
+        if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
+            const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(h));
+            if (text) {
+                out = ToUtf8(text);
+                GlobalUnlock(h);
+            }
         }
-    }
-    CloseClipboard();
+        CloseClipboard();
+        return true;
+    });
+    if (!ok) return std::nullopt;  // timed out
     return out;
 }
 

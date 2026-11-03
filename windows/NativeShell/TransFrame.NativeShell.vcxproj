@@ -104,7 +104,7 @@
     <ClCompile Include="src\CredManKeyStore.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\Win32OcrUiaHosts.cpp"/>
+    <ClCompile Include="src\OcrUiaHostsWin32.cpp"/>
     <ClCompile Include="src\NativeShellInit.cpp"/>
   </ItemGroup>
 
