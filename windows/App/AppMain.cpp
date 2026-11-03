@@ -114,6 +114,7 @@ std::string toUtf8(const std::wstring& wide) {
     if (wide.empty()) return {};
     const int len = ::WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0,
                                           nullptr, nullptr);
+    if (len <= 0) return {};  // conversion failure (invalid input) — no buffer
     std::string out(static_cast<std::size_t>(len), '\0');
     ::WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, out.data(), len, nullptr,
                           nullptr);
@@ -124,6 +125,7 @@ std::string toUtf8(const std::wstring& wide) {
 std::wstring toWide(const std::string& utf8) {
     if (utf8.empty()) return {};
     const int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    if (len <= 0) return {};
     std::wstring out(static_cast<std::size_t>(len), L'\0');
     ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, out.data(), len);
     out.resize(out.size() - 1);
@@ -159,7 +161,7 @@ std::string translateTexts(const std::vector<std::string>& texts) {
     req.cancelToken = g.shutdownToken;
 
     const tf::SchedulerOutcome out = g.scheduler->translateOrdered(req);
-    if (out.isSuccess()) {
+    if (out.isSuccess() && out.bundle && !out.bundle->results.empty()) {
         const auto& results = out.bundle->results;
         // First engine's joined translation.
         std::string joined;
@@ -197,12 +199,22 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
 
     const auto t0 = std::chrono::steady_clock::now();
 
-    // PixelBuffer (BGRA8) -> OcrImage.
+    // PixelBuffer (BGRA8; row stride may include alignment padding, D3D
+    // staging aligns to 256 and GDI to 4) -> compact OcrImage rows. A flat
+    // byteSize() copy would shift every row once stride != width*4.
     tf::OcrImage img;
     img.width = cap.screenshot.pixels.width;
     img.height = cap.screenshot.pixels.height;
-    img.bgra.assign(cap.screenshot.pixels.data.get(),
-                    cap.screenshot.pixels.data.get() + cap.screenshot.pixels.byteSize());
+    const auto& px = cap.screenshot.pixels;
+    const std::size_t rowBytes = static_cast<std::size_t>(px.width) * 4;
+    const std::size_t srcStride = static_cast<std::size_t>(px.stride);
+    if (px.valid()) {
+        img.bgra.resize(rowBytes * static_cast<std::size_t>(px.height));
+        for (std::int32_t row = 0; row < px.height; ++row) {
+            std::memcpy(img.bgra.data() + row * rowBytes,
+                        px.data.get() + row * srcStride, rowBytes);
+        }
+    }
 
     auto ocrOutcome = g.ocr->recognize(img);
     const auto tOcr = std::chrono::steady_clock::now();
@@ -399,7 +411,7 @@ void runTextSelectionFlow(bool insertMode) {
     tf::ResultWindowContent c;
     c.sourceText = toWide(src);
     c.translatedText = toWide(translated);
-    c.statusLine = insertMode ? L"翻译并插入" : L"划词翻译";
+    c.statusLine = L"划词翻译";  // insert-mode returned above
     c.anchorPhysical = tf::Rect{200, 200, 400, 100};
     showResultOnMain(c);
 }

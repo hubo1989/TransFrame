@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <process.h>
+#include <share.h>  // _SH_DENYNO for _sopen_s
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -147,7 +148,14 @@ constexpr int kBadFd = -1;
 #ifdef _WIN32
 using FileDescriptor = int;
 FileDescriptor openExclusive(const char* path) {
-    return _open(path, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IWRITE);
+    // _sopen_s, not _open: MSVC treats the latter's C4996 deprecation as a
+    // hard error project-wide.
+    FileDescriptor fd = kBadFd;
+    if (_sopen_s(&fd, path, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _SH_DENYNO,
+                 _S_IWRITE) != 0) {
+        return kBadFd;
+    }
+    return fd;
 }
 bool writeAll(FileDescriptor fd, const char* data, std::size_t size) {
     std::size_t done = 0;

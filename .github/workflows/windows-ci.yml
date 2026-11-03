@@ -12,11 +12,21 @@ on:
       - ".github/workflows/windows-ci.yml"
   workflow_dispatch:
 
+# Least privilege: these jobs only read code and upload artifacts.
+permissions:
+  contents: read
+
+# Supersede stale runs on the same ref instead of queueing redundant builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   core-tests:
     # Task A: solution skeleton + portable core models/algorithms.
     name: Core tests (MSVC ${{ matrix.platform }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +66,7 @@ jobs:
     # Task B: capture shell. Portable policy core + (on Windows) Win32/D2D/WGC TUs.
     name: NativeShell (MSVC ${{ matrix.platform }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +102,7 @@ jobs:
     # smoke target (running it needs a GUI session - see windows/README.md).
     name: Translation services (MSVC ${{ matrix.platform }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -125,6 +137,7 @@ jobs:
     # compile under GCC on Linux (no Win32 leaks).
     name: Portable checks (GCC, ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -136,13 +149,15 @@ jobs:
 
       - name: Core (task A) — build and run Catch2 tests
         working-directory: windows
+        shell: bash
         run: |
+          set -euo pipefail
           g++-13 -std=c++20 -Wall -Wextra -Werror \
             -I . -I Core -I external \
             Core/*.cpp external/catch2/catch_amalgamated.cpp \
             Tests/TestMain.cpp Tests/CoreModelsTests.cpp Tests/LLMTranslationCoreTestsA.cpp \
             Tests/TranslationPromptConfigTests.cpp Tests/VisualLineGroupingTests.cpp \
-            -o ../build-tests 2>&1 | head -80
+            -o ../build-tests 2>&1 | head -400
           ../build-tests
 
       - name: NativeShell (task B) — configure, build, test
