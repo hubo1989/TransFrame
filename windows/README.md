@@ -27,9 +27,10 @@ App（`windows/App`）将各模块接入完整用户流程：托盘 + 全局热�
 windows/
 ├── App/                    # 应用入口（AppMain.cpp：托盘+热键+选区+管线）
 ├── Core/                   # 纯逻辑：跨平台，无 UI/Win32 依赖
-│   ├── include/tf/         # 公共头（所有服务接口）
+│   ├── include/tf/         # 公共头（所有服务接口；含 EngineConfigStore/HistoryStore）
 │   ├── src/                # 实现
-│   └── vendor/nlohmann/    # JSON（与任务 B 共享）
+│   ├── vendor/nlohmann/    # JSON（与任务 B 共享）
+│   └── vendor/sqlite/      # SQLite 3.45.1 amalgamation（FR-30 history.db）
 ├── NativeShell/            # Win32 实现（仅 _WIN32 编译）
 │   ├── include/tf/         # WinHttpTransport / CredManKeyStore / Win32 hosts
 │   └── src/                # 捕获链 / 选区覆盖层 / 托盘 / 结果窗 / OCR 胶水
@@ -47,6 +48,9 @@ macOS/Linux/Windows 均可（Apple clang 21 已验证；MSVC `/std:c++20`、GCC 
 虽在 `App/`，但平台无关，同样编入）：
 
 ```bash
+# sqlite3.c 先单独按 C 编译（amalgamation 按 C++ 编译会有大量告警）
+clang -x c -c -O1 -w -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION \
+  windows/Core/vendor/sqlite/sqlite3.c -o /tmp/sqlite3.o
 clang++ -std=c++20 \
   -I windows/Core -I windows/Core/include -I windows/Core/vendor \
   -I windows/Core/vendor/nlohmann -I windows/App \
@@ -57,6 +61,8 @@ clang++ -std=c++20 \
   windows/Tests/LLMTranslationCoreTests.cpp windows/Tests/EngineHealthCheckerTests.cpp \
   windows/Tests/OcrAndTextSelectionTests.cpp windows/Tests/EngineBootstrapTests.cpp \
   windows/Tests/AnnotationDocumentTests.cpp \
+  windows/Tests/EngineConfigStoreTests.cpp windows/Tests/HotkeySettingsStoreTests.cpp \
+  windows/Tests/HistoryStoreTests.cpp \
   windows/Tests/vendor/catch_amalgamated.cpp \
   -o tests_runner && ./tests_runner
 ```
@@ -86,8 +92,8 @@ cl /std:c++20 /EHsc ^
 ./tests_runner "[health][cache]"   # 组合过滤
 ```
 
-当前：**137 test cases（合并后以本地运行为准）**（macOS arm64, Apple clang 21；含
-`[bootstrap]` 引擎接线与 AnnotationDocument 标注几何/撤销栈套件）。
+当前：**合并后以本地运行与 CI 为准**（macOS arm64, Apple clang 21；四线套件：
+bootstrap / AnnotationDocument / EngineConfigStore / HotkeySettingsStore / HistoryStore）。
 
 ## 引擎文档
 

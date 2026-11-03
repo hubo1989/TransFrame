@@ -3,7 +3,7 @@
 # test runner on any OS. NativeShell (Win32/WinRT TUs) is built only on
 # Windows via the WIN32 gate below (compile + link into a smoke target).
 cmake_minimum_required(VERSION 3.20)
-project(TransFrameTranslation CXX)
+project(TransFrameTranslation C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,7 +26,19 @@ set(TEST_SRC
     Tests/OcrAndTextSelectionTests.cpp
     Tests/EngineBootstrapTests.cpp
     Tests/AnnotationDocumentTests.cpp
+    Tests/EngineConfigStoreTests.cpp
+    Tests/HotkeySettingsStoreTests.cpp
+    Tests/HistoryStoreTests.cpp
 )
+
+# Vendored SQLite amalgamation for HistoryStore (FR-30): compile as C and
+# silence its warnings (not /W4-clean; tests are not /WX for Catch2 only).
+set(SQLITE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/Core/vendor/sqlite/sqlite3.c)
+if (MSVC)
+    set_source_files_properties(${SQLITE_SRC} PROPERTIES COMPILE_OPTIONS "/w")
+else()
+    set_source_files_properties(${SQLITE_SRC} PROPERTIES COMPILE_OPTIONS "-w")
+endif()
 
 add_executable(translation_tests
     ${CORE_SRC}
@@ -35,6 +47,7 @@ add_executable(translation_tests
     # the portable test runner builds it too (PRD FR-16..24 wiring tests).
     App/EngineBootstrap.cpp
     ${TEST_SRC}
+    ${SQLITE_SRC}
     Tests/vendor/catch_amalgamated.cpp
 )
 target_include_directories(translation_tests PRIVATE
@@ -42,6 +55,7 @@ target_include_directories(translation_tests PRIVATE
     Core/include
     Core/vendor
     App
+    external
     Tests
     Tests/vendor
 )

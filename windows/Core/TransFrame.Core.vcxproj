@@ -88,6 +88,10 @@
     <ClInclude Include="Uuid.h" />
     <ClInclude Include="VLMProviderType.h" />
     <ClInclude Include="VisualLineGrouping.h" />
+    <ClInclude Include="include\tf\EngineConfigStore.hpp" />
+    <ClInclude Include="include\tf\HotkeySettingsStore.hpp" />
+    <ClInclude Include="include\tf\HistoryStore.hpp" />
+    <ClInclude Include="vendor\sqlite\sqlite3.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Annotation.cpp" />
@@ -99,6 +103,24 @@
     <ClCompile Include="TranslationResultBundle.cpp" />
     <ClCompile Include="VLMProviderType.cpp" />
     <ClCompile Include="VisualLineGrouping.cpp" />
+    <!-- wt-settings: engines.json / settings.json / history stores (portable).
+         ObjectFileName mirrors the subfolder (see task-C note above). -->
+    <ClCompile Include="src\EngineConfigStore.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\HotkeySettingsStore.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\HistoryStore.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <!-- Vendored SQLite amalgamation (FR-30 history.db): public-domain C.
+         The amalgamation is not /W4-clean and Core is /WX — silence it. -->
+    <ClCompile Include="vendor\sqlite\sqlite3.c">
+      <ObjectFileName>$(IntDir)sqlite\</ObjectFileName>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
     <!-- Task C translation services (portable, mirror CMake CORE_SRC glob).
          ObjectFileName mirrors the source subfolder so src\LLMTranslationCore
          never collides with the task-A root LLMTranslationCore.cpp. -->

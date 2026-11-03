@@ -43,6 +43,8 @@ set(PORTABLE_HEADERS
     include/tf/SelectionOverlay.hpp
     include/tf/TrayIcon.hpp
     include/tf/ResultWindow.hpp
+    include/tf/SettingsWindow.hpp
+    include/tf/HistoryWindow.hpp
 )
 
 # ---------------------------------------------------------------------------
@@ -60,6 +62,8 @@ if (WIN32)
         src/SelectionOverlay.cpp
         src/TrayIcon.cpp
         src/ResultWindow.cpp
+        src/SettingsWindow.cpp
+        src/HistoryWindow.cpp
         src/NativeShellInit.cpp
     )
 endif()

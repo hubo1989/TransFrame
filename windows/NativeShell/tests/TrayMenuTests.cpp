@@ -72,15 +72,13 @@ TEST_CASE("no recent shots -> no RecentShot entries, menu still complete",
     CHECK(items.size() == 10);
 }
 
-TEST_CASE("capture commands are enabled; future slots are disabled placeholders",
+TEST_CASE("capture commands are enabled; PinnedManager stays a disabled placeholder",
           "[tray][menu]") {
     const auto items = buildTrayMenu({});
     for (const auto& i : items) {
         switch (i.command) {
             case TrayCommand::PinnedManager:
-            case TrayCommand::History:
-            case TrayCommand::Settings:
-                CHECK_FALSE(i.enabled);  // placeholders until tasks C/D land
+                CHECK_FALSE(i.enabled);  // last placeholder (task D)
                 break;
             default:
                 CHECK(i.enabled);

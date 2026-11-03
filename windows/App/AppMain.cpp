@@ -57,6 +57,16 @@
 #include "tf/CredManKeyStore.h"
 #include "tf/TranslationScheduler.hpp"
 #include "tf/VisualLineGrouping.hpp"
+
+// Settings + history (FR-35/FR-30, wt-settings branch)
+#include "tf/EngineConfigStore.hpp"
+#include "tf/HistoryStore.hpp"
+#include "tf/HistoryWindow.hpp"
+#include "tf/HotkeySettingsStore.hpp"
+#include "tf/SettingsWindow.hpp"
+
+#include <fstream>
+#include <shlobj.h>
 #include "tf/WinHttpTransport.h"
 
 namespace {
@@ -106,6 +116,17 @@ struct AppState {
     // OCR/HTTP instead of the CRT reaping detached threads mid-call.
     std::mutex workersMutex;
     std::vector<std::thread> workers;
+
+    // Settings + history (FR-35/FR-30). history is thread-safe (internal
+    // mutex); the windows are main-thread-only like every other HWND.
+    std::unique_ptr<tf::core::HistoryStore> history;
+    std::unique_ptr<tf::SettingsWindowController> settingsWindow;
+    std::unique_ptr<tf::HistoryWindowController> historyWindow;
+    std::vector<tf::HotkeySpec> hotkeySpecs;
+    tf::HotkeyRegistrationReport hotkeyReport;
+    tf::core::EngineConfig engineConfig;
+    std::wstring roamingDir;  // %APPDATA%\TransFrame (engines.json / settings.json)
+    std::wstring localDir;    // %LOCALAPPDATA%\TransFrame (history.db)
 };
 
 AppState g;
@@ -170,6 +191,38 @@ std::optional<std::string> readTextFileUtf8(const std::wstring& path) {
         out.erase(0, 3);  // UTF-8 BOM
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Settings/history storage (%APPDATA%\TransFrame, %LOCALAPPDATA%\TransFrame)
+// ---------------------------------------------------------------------------
+std::wstring knownTransFrameDir(int csidl) {
+    wchar_t path[MAX_PATH] = {};
+    if (::SHGetFolderPathW(nullptr, csidl, nullptr, 0, path) != S_OK) return {};
+    std::wstring dir(path);
+    dir += L"\\TransFrame";
+    ::CreateDirectoryW(dir.c_str(), nullptr);  // exists_ok; created on first save
+    return dir;
+}
+
+std::optional<std::string> readTextFile(const std::wstring& path) {
+    std::ifstream f(path.c_str(), std::ios::binary);
+    if (!f) return std::nullopt;
+    std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return data;
+}
+
+/// Contract rule 3 (engines-config-shared.md): tmp + rename, never truncate
+/// the live file on failure.
+bool writeTextFileAtomic(const std::wstring& path, const std::string& content) {
+    const std::wstring tmp = path + L".tmp";
+    {
+        std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!f) return false;
+    }
+    return ::MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +314,30 @@ std::string translateTexts(const std::vector<std::string>& texts, tf::Translatio
         out = g.scheduler->translateOrdered(req);
     }
     std::string joined = joinedFirstResult(out);
+    if (!joined.empty() && g.history) {
+        // History insert (FR-30): best-effort; a store failure never
+        // blocks the translation flow.
+        tf::core::TranslationHistory entry;
+        entry.id = tf::core::Uuid::randomUuid();
+        std::string source;
+        for (const std::string& t : texts) {
+            if (!source.empty()) source += "\n";
+            source += t;
+        }
+        entry.sourceText = source;
+        entry.translatedText = joined;
+        entry.sourceLanguage = "auto";
+        entry.targetLanguage = toUtf8(g_targetLang);
+        entry.timestamp = tf::core::now();
+        entry.category = tf::core::HistoryCategory::Translation;
+        std::string storeError;
+        g.history->insert(entry, &storeError);
+        if (!storeError.empty()) {
+            ::OutputDebugStringA("TransFrame: history insert failed: ");
+            ::OutputDebugStringA(storeError.c_str());
+            ::OutputDebugStringA("\n");
+        }
+    }
     if (!joined.empty()) return joined;
     return failureSummary(out);
 }
@@ -593,6 +670,12 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
         case tf::TrayCommand::CheckUpdates:
             tf::checkForAppUpdate(g.hwnd);
             break;
+        case tf::TrayCommand::History:
+            if (g.historyWindow) g.historyWindow->show();
+            break;
+        case tf::TrayCommand::Settings:
+            if (g.settingsWindow) g.settingsWindow->show();
+            break;
         case tf::TrayCommand::Exit:
             ::PostMessageW(g.hwnd, kAppQuit, 0, 0);
             break;
@@ -600,7 +683,7 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
             // Recent-shots history view lands with task D (history store).
             break;
         default:
-            break;  // placeholders (settings etc.) — later milestones
+            break;  // remaining placeholders (PinnedManager/RecentShot — later milestones)
     }
 }
 
@@ -691,10 +774,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // (%APPDATA%\TransFrame\engines.json) drives the 9-engine registry,
     // compatible multi-instance, scene bindings and prompt overrides;
     // missing or malformed file → built-in defaults (MTranServer on
-    // localhost:8989, the v1 wiring).
+    // localhost:8989, the v1 wiring). Env override stays highest
+    // (engines-config-shared.md).
     g.transport = std::make_shared<tf::WinHttpTransport>();
     g.credentials = std::make_shared<tf::CredManKeyStore>();
-
+    g.roamingDir = knownTransFrameDir(CSIDL_APPDATA);
+    g.localDir = knownTransFrameDir(CSIDL_LOCAL_APPDATA);
+    // Settings-page view of the same engines.json (contract: a corrupt file
+    // falls back to defaults, never blocks startup).
+    g.engineConfig = tf::core::EngineConfig::makeDefault();
+    if (const auto content = readTextFile(g.roamingDir + L"\\engines.json")) {
+        g.engineConfig = tf::core::parseEngineConfig(*content).config;
+    }
     std::string mtranUrlOverride;
     if (const DWORD cap = ::GetEnvironmentVariableA("TRANSFRAME_MTRAN_URL", nullptr, 0);
         cap > 0) {
@@ -722,8 +813,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.engines->populate(deps);
     g.scheduler = std::make_unique<tf::TranslationScheduler>(std::move(deps));
 
+    // Target language: engines.json value first (loaded above), env override
+    // kept for the old no-settings path.
+    if (!g.engineConfig.targetLang.empty()) {
+        g_targetLang = toWide(g.engineConfig.targetLang);
+    }
     if (wchar_t buf[16]{}; ::GetEnvironmentVariableW(L"TRANSFRAME_TARGET_LANG", buf, 16)) {
         g_targetLang = buf;
+    }
+
+    // History store (FR-30): SQLite/WAL under %LOCALAPPDATA%\TransFrame.
+    // Failure degrades to "recording off + history window empty", never to an
+    // app abort.
+    std::string historyError;
+    g.history = tf::core::HistoryStore::open(toUtf8(g.localDir + L"\\history.db"),
+                                             &historyError);
+    if (!g.history) {
+        ::OutputDebugStringA("TransFrame: history store unavailable: ");
+        ::OutputDebugStringA(historyError.c_str());
+        ::OutputDebugStringA("\n");
     }
 
     // Tray icon (FR-34): callbacks route to the hidden message window.
@@ -733,10 +841,79 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         // Tray is best-effort in v1: hotkeys keep working without it.
     }
 
-    // Hotkeys (FR-33): Ctrl+Alt+F/A/T/D/I defaults. Registration conflicts
-    // (another app owns the combo) surface in the settings UI later.
+    // Hotkeys (FR-33): persisted specs (settings.json) on top of the PRD
+    // defaults; conflicts surface in the settings hotkey page.
+    g.hotkeySpecs = tf::defaultHotkeySpecs();
+    if (const auto content = readTextFile(g.roamingDir + L"\\settings.json")) {
+        const auto bindings = tf::core::parseHotkeyBindings(*content);
+        for (const tf::core::HotkeyBinding& b : bindings) {
+            for (int i = 0; i < 5; ++i) {
+                if (b.actionName == tf::core::kHotkeyActionNames[i]) {
+                    g.hotkeySpecs[static_cast<std::size_t>(i)].vk = b.vk;
+                    g.hotkeySpecs[static_cast<std::size_t>(i)].modifiers = b.modifiers;
+                    g.hotkeySpecs[static_cast<std::size_t>(i)].enabled = b.enabled;
+                }
+            }
+        }
+    }
     g.hotkeys->setHandler([](tf::HotkeyAction action) { dispatchAction(action); });
-    (void)g.hotkeys->applySpecs(tf::defaultHotkeySpecs());
+    g.hotkeyReport = g.hotkeys->applySpecs(g.hotkeySpecs);
+
+    // Settings window (FR-35 minimal): every write goes through these
+    // callbacks — the window itself holds no storage state.
+    tf::SettingsWindowCallbacks settingsCallbacks;
+    settingsCallbacks.loadEngineConfig = [] { return g.engineConfig; };
+    settingsCallbacks.saveEngineConfig =
+        [](const tf::core::EngineConfig& next) -> std::wstring {
+        // Validate before touching disk: a bad endpoint must not overwrite a
+        // working engines.json (contract rule: readers tolerate junk, writers
+        // don't produce it).
+        auto parsed = tf::MTranServerProvider::Configuration::parse(next.mtranBaseUrl);
+        if (!parsed) return L"端点无效，需要 http://host[:port]";
+        if (next.targetLang.empty()) return L"目标语言不能为空";
+
+        const std::wstring file = g.roamingDir + L"\\engines.json";
+        std::string existing;
+        if (const auto content = readTextFile(file)) existing = *content;
+        const std::string merged = tf::core::serializeEngineConfigPatch(existing, next);
+        if (!writeTextFileAtomic(file, merged)) return L"写入 engines.json 失败";
+
+        g.engineConfig = next;
+        g_targetLang = toWide(next.targetLang);
+        // Live apply: rebuild the provider (engine construction itself is
+        // untouched); the scheduler picks it up on the next run.
+        g.mtran = std::make_unique<tf::MTranServerProvider>(*parsed, g.transport);
+        return {};
+    };
+    settingsCallbacks.currentSpecs = [] { return g.hotkeySpecs; };
+    settingsCallbacks.lastReport = [] { return g.hotkeyReport; };
+    settingsCallbacks.applySpecs =
+        [](std::vector<tf::HotkeySpec> specs) -> tf::HotkeyRegistrationReport {
+        auto report = g.hotkeys->applySpecs(specs);
+        // Persist all five actions; enabled=false survives restarts too.
+        std::vector<tf::core::HotkeyBinding> bindings;
+        bindings.reserve(specs.size());
+        for (const tf::HotkeySpec& s : specs) {
+            tf::core::HotkeyBinding b;
+            const int idx = static_cast<int>(s.action);
+            if (idx < 0 || idx >= 5) continue;
+            b.actionName = tf::core::kHotkeyActionNames[idx];
+            b.vk = s.vk;
+            b.modifiers = s.modifiers;
+            b.enabled = s.enabled;
+            bindings.push_back(b);
+        }
+        const std::wstring file = g.roamingDir + L"\\settings.json";
+        std::string existing;
+        if (const auto content = readTextFile(file)) existing = *content;
+        writeTextFileAtomic(file, tf::core::serializeHotkeyBindings(existing, bindings));
+        g.hotkeySpecs = std::move(specs);
+        g.hotkeyReport = report;
+        return report;
+    };
+    g.settingsWindow =
+        std::make_unique<tf::SettingsWindowController>(std::move(settingsCallbacks));
+    g.historyWindow = std::make_unique<tf::HistoryWindowController>(g.history.get());
 
     // Pre-create the overlay window + D2D/DComp stack (<= 60ms hotkey path).
     if (!g.overlay->precreate()) {
