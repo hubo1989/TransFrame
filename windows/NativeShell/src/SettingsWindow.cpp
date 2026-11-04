@@ -158,15 +158,22 @@ struct SettingsWindowController::Impl {
         // fail to register inside the packaged process (CreateWindowExW
         // returns null, GetLastError 183) while user32 classes work — the
         // page switcher is therefore two plain buttons.
+        settingsLog("pg-btn0-create", 0);
         pageButtons[0] = makeControl(WC_BUTTONW, L"通用", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                                      dpiScaled(dpi, 8), dpiScaled(dpi, 8),
                                      dpiScaled(dpi, 80), dpiScaled(dpi, 26), kTabs, hwnd);
+        settingsLog("pg-btn1-create", 0);
         pageButtons[1] = makeControl(WC_BUTTONW, L"快捷键", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                                      dpiScaled(dpi, 92), dpiScaled(dpi, 8),
                                      dpiScaled(dpi, 80), dpiScaled(dpi, 26), kTabs + 1, hwnd);
+        settingsLog("general-page-begin", 0);
         buildGeneralPage();
+        settingsLog("general-page-done", 0);
+        settingsLog("hotkey-page-begin", 0);
         buildHotkeyPage();
+        settingsLog("hotkey-page-done", 0);
         showPage(true);
+        settingsLog("showPage-done", 0);
     }
 
     void buildGeneralPage() {
@@ -381,12 +388,10 @@ struct SettingsWindowController::Impl {
                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                                      L"Segoe UI");
                 buildControls();
-                settingsLog("pageBtn0", pageButtons[0] ? 1 : 0);
-                settingsLog("pageBtn1", pageButtons[1] ? 1 : 0);
-                settingsLog("langEdit", langCombo ? 1 : 0);
-                settingsLog("saveButton", saveButton ? 1 : 0);
+                settingsLog("buildControls-done", pageButtons[0] ? 1 : 0);
                 reloadFromCallbacks();
                 settingsLog("reload done", 0);
+                ::SetTimer(h, 1, 500, nullptr);  // heartbeat: message-pump liveness
                 return 0;
             }
             case WM_COMMAND: {
@@ -407,6 +412,16 @@ struct SettingsWindowController::Impl {
                     return 0;
                 }
                 break;
+            }
+            case WM_TIMER:
+                if (wp == 1) { ::KillTimer(h, 1); settingsLog("HEARTBEAT pump-alive", 0); }
+                return 0;
+            case WM_PAINT: {
+                PAINTSTRUCT ps{};
+                HDC dc = ::BeginPaint(h, &ps);
+                ::EndPaint(h, &ps);
+                settingsLog("WM_PAINT", 0);
+                return 0;
             }
             case WM_KEYDOWN:
                 if (recordingRow >= 0) {
