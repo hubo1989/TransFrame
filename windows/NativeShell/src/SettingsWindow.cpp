@@ -8,6 +8,8 @@
 // Conflicts: applySpecs' report drives red binding text + a hint line (FR-33).
 #include "pch.h"
 
+#include <commctrl.h>
+
 #include "tf/SettingsWindow.hpp"
 
 #include <windowsx.h>
@@ -136,6 +138,15 @@ struct SettingsWindowController::Impl {
                                    x, y, w, hgt, parent,
                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                    instance, nullptr);
+        if (!c) {
+            char cn[32];
+            char line[96];
+            WideCharToMultiByte(CP_UTF8, 0, cls, -1, cn, sizeof(cn), nullptr, nullptr);
+            const int len = _snprintf_s(line, sizeof(line), _TRUNCATE,
+                                        "makeControl FAIL %s err=%lu\n", cn,
+                                        ::GetLastError());
+            if (len > 0) ::OutputDebugStringA(line);
+        }
         applyFont(c);
         return c;
     }
@@ -546,6 +557,12 @@ bool SettingsWindowController::registerClass(HINSTANCE instance) {
 }
 
 void SettingsWindowController::show() {
+    // Required even for user32 classes inside this environment: without an
+    // initialized comctl32 (plus its v6 activation context below), child
+    // Button/Edit/Static creation returns null in the packaged process.
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES |
+                                          ICC_TAB_CLASSES};
+    ::InitCommonControlsEx(&icc);
     if (impl_->hwnd) {
         impl_->reloadFromCallbacks();
         ::ShowWindow(impl_->hwnd, SW_SHOW);
