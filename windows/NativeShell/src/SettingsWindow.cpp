@@ -418,7 +418,7 @@ struct SettingsWindowController::Impl {
                 return 0;
             case WM_PAINT: {
                 PAINTSTRUCT ps{};
-                HDC dc = ::BeginPaint(h, &ps);
+                ::BeginPaint(h, &ps);
                 ::EndPaint(h, &ps);
                 settingsLog("WM_PAINT", 0);
                 return 0;
