@@ -1,6 +1,15 @@
 # WinUI 3 接入评估（FR-35 设置窗口技术选型）
 
-- 结论：**本周期不上 WinUI 3，采用 Win32 自绘过渡**；重评估触发信号见 §4。
+> **2026-11-04 决策更新（用户拍板）**：启用 WinUI 3 C++/WinRT，设置界面按 mac 版全量 1:1 还原。§1–§4 的“Win32 过渡”结论已过期，保留为历史记录；以本节为准。
+>
+> 触发信号 1（FR-35 完整版立项）与信号 3（引擎管理页立项）均已满足。当前实施分三线：
+> - 主线：WinUI 3 工具链最小可行性验证（独立 Probe 项目：NuGet restore → XAML 编译 → C++/WinRT 窗口运行；主应用接入前必须过）
+> - `wt-spec`：mac 版 6 页签 + 2 Sheet 逐控件规格（`windows/docs/settings-spec-mac-parity.md`）与配置 JSON schema（`settings-config-schema.md`）
+> - `wt-cfgmodel`：Core 配置模型扩展到全量字段 + Catch2 测试（与 UI 工具链解耦）
+>
+> 已知阻塞点：vcxproj 注释记录 `PackageReference` 强制 `/ZW` 与 `/std:c++20` 冲突；验证路径为 C++/WinRT 头独立编译（不启用 `/ZW`），或用独立 XAML 项目隔离生成代码。CI 需补 NuGet restore 与 WASDK 工作负载。Probe 未通过前不替换任何现有窗口。
+
+- 历史结论：本周期不上 WinUI 3，采用 Win32 自绘过渡；重评估触发信号见 §4。
 - 范围：FR-35 设置窗口最小版（通用页 + 快捷键页）、FR-30 历史列表窗口。
 
 ## 1. 现状证据（Observed，仓库内）
