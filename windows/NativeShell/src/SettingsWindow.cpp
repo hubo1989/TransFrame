@@ -391,7 +391,8 @@ struct SettingsWindowController::Impl {
                 settingsLog("buildControls-done", pageButtons[0] ? 1 : 0);
                 reloadFromCallbacks();
                 settingsLog("reload done", 0);
-                ::SetTimer(h, 1, 500, nullptr);  // heartbeat: message-pump liveness
+                ::SetTimer(h, 1, 500, nullptr);   // heartbeat: pump liveness
+                ::SetTimer(h, 2, 10000, nullptr);  // self-audit: children state
                 return 0;
             }
             case WM_COMMAND: {
@@ -414,7 +415,55 @@ struct SettingsWindowController::Impl {
                 break;
             }
             case WM_TIMER:
-                if (wp == 1) { ::KillTimer(h, 1); settingsLog("HEARTBEAT pump-alive", 0); }
+                if (wp == 1) {
+                    ::KillTimer(h, 1);
+                    settingsLog("HEARTBEAT pump-alive", 0);
+                }
+                if (wp == 2) {
+                    ::KillTimer(h, 2);
+                    // Self-audit from inside the process — immune to
+                    // AppContainer window isolation that hides children
+                    // from external enumerators.
+                    struct Audit {
+                        static BOOL CALLBACK cb(HWND ch, LPARAM l) {
+                            char cls[64] = {};
+                            ::GetClassNameA(ch, cls, 64);
+                            RECT r{};
+                            ::GetWindowRect(ch, &r);
+                            char line[160];
+                            const int len = _snprintf_s(
+                                line, sizeof(line), _TRUNCATE,
+                                "child %s vis=%d rect=%ld,%ld %ldx%ld\n", cls,
+                                ::IsWindowVisible(ch), r.left, r.top,
+                                r.right - r.left, r.bottom - r.top);
+                            if (len > 0) {
+                                char path[MAX_PATH];
+                                if (::GetTempPathA(MAX_PATH, path) > 0) {
+                                    lstrcatA(path, "TransFrameSettingsInit.log");
+                                    HANDLE f = ::CreateFileA(
+                                        path, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                        nullptr, OPEN_ALWAYS,
+                                        FILE_ATTRIBUTE_NORMAL, nullptr);
+                                    if (f != INVALID_HANDLE_VALUE) {
+                                        DWORD written = 0;
+                                        ::WriteFile(f, line, static_cast<DWORD>(len),
+                                                    &written, nullptr);
+                                        ::CloseHandle(f);
+                                    }
+                                }
+                            }
+                            return TRUE;
+                        }
+                    };
+                    RECT client{};
+                    ::GetClientRect(h, &client);
+                    char cl[96];
+                    const int n = _snprintf_s(cl, sizeof(cl), _TRUNCATE,
+                                              "AUDIT client=%ldx%ld", client.right,
+                                              client.bottom);
+                    settingsLog(n > 0 ? cl : "AUDIT", 0);
+                    ::EnumChildWindows(h, Audit::cb, 0);
+                }
                 return 0;
             case WM_PAINT: {
                 PAINTSTRUCT ps{};
