@@ -10,7 +10,6 @@
 
 #include "tf/SettingsWindow.hpp"
 
-#include <commctrl.h>
 #include <windowsx.h>
 
 namespace tf {
@@ -95,7 +94,7 @@ struct SettingsWindowController::Impl {
     HINSTANCE instance = nullptr;
     SettingsWindowCallbacks callbacks;
 
-    HWND tabs = nullptr;
+    HWND pageButtons[2] = {nullptr, nullptr};
     HWND langCombo = nullptr;
     HWND baseUrlEdit = nullptr;
     HWND saveButton = nullptr;
@@ -155,17 +154,16 @@ struct SettingsWindowController::Impl {
 
     void buildControls() {
         UINT dpi = ::GetDpiForWindow(hwnd);
-        tabs = makeControl(WC_TABCONTROLW, nullptr, WS_VISIBLE | WS_TABSTOP,
-                           dpiScaled(dpi, 8), dpiScaled(dpi, 8),
-                           dpiScaled(dpi, kWindowWidth) - dpiScaled(dpi, 16),
-                           dpiScaled(dpi, kWindowHeight) - dpiScaled(dpi, 16), kTabs, hwnd);
-        wchar_t titles[2][16] = {L"通用", L"快捷键"};
-        for (int i = 0; i < 2; ++i) {
-            TCITEMW tie{};
-            tie.mask = TCIF_TEXT;
-            tie.pszText = titles[i];
-            ::SendMessageW(tabs, TCM_INSERTITEMW, i, reinterpret_cast<LPARAM>(&tie));
-        }
+        // MSIX-container note: comctl32 classes (SysTabControl32, ComboBox)
+        // fail to register inside the packaged process (CreateWindowExW
+        // returns null, GetLastError 183) while user32 classes work — the
+        // page switcher is therefore two plain buttons.
+        pageButtons[0] = makeControl(WC_BUTTONW, L"通用", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                     dpiScaled(dpi, 8), dpiScaled(dpi, 8),
+                                     dpiScaled(dpi, 80), dpiScaled(dpi, 26), kTabs, hwnd);
+        pageButtons[1] = makeControl(WC_BUTTONW, L"快捷键", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                     dpiScaled(dpi, 92), dpiScaled(dpi, 8),
+                                     dpiScaled(dpi, 80), dpiScaled(dpi, 26), kTabs + 1, hwnd);
         buildGeneralPage();
         buildHotkeyPage();
         showPage(true);
@@ -182,12 +180,13 @@ struct SettingsWindowController::Impl {
 
         makeControl(WC_STATICW, L"目标语言", WS_VISIBLE, x1, y0 + 4,
                     dpiScaled(dpi, 100), dpiScaled(dpi, 20), kGeneralHint, hwnd);
-        langCombo = makeControl(WC_COMBOBOXW, nullptr,
-                                WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-                                x2, y0, ctlW, dpiScaled(dpi, 200), kTargetLangCombo, hwnd);
-        for (const wchar_t* lang : kLanguages) {
-            ::SendMessageW(langCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(lang));
-        }
+        langCombo = makeControl(WC_EDITW, L"zh",
+                                WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL,
+                                x2, y0, dpiScaled(dpi, 60), dpiScaled(dpi, 24),
+                                kTargetLangCombo, hwnd);
+        makeControl(WC_STATICW, L"（zh/en/ja/ko/fr/de/es/ru/pt/it）",
+                    WS_VISIBLE, x2 + dpiScaled(dpi, 70), y0 + 4,
+                    ctlW - dpiScaled(dpi, 70), dpiScaled(dpi, 20), kGeneralHint, hwnd);
 
         const int y1 = y0 + rowH + dpiScaled(dpi, 8);
         makeControl(WC_STATICW, L"MTranServer 端点", WS_VISIBLE, x1, y1 + 4,
@@ -267,16 +266,7 @@ struct SettingsWindowController::Impl {
         if (!callbacks.loadEngineConfig) return;
         const core::EngineConfig current = callbacks.loadEngineConfig();
         if (langCombo) {
-            const std::wstring lang = utf8ToWide(current.targetLang);
-            LRESULT found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1),
-                                           reinterpret_cast<LPARAM>(lang.c_str()));
-            if (found == CB_ERR) {
-                ::SendMessageW(langCombo, CB_ADDSTRING, 0,
-                               reinterpret_cast<LPARAM>(lang.c_str()));
-                found = ::SendMessageW(langCombo, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1),
-                                       reinterpret_cast<LPARAM>(lang.c_str()));
-            }
-            ::SendMessageW(langCombo, CB_SETCURSEL, found, 0);
+            ::SetWindowTextW(langCombo, utf8ToWide(current.targetLang).c_str());
         }
         if (baseUrlEdit) {
             const std::wstring url = utf8ToWide(current.mtranBaseUrl);
@@ -391,27 +381,22 @@ struct SettingsWindowController::Impl {
                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                                      L"Segoe UI");
                 buildControls();
-                settingsLog("buildControls tabs", tabs ? 1 : 0);
-                if (!tabs) settingsLog("tabs GetLastError", ::GetLastError());
-                settingsLog("langCombo", langCombo ? 1 : 0);
-                if (!langCombo) settingsLog("combo GetLastError", ::GetLastError());
+                settingsLog("pageBtn0", pageButtons[0] ? 1 : 0);
+                settingsLog("pageBtn1", pageButtons[1] ? 1 : 0);
+                settingsLog("langEdit", langCombo ? 1 : 0);
                 settingsLog("saveButton", saveButton ? 1 : 0);
                 reloadFromCallbacks();
                 settingsLog("reload done", 0);
                 return 0;
             }
-            case WM_NOTIFY: {
-                const auto* nm = reinterpret_cast<const NMHDR*>(lp);
-                if (nm && nm->idFrom == kTabs && nm->code == TCN_SELCHANGE) {
-                    showPage(::SendMessageW(tabs, TCM_GETCURSEL, 0, 0) == 0);
-                    ::InvalidateRect(h, nullptr, TRUE);
-                    return 0;
-                }
-                break;
-            }
             case WM_COMMAND: {
                 const int id = LOWORD(wp);
                 const int code = HIWORD(wp);
+                if ((id == kTabs || id == kTabs + 1) && code == BN_CLICKED) {
+                    showPage(id == kTabs);
+                    ::InvalidateRect(h, nullptr, TRUE);
+                    return 0;
+                }
                 if (id == kSaveButton && code == BN_CLICKED) {
                     onGeneralSave();
                     return 0;
@@ -455,11 +440,8 @@ struct SettingsWindowController::Impl {
         core::EngineConfig next;
         wchar_t buf[256] = {};
         if (langCombo) {
-            const int sel = static_cast<int>(::SendMessageW(langCombo, CB_GETCURSEL, 0, 0));
-            if (sel != CB_ERR) {
-                ::SendMessageW(langCombo, CB_GETLBTEXT, sel, reinterpret_cast<LPARAM>(buf));
-                next.targetLang = wideToUtf8(buf);
-            }
+            ::GetWindowTextW(langCombo, buf, 256);
+            next.targetLang = wideToUtf8(buf);
         }
         if (baseUrlEdit) {
             wchar_t url[512] = {};
@@ -500,12 +482,6 @@ bool SettingsWindowController::registerClass(HINSTANCE instance) {
 }
 
 void SettingsWindowController::show() {
-    // Common controls (tab/edit/combo) need explicit registration when the
-    // process has no comctl32 v6 manifest dependency (InitCommonControlsEx
-    // was the missing piece behind the blank settings window).
-    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_STANDARD_CLASSES |
-                                          ICC_WIN95_CLASSES};
-    ::InitCommonControlsEx(&icc);
     if (impl_->hwnd) {
         impl_->reloadFromCallbacks();
         ::ShowWindow(impl_->hwnd, SW_SHOW);
