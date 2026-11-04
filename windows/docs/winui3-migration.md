@@ -52,3 +52,18 @@
 4. WASDK /ZW 冲突解除（库内记录的阻塞点消失）。
 
 迁移路径：Core 数据模型不动，只替换窗口层；WASDK 走自包含 MSIX（PRD 决策 3 单通道）。
+
+## 5. Probe 验证结果（2026-11-04，已执行）
+
+`C:\tfbuild\winui3-probe2`：WinUI 3 C++/WinRT 编译链路**验证通过**（EXE 产出）。
+
+| 项 | 结论 |
+|---|---|
+| NuGet 还原 | WASDK 1.6.250205002 + CppWinRT 2.0.240405.15 均可还原 |
+| 资产解析 | Build Tools 需 `<ResolveNuGetPackages>false</ResolveNuGetPackages>`（17.0 旧式 targets 会用 packages.config 逻辑误读 PackageReference 资产而崩溃——12 轮定位的真根因） |
+| 投影头 | WASDK nupkg 自带 4 个基础设施头；XAML 投影头由 CppWinRT 包 targets 构建时生成，`winrt/Microsoft.UI.Xaml.Controls.h` 可用 |
+| /ZW 冲突 | **不存在**：C++/WinRT 纯头投影与 /std:c++20 兼容；历史注释针对 C++/CX，无需 /ZW |
+| 工具集 | v143 (14.44.35207) 可用；`$(DefaultPlatformToolset)` 即可 |
+| PRI 打包 | Build Tools 缺 `Microsoft.Build.Packaging.Pri.Tasks.dll`（UWP 打包组件）；主应用接入时需装组件或配置跳过 PriGen |
+
+主工程接入清单：启用 PackageReference 块（追加 CppWinRT 包）+ `ResolveNuGetPackages=false` + MinVersion 10.0.17763 + CI 加 restore 步骤。
