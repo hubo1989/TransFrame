@@ -391,7 +391,11 @@ struct SettingsWindowController::Impl {
                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                                      L"Segoe UI");
                 buildControls();
-                settingsLog("buildControls done", tabs ? 1 : 0);
+                settingsLog("buildControls tabs", tabs ? 1 : 0);
+                if (!tabs) settingsLog("tabs GetLastError", ::GetLastError());
+                settingsLog("langCombo", langCombo ? 1 : 0);
+                if (!langCombo) settingsLog("combo GetLastError", ::GetLastError());
+                settingsLog("saveButton", saveButton ? 1 : 0);
                 reloadFromCallbacks();
                 settingsLog("reload done", 0);
                 return 0;

@@ -111,7 +111,13 @@ struct AppState {
 
     std::atomic<bool> pipelineBusy{false};
     std::atomic<std::uint64_t> pipelineGeneration{0};
+    // Re-arm anchor: a worker wedged inside an unbounded system call (e.g.
+    // a hung UIA/HTTP call) must not lock hotkeys out forever; after
+    // kPipelineStuckSeconds a rejected dispatch re-arms.
+    std::atomic<std::int64_t> pipelineBusySinceMs{0};
     tf::CancellationToken shutdownToken;
+
+constexpr int kPipelineStuckSeconds = 60;
 
     // Pipeline workers, kept joinable: teardown waits for in-flight
     // OCR/HTTP instead of the CRT reaping detached threads mid-call.
@@ -597,8 +603,20 @@ void runTextSelectionFlow(bool insertMode) {
 
 /// Returns a ticket only when no pipeline is active.
 std::optional<std::uint64_t> tryBeginPipeline() {
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
     const bool wasBusy = g.pipelineBusy.exchange(true);
     if (!wasBusy) {
+        g.pipelineBusySinceMs.store(nowMs);
+        return g.pipelineGeneration.fetch_add(1) + 1;
+    }
+    // Self-heal: a worker stuck longer than the threshold (normal flows are
+    // single-digit seconds; UIA/clipboard calls are timeout-capped) is dead
+    // — re-arm over it rather than rejecting forever.
+    const std::int64_t since = g.pipelineBusySinceMs.load();
+    if (since != 0 && nowMs - since > kPipelineStuckSeconds * 1000) {
+        g.pipelineBusySinceMs.store(nowMs);
         return g.pipelineGeneration.fetch_add(1) + 1;
     }
     // A running operation retains ownership until it finishes. Elapsed time

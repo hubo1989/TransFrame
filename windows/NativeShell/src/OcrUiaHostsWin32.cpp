@@ -349,48 +349,74 @@ namespace {
 /// reference; the underlying provider runs in the target process, so every
 /// call is fallible — failures degrade to "pattern absent / empty identity"
 /// instead of throwing (Core maps that to the clipboard-disabled error path).
+
+// UIA calls are synchronous cross-process COM with no timeout: against a
+// hung foreground window GetFocusedElement/GetSelection block forever and
+// the worker thread wedges the pipeline busy flag. Same sacrificial-thread
+// pattern as RunClipboardOp.
+bool RunUiOpWithTimeout(const std::function<bool()>& op, DWORD timeoutMs = 1500) {
+    auto done = std::make_shared<std::promise<bool>>();
+    std::future<bool> fut = done->get_future();
+    std::thread([op, done]() mutable {
+        try { done->set_value(op()); } catch (...) {}
+    }).detach();
+    if (fut.wait_for(std::chrono::milliseconds(timeoutMs)) == std::future_status::ready) {
+        return fut.get();
+    }
+    return false;
+}
+
 class Win32UiaElement final : public IUiaElement {
 public:
     explicit Win32UiaElement(Microsoft::WRL::ComPtr<IUIAutomationElement> element)
         : element_(std::move(element)) {}
 
     std::optional<std::string> getSelectionText() const override {
-        Microsoft::WRL::ComPtr<IUIAutomationTextPattern> textPattern;
-        if (FAILED(element_.As(&textPattern)) || !textPattern) return std::nullopt;
-        Microsoft::WRL::ComPtr<IUIAutomationTextRangeArray> ranges;
-        if (FAILED(textPattern->GetSelection(ranges.ReleaseAndGetAddressOf())) ||
-            !ranges) {
-            return std::nullopt;
-        }
-        int32_t count = 0;
-        if (FAILED(ranges->get_Length(&count)) || count <= 0) return std::nullopt;
-        Microsoft::WRL::ComPtr<IUIAutomationTextRange> range;
-        if (FAILED(ranges->GetElement(0, range.ReleaseAndGetAddressOf())) || !range) {
-            return std::nullopt;
-        }
-        // -1 = no truncation (caller's contract is the full selection).
-        BSTR raw = nullptr;
-        if (FAILED(range->GetText(-1, &raw)) || raw == nullptr) return std::nullopt;
-        std::string out = ToUtf8(
-            std::wstring(raw, static_cast<std::size_t>(::SysStringLen(raw))));
-        ::SysFreeString(raw);
-        return out;
+        auto out = std::make_shared<std::optional<std::string>>();
+        const bool ok = RunUiOpWithTimeout([this, out]() {
+            Microsoft::WRL::ComPtr<IUIAutomationTextPattern> textPattern;
+            if (FAILED(element_.As(&textPattern)) || !textPattern) return false;
+            Microsoft::WRL::ComPtr<IUIAutomationTextRangeArray> ranges;
+            if (FAILED(textPattern->GetSelection(ranges.ReleaseAndGetAddressOf())) ||
+                !ranges) {
+                return false;
+            }
+            int32_t count = 0;
+            if (FAILED(ranges->get_Length(&count)) || count <= 0) return false;
+            Microsoft::WRL::ComPtr<IUIAutomationTextRange> range;
+            if (FAILED(ranges->GetElement(0, range.ReleaseAndGetAddressOf())) || !range) {
+                return false;
+            }
+            // -1 = no truncation (caller's contract is the full selection).
+            BSTR raw = nullptr;
+            if (FAILED(range->GetText(-1, &raw)) || raw == nullptr) return false;
+            *out = ToUtf8(std::wstring(raw, static_cast<std::size_t>(::SysStringLen(raw))));
+            ::SysFreeString(raw);
+            return true;
+        });
+        return ok ? *out : std::nullopt;
     }
 
     bool isEditable() const override {
         // "Editable" = ValuePattern present AND not read-only (mirrors the
         // macOS AXWritable check feeding the paste-revalidation binding).
-        Microsoft::WRL::ComPtr<IUIAutomationValuePattern> valuePattern;
-        if (FAILED(element_.As(&valuePattern)) || !valuePattern) return false;
-        BOOL readOnly = TRUE;
-        return SUCCEEDED(valuePattern->get_CurrentIsReadOnly(&readOnly)) &&
-               readOnly == FALSE;
+        auto out = std::make_shared<bool>(false);
+        RunUiOpWithTimeout([this, out]() {
+            Microsoft::WRL::ComPtr<IUIAutomationValuePattern> valuePattern;
+            if (FAILED(element_.As(&valuePattern)) || !valuePattern) return false;
+            BOOL readOnly = TRUE;
+            *out = SUCCEEDED(valuePattern->get_CurrentIsReadOnly(&readOnly)) &&
+                   readOnly == FALSE;
+            return true;
+        });
+        return *out;
     }
 
     std::string runtimeId() const override {
+        auto out = std::make_shared<std::string>();
+        RunUiOpWithTimeout([this, out]() {
         SAFEARRAY* ids = nullptr;
-        std::string out;
-        if (FAILED(element_->GetRuntimeId(&ids)) || ids == nullptr) return out;
+        if (FAILED(element_->GetRuntimeId(&ids)) || ids == nullptr) return false;
         long lower = 0;
         long upper = -1;
         if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
@@ -414,25 +440,30 @@ private:
 
 std::function<UiaElementPtr()> MakeWin32UiaFocusedElement() {
     return []() -> UiaElementPtr {
-        // Per-call activation: CUIAutomation8 is in-proc (sub-ms after first
-        // load) and a fresh instance sidesteps apartment-lifetime assumptions
-        // on the transient worker threads that run the 划词 flows.
-        Microsoft::WRL::ComPtr<IUIAutomation> automation;
-        if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr,
-                                      CLSCTX_INPROC_SERVER,
-                                      __uuidof(IUIAutomation),
-                                      reinterpret_cast<LPVOID*>(
-                                          automation.ReleaseAndGetAddressOf()))) ||
-            !automation) {
-            return nullptr;
-        }
-        Microsoft::WRL::ComPtr<IUIAutomationElement> focused;
-        if (FAILED(automation->GetFocusedElement(
-                focused.ReleaseAndGetAddressOf())) ||
-            !focused) {
-            return nullptr;
-        }
-        return std::make_unique<Win32UiaElement>(std::move(focused));
+        // The whole extraction runs on a sacrificial thread: any step that
+        // blocks against a hung target window times out instead of wedging
+        // the pipeline.
+        auto out = std::make_shared<UiaElementPtr>();
+        const bool ok = RunUiOpWithTimeout([out]() {
+            Microsoft::WRL::ComPtr<IUIAutomation> automation;
+            if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr,
+                                          CLSCTX_INPROC_SERVER,
+                                          __uuidof(IUIAutomation),
+                                          reinterpret_cast<LPVOID*>(
+                                              automation.ReleaseAndGetAddressOf()))) ||
+                !automation) {
+                return false;
+            }
+            Microsoft::WRL::ComPtr<IUIAutomationElement> focused;
+            if (FAILED(automation->GetFocusedElement(
+                    focused.ReleaseAndGetAddressOf())) ||
+                !focused) {
+                return false;
+            }
+            *out = std::make_unique<Win32UiaElement>(std::move(focused));
+            return true;
+        });
+        return ok ? std::move(*out) : nullptr;
     };
 }
 
