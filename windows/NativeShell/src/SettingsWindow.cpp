@@ -123,6 +123,9 @@ struct SettingsWindowController::Impl {
             ::SetWindowLongPtrW(h, GWLP_USERDATA,
                                 reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
             self = static_cast<Impl*>(cs->lpCreateParams);
+            // WM_CREATE runs before CreateWindowExW returns, so child
+            // controls need the parent HWND assigned at WM_NCCREATE.
+            if (self) self->hwnd = h;
         }
         if (self) return self->handle(h, msg, wp, lp);
         return ::DefWindowProcW(h, msg, wp, lp);
@@ -165,10 +168,7 @@ struct SettingsWindowController::Impl {
 
     void buildControls() {
         UINT dpi = ::GetDpiForWindow(hwnd);
-        // MSIX-container note: comctl32 classes (SysTabControl32, ComboBox)
-        // fail to register inside the packaged process (CreateWindowExW
-        // returns null, GetLastError 183) while user32 classes work — the
-        // page switcher is therefore two plain buttons.
+        // The page switcher uses standard push buttons.
         settingsLog("pg-btn0-create", 0);
         pageButtons[0] = makeControl(WC_BUTTONW, L"通用", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                                      dpiScaled(dpi, 8), dpiScaled(dpi, 8),
