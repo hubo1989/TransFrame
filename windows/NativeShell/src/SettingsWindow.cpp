@@ -425,7 +425,7 @@ struct SettingsWindowController::Impl {
                     // AppContainer window isolation that hides children
                     // from external enumerators.
                     struct Audit {
-                        static BOOL CALLBACK cb(HWND ch, LPARAM l) {
+                        static BOOL CALLBACK cb(HWND ch, LPARAM /*l*/) {
                             char cls[64] = {};
                             ::GetClassNameA(ch, cls, 64);
                             RECT r{};
