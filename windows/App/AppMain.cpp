@@ -266,6 +266,12 @@ std::string failureSummary(const tf::SchedulerOutcome& out) {
     for (const auto& f : out.failures) {
         err += "\n" + f.displayName + ": " + f.errorText;
     }
+    // The default engine is a local service; the common cause is simply that
+    // it is not running on this machine yet.
+    if (err.find("MTranServer") != std::string::npos) {
+        err += "\n提示：默认引擎 MTranServer 是本地服务（localhost:8989），"
+               "请先启动它，或在 设置→通用 里改用其他引擎端点。";
+    }
     return err;
 }
 
@@ -591,20 +597,32 @@ void runTextSelectionFlow(bool insertMode) {
 
 /// Returns a ticket only when no pipeline is active.
 std::optional<std::uint64_t> tryBeginPipeline() {
-    if (!g.pipelineBusy.exchange(true)) {
-        // The previous worker has released the busy flag and can be reaped
-        // before starting the next one; retain no completed thread handles.
-        {
-            std::lock_guard<std::mutex> lock(g.workersMutex);
-            for (auto& worker : g.workers) {
-                if (worker.joinable()) worker.join();
-            }
-            g.workers.clear();
-        }
+    const bool wasBusy = g.pipelineBusy.exchange(true);
+    if (!wasBusy) {
         return g.pipelineGeneration.fetch_add(1) + 1;
     }
     // A running operation retains ownership until it finishes. Elapsed time
-    // cannot distinguish a stuck operation from a slow valid one.
+    // cannot distinguish a stuck operation from a slow valid one — but the
+    // rejection must be observable, not a dead menu click.
+    char path[MAX_PATH];
+    if (::GetTempPathA(MAX_PATH, path) > 0) {
+        lstrcatA(path, "TransFramePipeline.log");
+        HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f != INVALID_HANDLE_VALUE) {
+            char line[96];
+            const int len = _snprintf_s(line, sizeof(line), _TRUNCATE,
+                                        "rejected-busy\n");
+            DWORD written = 0;
+            if (len > 0) ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+            ::CloseHandle(f);
+        }
+    }
+    tf::ResultWindowContent c;
+    c.translatedText = L"上一次翻译还在进行中，请稍候再试";
+    c.statusLine = L"Pipeline busy";
+    c.anchorPhysical = tf::Rect{200, 200, 400, 100};
+    showResultOnMain(c);
     return std::nullopt;
 }
 

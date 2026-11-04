@@ -16,6 +16,27 @@
 namespace tf {
 
 namespace {
+void settingsLog(const char* step, long code) {
+    char path[MAX_PATH];
+    const DWORD n = ::GetTempPathA(MAX_PATH, path);
+    if (n == 0 || n >= MAX_PATH) return;
+    lstrcatA(path, "TransFrameSettingsInit.log");
+    HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    char line[160];
+    const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s code=%ld\n",
+                                step, code);
+    if (len > 0) {
+        DWORD written = 0;
+        ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+    }
+    ::CloseHandle(f);
+}
+}  // namespace
+
+
+namespace {
 
 constexpr wchar_t kSettingsWndClass[] = L"TransFrameSettingsWnd";
 constexpr int kWindowWidth = 680;
@@ -362,6 +383,7 @@ struct SettingsWindowController::Impl {
     LRESULT handle(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         switch (msg) {
             case WM_CREATE: {
+                settingsLog("WM_CREATE-enter", 0);
                 UINT dpi = ::GetDpiForWindow(h);
                 font = ::CreateFontW(-::MulDiv(15, static_cast<int>(dpi), 96), 0, 0, 0,
                                      FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -369,7 +391,9 @@ struct SettingsWindowController::Impl {
                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                                      L"Segoe UI");
                 buildControls();
+                settingsLog("buildControls done", tabs ? 1 : 0);
                 reloadFromCallbacks();
+                settingsLog("reload done", 0);
                 return 0;
             }
             case WM_NOTIFY: {
@@ -472,6 +496,12 @@ bool SettingsWindowController::registerClass(HINSTANCE instance) {
 }
 
 void SettingsWindowController::show() {
+    // Common controls (tab/edit/combo) need explicit registration when the
+    // process has no comctl32 v6 manifest dependency (InitCommonControlsEx
+    // was the missing piece behind the blank settings window).
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_STANDARD_CLASSES |
+                                          ICC_WIN95_CLASSES};
+    ::InitCommonControlsEx(&icc);
     if (impl_->hwnd) {
         impl_->reloadFromCallbacks();
         ::ShowWindow(impl_->hwnd, SW_SHOW);

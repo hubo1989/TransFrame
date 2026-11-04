@@ -465,6 +465,7 @@ bool SelectionOverlayController::beginSession(OverlayCompletion completion) {
     impl.resizeToVirtualDesktop();  // picks up display changes since last session
     impl.renderFrame();
     ::ShowWindow(impl.hwnd, SW_SHOWNA);  // no-activate: don't steal focus
+    initLog("beginSession-shown", ::IsWindowVisible(impl.hwnd) ? 1 : 0);
     // Overlay must receive keyboard for Esc: focus without activation is not
     // possible for a WS_EX_NOACTIVATE window; we grab it explicitly because
     // during selection the overlay owns all input (FR-01).
