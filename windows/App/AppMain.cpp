@@ -766,6 +766,23 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // Entry
 // ---------------------------------------------------------------------------
 
+
+namespace {
+void mainLog(const char* step, long v) {
+    char path[MAX_PATH];
+    if (::GetTempPathA(MAX_PATH, path) == 0) return;
+    lstrcatA(path, "TransFrameMain.log");
+    HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    char line[128];
+    const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s v=%ld\n", step, v);
+    DWORD written = 0;
+    if (len > 0) ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+    ::CloseHandle(f);
+}
+}  // namespace
+
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.instance = instance;
 
@@ -966,16 +983,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // Main loop. WM_HOTKEY arrives as a THREAD message (RegisterHotKey with
     // hwnd=nullptr), so it is dispatched here rather than in a wndProc.
     MSG msg{};
-    while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (msg.hwnd == nullptr && msg.message == WM_HOTKEY) {
-            if (g.hotkeys) g.hotkeys->dispatchWmHotkey(static_cast<int>(msg.wParam));
+    mainLog("loop-enter", 0);
+    for (;;) {
+        const BOOL got = ::GetMessageW(&msg, nullptr, 0, 0);
+        if (got > 0) {
+            if (msg.hwnd == nullptr && msg.message == WM_HOTKEY) {
+                if (g.hotkeys) g.hotkeys->dispatchWmHotkey(static_cast<int>(msg.wParam));
+                continue;
+            }
+            if (msg.message == kAppQuit) {
+                mainLog("exit-kAppQuit", 0);
+                break;
+            }
+            ::TranslateMessage(&msg);
+            ::DispatchMessageW(&msg);
             continue;
         }
-        if (msg.message == kAppQuit) {
-            break;
-        }
-        ::TranslateMessage(&msg);
-        ::DispatchMessageW(&msg);
+        if (got == 0) { mainLog("exit-WM_QUIT", 0); break; }
+        mainLog("exit-GetMessage-error", ::GetLastError());
+        break;
     }
 
     // Teardown.
