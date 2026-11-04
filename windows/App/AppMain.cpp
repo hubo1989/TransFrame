@@ -117,8 +117,6 @@ struct AppState {
     std::atomic<std::int64_t> pipelineBusySinceMs{0};
     tf::CancellationToken shutdownToken;
 
-constexpr int kPipelineStuckSeconds = 60;
-
     // Pipeline workers, kept joinable: teardown waits for in-flight
     // OCR/HTTP instead of the CRT reaping detached threads mid-call.
     std::mutex workersMutex;
@@ -137,6 +135,9 @@ constexpr int kPipelineStuckSeconds = 60;
 };
 
 AppState g;
+
+// Busy longer than this counts as a dead worker; dispatch re-arms.
+constexpr int kPipelineStuckSeconds = 60;
 
 // Defined with the dispatch helpers below; forward-declared for the early
 // flow functions that finish a pipeline run.
