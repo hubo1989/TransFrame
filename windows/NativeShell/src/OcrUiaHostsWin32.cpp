@@ -424,12 +424,14 @@ public:
             for (long i = lower; i <= upper; ++i) {
                 LONG value = 0;
                 if (FAILED(SafeArrayGetElement(ids, &i, &value))) break;
-                if (i > lower) out += '.';
-                out += std::to_string(value);
+                if (i > lower) *out += '.';
+                *out += std::to_string(value);
             }
         }
         SafeArrayDestroy(ids);
-        return out;
+        return true;
+        });
+        return *out;
     }
 
 private:
