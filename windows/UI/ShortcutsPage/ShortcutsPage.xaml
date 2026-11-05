@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ShortcutsPage.xaml — 快捷键页签（spec settings-spec-mac-parity.md §5）
+     一张卡片，6 个录制行：动作名 + 当前组合按钮（点击进入录制）+ 重置按钮。
+     录制中该行高亮并显示"录制中…"；冲突行红色前景 + 下方冲突文案。
+     根元素 UserControl（非 Page），便于嵌入 NavigationView Content。
+     注：动态状态（录制高亮 / 冲突标红 / 组合文本刷新）走事件驱动 +
+     code-behind 同步（VM 是普通 C++ 类，无 WinRT 属性通知），
+     静态文案用 x:Bind OneTime 绑定到 code-behind 公有方法。 -->
+<UserControl
+    x:Class="TransFrame.UI.ShortcutsPage"
+    xmlns="http://schemas.microsoft.com/winxaml/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    IsTabStop="True"
+    UseSystemFocusVisuals="True"
+    KeyDown="OnKeyDown">
+
+    <!-- 集成点：若宿主需要统一卡片圆角/间距样式，在 App.xaml 合并
+         ResourceDictionary 覆盖 CardBorder 样式；默认用系统 Fluent 样式。 -->
+    <ScrollViewer Padding="24,16">
+        <StackPanel Spacing="8" MaxWidth="640" HorizontalAlignment="Left">
+
+            <TextBlock x:Name="HeaderText"
+                       Text="{x:Bind HeaderTextValue, Mode=OneTime}"
+                       Style="{StaticResource TitleTextBlockStyle}"/>
+            <TextBlock x:Name="HintText"
+                       Text="{x:Bind HintTextValue, Mode=OneTime}"
+                       Style="{StaticResource BodySecondaryTextBlockStyle}"
+                       Margin="0,0,0,8"/>
+
+            <!-- 一张卡片：6 个录制行 -->
+            <Border Style="{StaticResource CardBorderFlyoutStyle}" Padding="16">
+                <StackPanel Spacing="4">
+
+                    <!-- 行 0：全屏截图 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel0" Text="{x:Bind ActionLabelFor(0), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText0" Text="{x:Bind ComboTextFor(0), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton0" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton0Click"
+                                Content="{x:Bind RecordButtonTextFor(0), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton0" Grid.Column="2"
+                                Click="OnResetButton0Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <!-- 冲突文案：默认 Collapsed，VM 检测到冲突后显示 -->
+                        <TextBlock x:Name="ConflictText0" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                    <!-- 行 1：区域截图 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel1" Text="{x:Bind ActionLabelFor(1), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText1" Text="{x:Bind ComboTextFor(1), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton1" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton1Click"
+                                Content="{x:Bind RecordButtonTextFor(1), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton1" Grid.Column="2"
+                                Click="OnResetButton1Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <TextBlock x:Name="ConflictText1" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                    <!-- 行 2：翻译模式 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel2" Text="{x:Bind ActionLabelFor(2), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText2" Text="{x:Bind ComboTextFor(2), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton2" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton2Click"
+                                Content="{x:Bind RecordButtonTextFor(2), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton2" Grid.Column="2"
+                                Click="OnResetButton2Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <TextBlock x:Name="ConflictText2" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                    <!-- 行 3：划词翻译 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel3" Text="{x:Bind ActionLabelFor(3), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText3" Text="{x:Bind ComboTextFor(3), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton3" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton3Click"
+                                Content="{x:Bind RecordButtonTextFor(3), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton3" Grid.Column="2"
+                                Click="OnResetButton3Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <TextBlock x:Name="ConflictText3" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                    <!-- 行 4：翻译插入 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel4" Text="{x:Bind ActionLabelFor(4), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText4" Text="{x:Bind ComboTextFor(4), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton4" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton4Click"
+                                Content="{x:Bind RecordButtonTextFor(4), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton4" Grid.Column="2"
+                                Click="OnResetButton4Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <TextBlock x:Name="ConflictText4" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                    <!-- 行 5：取色 -->
+                    <Grid ColumnSpacing="8" Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock x:Name="ActionLabel5" Text="{x:Bind ActionLabelFor(5), Mode=OneTime}"/>
+                            <TextBlock x:Name="ComboText5" Text="{x:Bind ComboTextFor(5), Mode=OneTime}"
+                                       Style="{StaticResource BodySecondaryTextBlockStyle}"/>
+                        </StackPanel>
+                        <Button x:Name="RecordButton5" Grid.Column="1" MinWidth="130"
+                                Click="OnRecordButton5Click"
+                                Content="{x:Bind RecordButtonTextFor(5), Mode=OneTime}"/>
+                        <Button x:Name="ResetButton5" Grid.Column="2"
+                                Click="OnResetButton5Click"
+                                Content="{x:Bind ResetButtonText, Mode=OneTime}"/>
+                        <TextBlock x:Name="ConflictText5" Grid.Column="0" Grid.ColumnSpan="3"
+                                   Text="冲突" Visibility="Collapsed"
+                                   Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"/>
+                    </Grid>
+
+                </StackPanel>
+            </Border>
+
+            <!-- 行内校验提示（"需至少一个修饰键"等），默认 Collapsed -->
+            <TextBlock x:Name="StatusText"
+                       Visibility="Collapsed"
+                       Foreground="{ThemeResource SystemControlErrorTextForegroundBrush}"
+                       Style="{StaticResource CaptionTextBlockStyle}"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
