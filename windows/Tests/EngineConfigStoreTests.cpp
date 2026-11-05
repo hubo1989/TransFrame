@@ -4,7 +4,13 @@
 
 #include <nlohmann/json.hpp>
 
+#ifdef _WIN32
+#include <process.h>  // _getpid
+#define tf_test_pid ::_getpid()
+#else
 #include <unistd.h>
+#define tf_test_pid tf_test_pid
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -286,7 +292,7 @@ TEST_CASE("V2 chains are clamped to mac limits and junk entries dropped", "[engi
 
 TEST_CASE("writeEngineConfigFileAtomic writes and replaces", "[engines][config][full]") {
     const auto dir = std::filesystem::temp_directory_path() /
-        ("tf-cfg-test-" + std::to_string(::getpid()));
+        ("tf-cfg-test-" + std::to_string(tf_test_pid));
     std::filesystem::create_directories(dir);
     const auto file = dir / "engines.json";
 
