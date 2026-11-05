@@ -11,7 +11,7 @@
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
-
+#include <MddBootstrap.h>
 #include <mutex>
 
 namespace tf::ui {
@@ -42,6 +42,22 @@ constexpr PageDef kPages[] = {
 winrt::fire_and_forget LaunchAsync() {
     co_await winrt::resume_background();
     try {
+        // Framework-dependent WASDK: resolve the 1.6 runtime before any
+        // Microsoft.UI.Xaml activation, otherwise WinUI 3 classes throw
+        // (the tray command then looks like a no-op).
+        constexpr PCWSTR kVersionTag = L"";
+        constexpr PACKAGE_VERSION kMinVersion{6000, 519, 329, 0};
+        const HRESULT boot = ::MddBootstrapInitialize(kMinVersion, kVersionTag);
+        if (FAILED(boot) && boot != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
+            wchar_t msg[96];
+            _snwprintf_s(msg, _countof(msg), _TRUNCATE,
+                         L"TransFrame: MddBootstrapInitialize failed hr=0x%08lX\n",
+                         static_cast<unsigned long>(boot));
+            ::OutputDebugStringW(msg);
+            std::lock_guard<std::mutex> lock(g_windowMutex);
+            g_launching = false;
+            co_return;
+        }
         winrt::init_apartment(winrt::apartment_type::single_threaded);
         auto controller = DispatcherQueueController::CreateOnCurrentThread();
 

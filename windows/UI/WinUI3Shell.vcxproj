@@ -32,7 +32,7 @@
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(ProjectDir)SettingsShell;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)SettingsShell;$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -47,5 +47,11 @@
   <ItemGroup>
     <ClInclude Include="SettingsShell\SettingsWindowWinUI.hpp" />
   </ItemGroup>
+    <ItemDefinitionGroup>
+    <Link>
+      <AdditionalLibraryDirectories>$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\lib\win10-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Microsoft.WindowsAppRuntime.Bootstrap.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>
