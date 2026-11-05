@@ -45,9 +45,13 @@ winrt::fire_and_forget LaunchAsync() {
         // Framework-dependent WASDK: resolve the 1.6 runtime before any
         // Microsoft.UI.Xaml activation, otherwise WinUI 3 classes throw
         // (the tray command then looks like a no-op).
-        constexpr PCWSTR kVersionTag = L"";
-        constexpr PACKAGE_VERSION kMinVersion{6000, 519, 329, 0};
-        const HRESULT boot = ::MddBootstrapInitialize(kMinVersion, kVersionTag);
+        constexpr UINT32 kMajorMinor = 0x00010006;  // Windows App SDK 1.6
+        PACKAGE_VERSION minVersion{};
+        minVersion.Major = 6000;
+        minVersion.Minor = 519;
+        minVersion.Build = 329;
+        minVersion.Revision = 0;
+        const HRESULT boot = ::MddBootstrapInitialize(kMajorMinor, L"", minVersion);
         if (FAILED(boot) && boot != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
             wchar_t msg[96];
             _snwprintf_s(msg, _countof(msg), _TRUNCATE,
