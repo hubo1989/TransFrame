@@ -913,62 +913,44 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.hotkeys->setHandler([](tf::HotkeyAction action) { dispatchAction(action); });
     g.hotkeyReport = g.hotkeys->applySpecs(g.hotkeySpecs);
 
-    // Settings window (FR-35 minimal): every write goes through these
-    // callbacks — the window itself holds no storage state.
-    tf::SettingsWindowCallbacks settingsCallbacks;
-    settingsCallbacks.loadEngineConfig = [] { return g.engineConfig; };
-    settingsCallbacks.saveEngineConfig =
-        [](const tf::core::EngineConfig& next) -> std::wstring {
-        // Validate before touching disk: a bad endpoint must not overwrite a
-        // working engines.json (contract rule: readers tolerate junk, writers
-        // don't produce it).
+    // Settings persistence (shared by the WinUI 3 page ViewModels once
+    // they are wired in): engines.json + hotkey settings, atomic writes.
+    // The legacy Win32 settings controller is gone; these free functions
+    // are the bridge seam.
+    static const auto saveEngineConfig = [](const tf::core::EngineConfig& next) -> std::wstring {
         auto parsed = tf::MTranServerProvider::Configuration::parse(next.mtranBaseUrl);
         if (!parsed) return L"端点无效，需要 http://host[:port]";
         if (next.targetLang.empty()) return L"目标语言不能为空";
-
         const std::wstring file = g.roamingDir + L"\\engines.json";
         std::string existing;
         if (const auto content = readTextFile(file)) existing = *content;
         const std::string merged = tf::core::serializeEngineConfigPatch(existing, next);
         if (!writeTextFileAtomic(file, merged)) return L"写入 engines.json 失败";
-
         g.engineConfig = next;
         g_targetLang = toWide(next.targetLang);
-        // The engine bootstrap reads engines.json at startup, so the new
-        // endpoint takes effect on the next app launch.
         return {};
     };
-    settingsCallbacks.currentSpecs = [] { return g.hotkeySpecs; };
-    settingsCallbacks.lastReport = [] { return g.hotkeyReport; };
-    settingsCallbacks.applySpecs =
-        [](std::vector<tf::HotkeySpec> specs) -> tf::HotkeyRegistrationReport {
+    static const auto applyHotkeySpecs = [](std::vector<tf::HotkeySpec> specs) -> tf::HotkeyRegistrationReport {
         auto report = g.hotkeys->applySpecs(specs);
-        // Persist all five actions; enabled=false survives restarts too.
         std::vector<tf::core::HotkeyBinding> bindings;
         bindings.reserve(specs.size());
-        for (const tf::HotkeySpec& s : specs) {
-            tf::core::HotkeyBinding b;
-            const int idx = static_cast<int>(s.action);
-            if (idx < 0 || idx >= 5) continue;
-            b.actionName = tf::core::kHotkeyActionNames[idx];
-            b.vk = s.vk;
-            b.modifiers = s.modifiers;
-            b.enabled = s.enabled;
-            bindings.push_back(b);
+        for (const auto& spec : specs) {
+            bindings.push_back({tf::core::kHotkeyActionNames[static_cast<int>(spec.action)],
+                                spec.vk, spec.modifiers, spec.enabled});
         }
         const std::wstring file = g.roamingDir + L"\\settings.json";
         std::string existing;
         if (const auto content = readTextFile(file)) existing = *content;
-        writeTextFileAtomic(file, tf::core::serializeHotkeyBindings(existing, bindings));
+        if (!writeTextFileAtomic(file, tf::core::serializeHotkeyBindings(existing, bindings))) {
+            ::OutputDebugStringW(L"TransFrame: hotkey settings save failed\n");
+        }
         g.hotkeySpecs = std::move(specs);
         g.hotkeyReport = report;
         return report;
     };
-    // The WinUI 3 settings host will consume settingsCallbacks through the
-    // page ViewModels (wired in the next integration step); until then the
-    // Win32 settings controller is no longer constructed.
-    (void)settingsCallbacks;
-    g.historyWindow = std::make_unique<tf::HistoryWindowController>(g.history.get());
+
+    (void)saveEngineConfig;
+    (void)applyHotkeySpecs;
 
     // Pre-create the overlay window + D2D/DComp stack (<= 60ms hotkey path).
     if (!g.overlay->precreate()) {
