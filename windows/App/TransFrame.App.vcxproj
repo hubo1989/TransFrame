@@ -66,7 +66,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>windowsapp.lib;shell32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\lib\win10-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>windowsapp.lib;shell32.lib;comctl32.lib;Microsoft.WindowsAppRuntime.Bootstrap.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
