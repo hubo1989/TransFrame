@@ -104,3 +104,4 @@ scripts/e2e/eventsynth
 # Windows installer output and Python packaging tools
 windows/dist/
 __pycache__/
+hubert/
