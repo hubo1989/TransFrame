@@ -74,7 +74,6 @@
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="EngineBootstrap.cpp" />
     <ClCompile Include="UpdateService.cpp" />
-    <ClCompile Include="..\UI\SettingsShell\SettingsShell.cpp" />
     <ResourceCompile Include="App.rc" />
     <!-- The static library cannot embed the manifest in the app EXE; merge
          it here so physical-pixel coordinates remain PerMonitorV2. -->
@@ -88,6 +87,9 @@
     <ProjectReference Include="..\NativeShell\TransFrame.NativeShell.vcxproj">
       <Project>{A0000000-0000-0000-0000-00000000000B}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\UI\WinUI3Shell.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000F}</Project>
+    </ProjectReference>
   </ItemGroup>
 
   <!-- Windows App SDK (WinUI 3): enabled per the verified probe
@@ -95,9 +97,6 @@
        ResolveNuGetPackages=false avoids the Build Tools legacy asset
        resolver misreading PackageReference assets. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" ExcludeAssets="build;buildTransitive" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
-    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.250303.1" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
