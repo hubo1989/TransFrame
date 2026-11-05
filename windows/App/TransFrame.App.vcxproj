@@ -25,6 +25,8 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>TransFrame</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
     <AppxPackage>false</AppxPackage>
   </PropertyGroup>
 
@@ -47,6 +49,7 @@
 
   <ItemDefinitionGroup>
     <ClCompile>
+      <AdditionalIncludeDirectories>..\UI\SettingsShell;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
@@ -68,6 +71,7 @@
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="EngineBootstrap.cpp" />
     <ClCompile Include="UpdateService.cpp" />
+    <ClCompile Include="..\UI\SettingsShell\SettingsShell.cpp" />
     <ResourceCompile Include="App.rc" />
     <!-- The static library cannot embed the manifest in the app EXE; merge
          it here so physical-pixel coordinates remain PerMonitorV2. -->
@@ -83,15 +87,15 @@
     </ProjectReference>
   </ItemGroup>
 
-  <!-- Windows App SDK (WinUI 3): intentionally NOT referenced yet — the
-       PackageReference forces /ZW, which is incompatible with /std:c++20 and
-       requires TargetPlatformMinVersion plumbing. Task B/C switch the entry
-       point to WinUI 3 and re-enable this block.
+  <!-- Windows App SDK (WinUI 3): enabled per the verified probe
+       (docs/winui3-migration.md §5). C++/WinRT projections need no /ZW;
+       ResolveNuGetPackages=false avoids the Build Tools legacy asset
+       resolver misreading PackageReference assets. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.*" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.*" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.240405.15" />
   </ItemGroup>
-  -->
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

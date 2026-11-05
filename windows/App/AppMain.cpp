@@ -64,7 +64,7 @@
 #include "tf/HistoryStore.hpp"
 #include "tf/HistoryWindow.hpp"
 #include "tf/HotkeySettingsStore.hpp"
-#include "tf/SettingsWindow.hpp"
+#include "../UI/SettingsShell/SettingsWindowWinUI.hpp"
 
 #include <fstream>
 #include <shlobj.h>
@@ -125,7 +125,6 @@ struct AppState {
     // Settings + history (FR-35/FR-30). history is thread-safe (internal
     // mutex); the windows are main-thread-only like every other HWND.
     std::unique_ptr<tf::core::HistoryStore> history;
-    std::unique_ptr<tf::SettingsWindowController> settingsWindow;
     std::unique_ptr<tf::HistoryWindowController> historyWindow;
     std::vector<tf::HotkeySpec> hotkeySpecs;
     tf::HotkeyRegistrationReport hotkeyReport;
@@ -712,7 +711,7 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
             if (g.historyWindow) g.historyWindow->show();
             break;
         case tf::TrayCommand::Settings:
-            if (g.settingsWindow) g.settingsWindow->show();
+            tf::ui::OpenSettingsWindow(g.hwnd);
             break;
         case tf::TrayCommand::Exit:
             ::PostMessageW(g.hwnd, kAppQuit, 0, 0);
@@ -965,8 +964,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         g.hotkeyReport = report;
         return report;
     };
-    g.settingsWindow =
-        std::make_unique<tf::SettingsWindowController>(std::move(settingsCallbacks));
+    // The WinUI 3 settings host will consume settingsCallbacks through the
+    // page ViewModels (wired in the next integration step); until then the
+    // Win32 settings controller is no longer constructed.
+    (void)settingsCallbacks;
     g.historyWindow = std::make_unique<tf::HistoryWindowController>(g.history.get());
 
     // Pre-create the overlay window + D2D/DComp stack (<= 60ms hotkey path).
