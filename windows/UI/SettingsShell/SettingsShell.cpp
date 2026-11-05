@@ -47,10 +47,9 @@ winrt::fire_and_forget LaunchAsync() {
         // (the tray command then looks like a no-op).
         constexpr UINT32 kMajorMinor = 0x00010006;  // Windows App SDK 1.6
         PACKAGE_VERSION minVersion{};
-        minVersion.Major = 6000;
-        minVersion.Minor = 519;
-        minVersion.Build = 329;
-        minVersion.Revision = 0;
+        minVersion.Version = (static_cast<UINT64>(6000)) |
+                             (static_cast<UINT64>(519) << 16) |
+                             (static_cast<UINT64>(329) << 32);
         const HRESULT boot = ::MddBootstrapInitialize(kMajorMinor, L"", minVersion);
         if (FAILED(boot) && boot != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
             wchar_t msg[96];
