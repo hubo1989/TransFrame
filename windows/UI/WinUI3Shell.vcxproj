@@ -37,7 +37,7 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" ExcludeAssets="build;buildTransitive" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.250303.1" />
   </ItemGroup>
