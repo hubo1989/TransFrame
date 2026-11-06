@@ -15,6 +15,23 @@
 #include <mutex>
 
 namespace tf::ui {
+
+namespace {
+void shellLog(const char* step, long v) {
+    char path[MAX_PATH];
+    if (::GetTempPathA(MAX_PATH, path) == 0) return;
+    lstrcatA(path, "TransFrameShellInit.log");
+    HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    char line[160];
+    const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s v=%ld\n", step, v);
+    DWORD written = 0;
+    if (len > 0) ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+    ::CloseHandle(f);
+}
+}  // namespace
+
 namespace {
 
 using namespace winrt::Microsoft::UI::Xaml;
@@ -40,7 +57,9 @@ constexpr PageDef kPages[] = {
 };
 
 winrt::fire_and_forget LaunchAsync() {
+    shellLog("launch-enter", 0);
     co_await winrt::resume_background();
+    shellLog("resumed-bg", 0);
     try {
         // Framework-dependent WASDK: resolve the 1.6 runtime before any
         // Microsoft.UI.Xaml activation, otherwise WinUI 3 classes throw
@@ -50,7 +69,9 @@ winrt::fire_and_forget LaunchAsync() {
         minVersion.Version = (static_cast<UINT64>(6000)) |
                              (static_cast<UINT64>(519) << 16) |
                              (static_cast<UINT64>(329) << 32);
+        shellLog("before-bootstrap", 0);
         const HRESULT boot = ::MddBootstrapInitialize(kMajorMinor, L"", minVersion);
+        shellLog("bootstrap-hr", static_cast<long>(boot));
         if (FAILED(boot) && boot != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
             wchar_t msg[96];
             _snwprintf_s(msg, _countof(msg), _TRUNCATE,
@@ -62,9 +83,13 @@ winrt::fire_and_forget LaunchAsync() {
             co_return;
         }
         winrt::init_apartment(winrt::apartment_type::single_threaded);
+        shellLog("apartment-ok", 0);
         auto controller = DispatcherQueueController::CreateOnCurrentThread();
+        shellLog("dispatcher-ok", 0);
 
+        shellLog("first-control", 0);
         auto nav = NavigationView();
+        shellLog("nav-created", 0);
         nav.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
         nav.IsSettingsVisible(false);
         nav.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
@@ -85,12 +110,32 @@ winrt::fire_and_forget LaunchAsync() {
         window.Title(L"TransFrame 设置");
         window.Content(nav);
         window.SystemBackdrop(MicaBackdrop());
+        shellLog("backdrop-ok", 0);
         window.Activate();
+        shellLog("window-activated", 0);
 
         controller.DispatcherQueue().RunEventLoop();
+    } catch (const winrt::hresult_error& e) {
+        char msg[200] = {};
+        WideCharToMultiByte(CP_UTF8, 0, e.message().c_str(), -1, msg, sizeof(msg), nullptr, nullptr);
+        char line[280];
+        const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "EXCEPTION hr=0x%08lX %s\n",
+                                    static_cast<unsigned long>(e.code().value), msg);
+        if (len > 0) {
+            char path[MAX_PATH];
+            if (::GetTempPathA(MAX_PATH, path) > 0) {
+                lstrcatA(path, "TransFrameShellInit.log");
+                HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (f != INVALID_HANDLE_VALUE) {
+                    DWORD written = 0;
+                    ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
+                    ::CloseHandle(f);
+                }
+            }
+        }
     } catch (...) {
-        // A XAML failure must never wedge the Win32 tray thread.
-        ::OutputDebugStringW(L"TransFrame: WinUI 3 settings host failed\n");
+        shellLog("EXCEPTION-unknown", 0);
     }
     std::lock_guard<std::mutex> lock(g_windowMutex);
     g_launching = false;
@@ -99,8 +144,9 @@ winrt::fire_and_forget LaunchAsync() {
 }  // namespace
 
 void OpenSettingsWindow(HWND /*owner*/) {
+    shellLog("open-called", 0);
     std::lock_guard<std::mutex> lock(g_windowMutex);
-    if (g_launching) return;
+    if (g_launching) { shellLog("open-rejected-busy", 0); return; }
     g_launching = true;
     LaunchAsync();
 }
