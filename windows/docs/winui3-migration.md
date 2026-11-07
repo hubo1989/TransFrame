@@ -1,0 +1,69 @@
+# WinUI 3 接入评估（FR-35 设置窗口技术选型）
+
+> **2026-11-04 决策更新（用户拍板）**：启用 WinUI 3 C++/WinRT，设置界面按 mac 版全量 1:1 还原。§1–§4 的“Win32 过渡”结论已过期，保留为历史记录；以本节为准。
+>
+> 触发信号 1（FR-35 完整版立项）与信号 3（引擎管理页立项）均已满足。当前实施分三线：
+> - 主线：WinUI 3 工具链最小可行性验证（独立 Probe 项目：NuGet restore → XAML 编译 → C++/WinRT 窗口运行；主应用接入前必须过）
+> - `wt-spec`：mac 版 6 页签 + 2 Sheet 逐控件规格（`windows/docs/settings-spec-mac-parity.md`）与配置 JSON schema（`settings-config-schema.md`）
+> - `wt-cfgmodel`：Core 配置模型扩展到全量字段 + Catch2 测试（与 UI 工具链解耦）
+>
+> 已知阻塞点：vcxproj 注释记录 `PackageReference` 强制 `/ZW` 与 `/std:c++20` 冲突；验证路径为 C++/WinRT 头独立编译（不启用 `/ZW`），或用独立 XAML 项目隔离生成代码。CI 需补 NuGet restore 与 WASDK 工作负载。Probe 未通过前不替换任何现有窗口。
+
+- 历史结论：本周期不上 WinUI 3，采用 Win32 自绘过渡；重评估触发信号见 §4。
+- 范围：FR-35 设置窗口最小版（通用页 + 快捷键页）、FR-30 历史列表窗口。
+
+## 1. 现状证据（Observed，仓库内）
+
+- `windows/App/vcxproj 注释块`（`TransFrame.App.vcxproj` 3–7 行注释 + 85–93 行被注释的
+  `PackageReference` 块）：WinUI 3 经 Windows App SDK NuGet 接入；库内记录的阻塞点：
+  "PackageReference forces /ZW, which is incompatible with /std:c++20 and requires
+  TargetPlatformMinVersion plumbing"（/ZW = C++/CX，无法与 /std:c++20 同编译单元）。
+- 现有 UI 全部 Win32 自绘/公共控件：ResultWindow（GDI 弹窗）、SelectionOverlay（D2D）、
+  托盘（Shell_NotifyIcon）。无 XAML 基础设施，CI 无 NuGet restore 步骤。
+- `windows-ci.yml`：`msbuild TransFrame.sln` 直跑；MSVC 是唯一无法在本地（macOS 开发机）
+  验证的 CI 腿，给这条腿加工具链维度会放大主线风险。
+- Core 库 /W4 /WX 且必须平台无关（macOS clang++ 测试链路，windows/README.md）。
+
+## 2. 上 WinUI 3 的成本清单（本周期）
+
+| 维度 | 成本 |
+|---|---|
+| 工具链 | Windows App SDK NuGet + XAML 编译器 + MRT Core；sln 首次引入 restore 步骤 |
+| 语言 | /ZW 与 /vcxproj 记录的 /std:c++20 冲突；XAML 生成码引入 C++/WinRT 头依赖 |
+| 线程模型 | WinUI 3 内容需要 DispatcherQueueController，与现有消息循环桥接 |
+| 部署 | WASDK runtime / 自包含 MSIX 体积 + bootstrap 初始化器（PRD 预算 ≤80MB RSS） |
+| CI | MSVC 腿首次引入包管理，runner 需 WASDK 工作负载；失败面变大 |
+| 收益面 | 本周期 UI 面 = 2 个设置页 + 1 个列表窗口；公共控件完全覆盖 |
+
+## 3. 本周期方案（Win32 过渡）与迁移路径
+
+- 窗口层全部 Win32 公共控件（tab / list-view / combo / edit / button），GDI 文本，
+  PMv2 DPI（`GetDpiForWindow` 缩放，模式照抄 ResultWindow）。
+- 设置窗口 = Tab 两页（通用 / 快捷键）；历史窗口 = ListView 报表 + 搜索框。
+- 数据模型全部在 Core（EngineConfigStore / HotkeySettingsStore / HistoryStore，平台无关，
+  Catch2 可测）——窗口层是薄壳，将来换 WinUI 3 时只替换这一层。
+
+## 4. 何时重评估（触发信号）
+
+满足任一条即重评估上 WinUI 3：
+1. FR-35 完整版七页 NavigationView（通用/快捷键/标注/引擎/多引擎/语言/高级）立项；
+2. FR-37 十语言 .resw 本地化立项（XAML 资源管线顺路解决）；
+3. 引擎管理页（10 卡片 + 兼容实例管理）立项；
+4. WASDK /ZW 冲突解除（库内记录的阻塞点消失）。
+
+迁移路径：Core 数据模型不动，只替换窗口层；WASDK 走自包含 MSIX（PRD 决策 3 单通道）。
+
+## 5. Probe 验证结果（2026-11-04，已执行）
+
+`C:\tfbuild\winui3-probe2`：WinUI 3 C++/WinRT 编译链路**验证通过**（EXE 产出）。
+
+| 项 | 结论 |
+|---|---|
+| NuGet 还原 | WASDK 1.6.250205002 + CppWinRT 2.0.240405.15 均可还原 |
+| 资产解析 | Build Tools 需 `<ResolveNuGetPackages>false</ResolveNuGetPackages>`（17.0 旧式 targets 会用 packages.config 逻辑误读 PackageReference 资产而崩溃——12 轮定位的真根因） |
+| 投影头 | WASDK nupkg 自带 4 个基础设施头；XAML 投影头由 CppWinRT 包 targets 构建时生成，`winrt/Microsoft.UI.Xaml.Controls.h` 可用 |
+| /ZW 冲突 | **不存在**：C++/WinRT 纯头投影与 /std:c++20 兼容；历史注释针对 C++/CX，无需 /ZW |
+| 工具集 | v143 (14.44.35207) 可用；`$(DefaultPlatformToolset)` 即可 |
+| PRI 打包 | Build Tools 缺 `Microsoft.Build.Packaging.Pri.Tasks.dll`（UWP 打包组件）；主应用接入时需装组件或配置跳过 PriGen |
+
+主工程接入清单：启用 PackageReference 块（追加 CppWinRT 包）+ `ResolveNuGetPackages=false` + MinVersion 10.0.17763 + CI 加 restore 步骤。

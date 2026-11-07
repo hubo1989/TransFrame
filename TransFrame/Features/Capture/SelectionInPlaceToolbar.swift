@@ -418,12 +418,15 @@ private struct ToolbarContentView: View {
                             .customTooltip(item.name, placement: .bottom)
                     }
 
-                    // Screen eyedropper
+                    // Screen eyedropper: feeds the annotation color and the
+                    // shared color-history pipeline (spec §4.5); clipboard
+                    // untouched mid-annotation.
                     Button {
                         NSColorSampler().show { picked in
                             guard let picked else { return }
                             state.activeColor = Color(nsColor: picked)
                             onColorSelected(picked)
+                            ColorPickFlow.complete(picked, writeToPasteboard: false)
                         }
                     } label: {
                         Image(systemName: "eyedropper")

@@ -290,6 +290,7 @@
 "settings.shortcut.translation.mode" = "Translation Mode";
 "settings.shortcut.text.selection.translation" = "Text Selection Translation";
 "settings.shortcut.translate.and.insert" = "Translate and Insert";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "Press keys...";
 "settings.shortcut.reset" = "Reset to default";
 "settings.shortcut.error.no.modifier" = "Shortcuts must include Command, Control, or Option";
@@ -546,6 +547,30 @@
 
 "history.clear.alert.title" = "Clear History";
 "history.clear.alert.message" = "Are you sure you want to delete all translation history? This action cannot be undone.";
+
+/* Color History Window */
+"menu.color.history" = "Color History";
+"colorHistory.title" = "Color History";
+"colorHistory.search.placeholder" = "Search colors (HEX)...";
+"colorHistory.filter.favoritesOnly" = "Favorites only";
+"colorHistory.copy.format" = "Copy format";
+"colorHistory.format.hex" = "HEX";
+"colorHistory.format.rgb" = "RGB";
+"colorHistory.clear.all" = "Clear all colors";
+"colorHistory.clear.alert.title" = "Clear Color History";
+"colorHistory.clear.alert.message" = "Are you sure you want to delete all picked colors? Translation and screenshot history will not be affected. This action cannot be undone.";
+"colorHistory.copy.hex" = "Copy HEX";
+"colorHistory.copy.rgb" = "Copy RGB";
+"colorHistory.favorite" = "Favorite";
+"colorHistory.unfavorite" = "Unfavorite";
+"colorHistory.copied" = "Copied";
+"colorHistory.empty.title" = "No Picked Colors";
+"colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
+"colorHistory.no.results.title" = "No Matching Colors";
+"colorHistory.no.results.message" = "No colors match your search";
+"colorHistory.toast.viewHistory" = "View History";
 
 
 /* ========================================

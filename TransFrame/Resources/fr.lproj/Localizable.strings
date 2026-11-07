@@ -282,6 +282,7 @@
 "settings.shortcut.translation.mode" = "Mode de traduction";
 "settings.shortcut.text.selection.translation" = "Traduction de sélection de texte";
 "settings.shortcut.translate.and.insert" = "Traduire et insérer";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "Appuyez sur les touches...";
 "settings.shortcut.reset" = "Réinitialiser par défaut";
 "settings.shortcut.error.no.modifier" = "Les raccourcis doivent inclure Commande, Contrôle ou Option";
@@ -960,3 +961,27 @@
 "translation.provider.recovery.translationFailed" = "Échec de la traduction. Réessayez.";
 "translation.provider.recovery.unsupportedLanguage" = "Paire de langues non prise en charge. Choisissez une autre langue cible.";
 "translation.unknown" = "Inconnu";
+
+/* Color History Window — TODO: translate (English placeholder) */
+"menu.color.history" = "Color History";
+"colorHistory.title" = "Color History";
+"colorHistory.search.placeholder" = "Search colors (HEX)...";
+"colorHistory.filter.favoritesOnly" = "Favorites only";
+"colorHistory.copy.format" = "Copy format";
+"colorHistory.format.hex" = "HEX";
+"colorHistory.format.rgb" = "RGB";
+"colorHistory.clear.all" = "Clear all colors";
+"colorHistory.clear.alert.title" = "Clear Color History";
+"colorHistory.clear.alert.message" = "Are you sure you want to delete all picked colors? Translation and screenshot history will not be affected. This action cannot be undone.";
+"colorHistory.copy.hex" = "Copy HEX";
+"colorHistory.copy.rgb" = "Copy RGB";
+"colorHistory.favorite" = "Favorite";
+"colorHistory.unfavorite" = "Unfavorite";
+"colorHistory.copied" = "Copied";
+"colorHistory.empty.title" = "No Picked Colors";
+"colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
+"colorHistory.no.results.title" = "No Matching Colors";
+"colorHistory.no.results.message" = "No colors match your search";
+"colorHistory.toast.viewHistory" = "View History";

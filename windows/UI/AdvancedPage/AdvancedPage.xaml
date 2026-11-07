@@ -1,0 +1,87 @@
+<!-- windows/UI/AdvancedPage/AdvancedPage.xaml
+     高级页签（spec §6，mac 1:1：AdvancedSettingsTab）。
+     x:Class 与 code-behind 类名一字不差；绑定目标全部解析到
+     winrt::TransFrame::UI::implementation::AdvancedPage 的公有成员/方法。
+     UserControl 根（非 Page），便于嵌入 NavigationView Content。
+-->
+<UserControl
+    x:Class="TransFrame.UI.AdvancedPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/winfx/2006/xaml/design"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- 标准控件默认样式即可达成 Fluent；如需覆盖样式，
+         集成点：加入 App.xaml ResourceDictionary（本页不引入自定义主题资源文件）。 -->
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="24,16,24,24" MaxWidth="720"
+                    HorizontalAlignment="Left">
+
+            <!-- 一张卡片：标注外观（描边颜色 / 描边宽度 / 文本大小） -->
+            <StackPanel>
+                <TextBlock Text="标注外观"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                <TextBlock Text="截图标注的描边颜色、描边宽度和文本大小"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Margin="0,2,0,12"/>
+
+                <!-- 描边颜色：9 个预设色圆形按钮，选中的带外环 -->
+                <TextBlock Text="描边颜色"/>
+                <!-- [待确认] spec 标注是否另有自定义取色器；当前保守选择：仅 9 个预设色，不加取色器。 -->
+                <StackPanel x:Name="StrokeColorPanel"
+                            Orientation="Horizontal" Spacing="12" Margin="0,8,0,16">
+                    <!-- 9 个按钮由 code-behind 在 InitializeComponent 后动态生成
+                         （预设色色值在 VM 中定义；选中态由 VM 提供 IsColorSelected）。
+                         事件处理器 OnColorButtonClick 由生成的按钮统一挂接。 -->
+                </StackPanel>
+
+                <!-- 描边宽度：Slider 1.0–20.0 步进 0.5，旁显当前值 -->
+                <TextBlock Text="描边宽度" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Slider x:Name="StrokeWidthSlider"
+                            Minimum="1.0" Maximum="20.0"
+                            StepFrequency="0.5"
+                            Width="280"
+                            Header="1.0 – 20.0"
+                            ValueChanged="OnStrokeWidthChanged"/>
+                    <TextBlock x:Name="StrokeWidthValueText"
+                               Text="{x:Bind StrokeWidthText(), Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource BodyTextBlockStyle}"/>
+                </StackPanel>
+
+                <!-- 文本大小：Slider 8.0–72.0 步进 1，旁显当前值 -->
+                <TextBlock Text="文本大小" Margin="0,16,0,4"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Slider x:Name="TextSizeSlider"
+                            Minimum="8.0" Maximum="72.0"
+                            StepFrequency="1"
+                            Width="280"
+                            Header="8.0 – 72.0"
+                            ValueChanged="OnTextSizeChanged"/>
+                    <TextBlock x:Name="TextSizeValueText"
+                               Text="{x:Bind TextSizeText(), Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource BodyTextBlockStyle}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- 全部重置：destructive 样式 + ContentDialog 二次确认 -->
+            <Button x:Name="ResetAllButton"
+                    Content="全部重置…"
+                    Click="OnResetAllClick">
+                <!-- destructive 样式由 shell 侧资源字典提供；
+                     集成点：App.xaml 合并包含 "AccentButtonStyleDestructive" 的
+                     ResourceDictionary（或改用系统 Style，此处按 spec 用 destructive）。
+                     [集成点] 若资源缺失，构建期会报 XAML 编译错误，需 shell 侧补资源。 -->
+                <Button.Style>
+                    <StaticResource ResourceKey="AccentButtonStyleDestructive"/>
+                </Button.Style>
+            </Button>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- TransFrame.App — WinUI 3 desktop application (task A: blank window
+       skeleton + MSIX packaging; task B/C supply the real UI).
+       WinUI 3 is added via the Windows App SDK NuGet in CI/VS; the skeleton
+       entry point is plain Win32 so the project builds even before the
+       package restores. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A0000000-0000-0000-0000-00000000000C}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>TransFrame</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <AppxGeneratePrisForPortableLibrariesEnabled>false</AppxGeneratePrisForPortableLibrariesEnabled>
+    <AppxPackage>false</AppxPackage>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IncludePath>$(ProjectDir);$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\NativeShell\include;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>..\UI\SettingsShell;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableSpecificWarnings>%(DisableSpecificWarnings);3779;4002;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <ConformanceMode>true</ConformanceMode>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>_UNICODE;UNICODE;_WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\lib\win10-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>windowsapp.lib;shell32.lib;comctl32.lib;Microsoft.WindowsAppRuntime.Bootstrap.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="AppMain.cpp" />
+    <ClCompile Include="EngineBootstrap.cpp" />
+    <ClCompile Include="UpdateService.cpp" />
+    <ResourceCompile Include="App.rc" />
+    <!-- The static library cannot embed the manifest in the app EXE; merge
+         it here so physical-pixel coordinates remain PerMonitorV2. -->
+    <Manifest Include="..\NativeShell\app.manifest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\TransFrame.Core.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000A}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\NativeShell\TransFrame.NativeShell.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000B}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\UI\WinUI3Shell.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000F}</Project>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!-- Windows App SDK (WinUI 3): enabled per the verified probe
+       (docs/winui3-migration.md §5). C++/WinRT projections need no /ZW;
+       ResolveNuGetPackages=false avoids the Build Tools legacy asset
+       resolver misreading PackageReference assets. -->
+  <ItemGroup>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

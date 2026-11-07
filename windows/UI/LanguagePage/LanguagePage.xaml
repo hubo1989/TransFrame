@@ -1,0 +1,149 @@
+<UserControl
+    x:Class="TransFrame.UI.LanguagePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+      LanguagePage.xaml — 语言页签（spec §4：一张卡片，两组语言对，共四个 Picker）。
+      文案对齐 mac zh-Hans 本地化（TransFrame/Resources/zh-Hans.lproj）：
+        settings.section.languages                    = 语言
+        settings.translateAndInsert.language.section  = 翻译并插入语言
+        translation.language.source / target          = 源语言 / 目标语言
+        translation.language.source.hint / target.hint = 要翻译的文本的语言 / 翻译的目标语言
+        translation.language.follow.system            = 跟随系统（目标 Picker 首项 = nil）
+      选项条目与初始选中由 code-behind（LanguagePage.cpp RebuildPickers）按
+      ViewModel 常量表填充；mac menu 内目标 Picker 首项后的 Divider 在 WinUI
+      ComboBox 无等价物（ComboBoxItem 不支持分隔线），spec §4 未要求，省略。
+      本页无 x:Bind：ComboBox 选中项同步进普通 C++ VM 走 SelectionChanged 事件
+      + code-behind 回填（TwoWay 到非依赖属性源依赖 WinRT 属性系统，按统一约定
+      改事件驱动；若后续加纯展示文本可恢复 x:Bind，路径须与 code-behind 声明
+      一字不差）。
+      [集成点] 本页嵌入 NavigationView Content；spec §0 的 detail 滚动与边距若由
+      宿主提供，可去掉根 Margin。卡片描边/圆角如需与其余页统一，在 App.xaml
+      ResourceDictionary 定义 CardBorderStyle 后替换此处内联属性（本页不新增
+      资源文件）。
+    -->
+
+    <StackPanel Margin="24,24,24,36" Spacing="20">
+
+        <!-- 一张卡片：两组语言对（spec §4） -->
+        <Border x:Name="LanguageCard"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+            <StackPanel Spacing="16">
+
+                <!-- 组一：全局翻译（settings.section.languages = “语言”） -->
+                <StackPanel x:Name="GlobalLanguageSection" Spacing="8">
+                    <TextBlock x:Name="GlobalSectionHeader"
+                               Text="语言"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 全局翻译-源语言：自动检测(auto) + 语言全集；默认 auto。
+                             持久化键 TransFrame.translationSourceLanguage -->
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="源语言"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="GlobalSourceLanguagePicker"
+                                      HorizontalAlignment="Stretch"
+                                      MinWidth="180"
+                                      ToolTipService.ToolTip="要翻译的文本的语言"
+                                      AutomationProperties.HelpText="要翻译的文本的语言"
+                                      SelectionChanged="OnGlobalSourceLanguageSelected" />
+                        </StackPanel>
+
+                        <!-- 源 → 目标指示，对应 mac 的 arrow.right.circle.fill（半透明） -->
+                        <TextBlock x:Name="GlobalDirectionArrow"
+                                   Grid.Column="1"
+                                   Text="&#x2192;"
+                                   FontSize="16"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Opacity="0.6" />
+
+                        <!-- 全局翻译-目标语言：首项“跟随系统”(nil，默认) + 非 auto 语言；
+                             选“跟随系统”时持久化移除 TransFrame.translationTargetLanguage 键 -->
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Text="目标语言"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="GlobalTargetLanguagePicker"
+                                      HorizontalAlignment="Stretch"
+                                      MinWidth="140"
+                                      ToolTipService.ToolTip="翻译的目标语言"
+                                      AutomationProperties.HelpText="翻译的目标语言"
+                                      SelectionChanged="OnGlobalTargetLanguageSelected" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <Rectangle x:Name="SectionDivider"
+                           Height="1"
+                           Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                           Opacity="0.6" />
+
+                <!-- 组二：翻译并插入语言（mac 此组无 .help 提示，故不设 ToolTip） -->
+                <StackPanel x:Name="InsertLanguageSection" Spacing="8">
+                    <TextBlock x:Name="InsertSectionHeader"
+                               Text="翻译并插入语言"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 翻译插入-源语言：同全局源语言取值域；默认 auto。
+                             持久化键 TransFrame.translateAndInsertSourceLanguage -->
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="源语言"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="InsertSourceLanguagePicker"
+                                      HorizontalAlignment="Stretch"
+                                      MinWidth="180"
+                                      SelectionChanged="OnInsertSourceLanguageSelected" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="InsertDirectionArrow"
+                                   Grid.Column="1"
+                                   Text="&#x2192;"
+                                   FontSize="16"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Opacity="0.6" />
+
+                        <!-- 翻译插入-目标语言：首项“跟随系统”(nil，默认) + 非 auto 语言；
+                             选“跟随系统”时持久化移除 TransFrame.translateAndInsertTargetLanguage 键 -->
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Text="目标语言"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="InsertTargetLanguagePicker"
+                                      HorizontalAlignment="Stretch"
+                                      MinWidth="140"
+                                      SelectionChanged="OnInsertTargetLanguageSelected" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <!-- [待确认] TransFrame.translationAutoDetect（Bool，默认 true）：spec §4
+                     标注当前设置 UI 是否暴露该开关未定 —— 按规格不渲染；Core 的
+                     EngineConfig::autoDetect 保持原值。确认后在此卡片内追加开关行。 -->
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>
