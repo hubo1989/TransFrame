@@ -71,6 +71,14 @@
 #include "tf/HotkeySettingsStore.hpp"
 #include "../UI/SettingsShell/SettingsWindowWinUI.hpp"
 
+// FR-37/39/50.7: localization tables + first-run wizard + balloon seam.
+#include "tf/AppNotifications.hpp"
+#include "tf/Localization.hpp"
+#include "tf/Onboarding.hpp"
+#include "tf/OnboardingWindow.hpp"
+#include "tf/Win32Locale.hpp"
+#include <nlohmann/json.hpp>
+
 #include <fstream>
 #include <shlobj.h>
 #include "tf/WinHttpTransport.h"
@@ -745,8 +753,19 @@ void onOverlayToolbarAction(tf::OverlayToolbarAction action, tf::Rect region,
             if (!tf::encodeToFile(cap.screenshot.pixels, path, tf::ExportFormat::Png,
                                   100, error)) {
                 tf::ResultWindowContent c;
-                c.translatedText = L"保存失败: " + error;
+                c.translatedText = tf::core::loc::formatArgsWide(
+                    tf::core::loc::tw("win.preview.saveFailed", L"保存失败: %@"),
+                    {error});
                 showResultOnMain(c);
+            } else {
+                // FR-50.7: save success is a passive event — balloon instead
+                // of stealing focus with a popup over the user's next action.
+                tf::appnotify::notify(
+                    tf::core::loc::tw("save.success.title", L"保存成功"),
+                    tf::core::loc::formatArgsWide(
+                        tf::core::loc::tw("save.success.message", L"已保存到 %@"),
+                        {path}),
+                    tf::appnotify::Type::Success);
             }
             g.overlay->endSession();
             finishPipeline(gen);
@@ -1013,6 +1032,32 @@ void onTrayCommand(tf::TrayCommand command, int payloadIndex) {
         case tf::TrayCommand::CheckUpdates:
             tf::checkForAppUpdate(g.hwnd);
             break;
+        case tf::TrayCommand::ReplayOnboarding: {
+            // FR-39: re-run the three-step wizard from the tray.
+            std::string settingsJson;
+            if (const auto content = readTextFile(g.roamingDir + L"\\settings.json")) {
+                settingsJson = *content;
+            }
+            std::string enginesJson;
+            if (const auto content = readTextFile(g.roamingDir + L"\\engines.json")) {
+                enginesJson = *content;
+            }
+            const tf::OnboardingOutcome outcome =
+                tf::ShowOnboardingWizard(g.hwnd, settingsJson, enginesJson);
+            if (outcome.shown && outcome.finished && outcome.choice) {
+                writeTextFileAtomic(
+                    g.roamingDir + L"\\engines.json",
+                    tf::core::mergeOnboardingChain(enginesJson, *outcome.choice));
+                // The live engine stack keeps its config for this session;
+                // the merged chain applies from the next launch.
+                tf::appnotify::notify(
+                    L"TransFrame",
+                    tf::core::loc::tw("win.onboarding.applied",
+                                      L"默认翻译链已更新，下次启动生效"),
+                    tf::appnotify::Type::Success);
+            }
+            break;
+        }
         case tf::TrayCommand::History:
             if (g.historyWindow) g.historyWindow->show();
             break;
@@ -1128,6 +1173,42 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                                0, 0, 0, 0, nullptr, nullptr, instance, nullptr);
     if (!g.hwnd) return 1;
 
+    // FR-37 localization: JSON string tables load from beside the exe
+    // (Assets\Strings — App.vcxproj Content-copies them; the msix layout is
+    // the same). en.json is required; a missing language falls back
+    // en → hardcoded zh defaults, so a broken table never blocks startup.
+    {
+        wchar_t exePath[MAX_PATH]{};
+        std::string stringsError;
+        if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+            wchar_t exeDir[MAX_PATH]{};
+            if (::wcscpy_s(exeDir, exePath) == 0) {
+                if (wchar_t* slash = wcsrchr(exeDir, L'\\')) *slash = L'\0';
+                tf::core::loc::Localization::instance().loadDirectory(
+                    std::filesystem::path(std::wstring(exeDir) + L"\\Assets\\Strings"),
+                    &stringsError);
+            }
+        }
+        if (!stringsError.empty()) {
+            ::OutputDebugStringA("TransFrame: strings load: ");
+            ::OutputDebugStringA(stringsError.c_str());
+            ::OutputDebugStringA("\n");
+        }
+        tf::core::loc::Localization::instance().setSystemLocaleProvider(
+            tf::win32SystemUiLocaleName);
+        // UI language: engines.json top-level appLanguage (default "system").
+        std::string appLanguage = "system";
+        if (const auto content =
+                readTextFile(knownTransFrameDir(CSIDL_APPDATA) + L"\\engines.json")) {
+            const auto j = nlohmann::json::parse(*content, nullptr, false);
+            if (!j.is_discarded() && j.contains("appLanguage") &&
+                j.at("appLanguage").is_string()) {
+                appLanguage = j.at("appLanguage").get<std::string>();
+            }
+        }
+        tf::core::loc::Localization::instance().setLanguage(appLanguage);
+    }
+
     // Composition root (NativeShellInit.cpp factories).
     g.capture = tf::makeCaptureService();
     g.displays = tf::makeDisplayMonitorService();
@@ -1154,6 +1235,33 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.credentials = std::make_shared<tf::CredManKeyStore>();
     g.roamingDir = knownTransFrameDir(CSIDL_APPDATA);
     g.localDir = knownTransFrameDir(CSIDL_LOCAL_APPDATA);
+
+    // FR-39 first-run onboarding: the three-step wizard runs BEFORE the
+    // engine stack reads engines.json so a finished choice becomes the
+    // default chain immediately. Skip/close only record the done marker;
+    // a wizard that failed to show retries on the next launch.
+    {
+        const std::wstring settingsPath = g.roamingDir + L"\\settings.json";
+        std::string settingsJson;
+        if (const auto content = readTextFile(settingsPath)) settingsJson = *content;
+        if (!tf::core::parseOnboardingDone(settingsJson)) {
+            std::string enginesJson;
+            if (const auto content = readTextFile(g.roamingDir + L"\\engines.json")) {
+                enginesJson = *content;
+            }
+            const tf::OnboardingOutcome outcome =
+                tf::ShowOnboardingWizard(g.hwnd, settingsJson, enginesJson);
+            if (outcome.shown) {
+                if (outcome.finished && outcome.choice) {
+                    writeTextFileAtomic(
+                        g.roamingDir + L"\\engines.json",
+                        tf::core::mergeOnboardingChain(enginesJson, *outcome.choice));
+                }
+                writeTextFileAtomic(
+                    settingsPath, tf::core::serializeOnboardingDoneFlag(settingsJson));
+            }
+        }
+    }
     // Settings-page view of the same engines.json (contract: a corrupt file
     // falls back to defaults, never blocks startup).
     g.engineConfig = tf::core::EngineConfig::makeDefault();
@@ -1220,6 +1328,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!g.tray->install()) {
         // Tray is best-effort in v1: hotkeys keep working without it.
     }
+
+    // FR-50.7 notification backend: NIIF_USER balloon on the installed tray
+    // icon. Unpackaged builds cannot use AppNotificationManager (needs MSIX
+    // identity); AppNotifications.cpp carries the packaged upgrade TODO.
+    tf::appnotify::setBackend(
+        [](const std::wstring& title, const std::wstring& body,
+           tf::appnotify::Type type) {
+            if (!g.tray) return false;
+            const auto icon =
+                type == tf::appnotify::Type::Error
+                    ? tf::BalloonIcon::Error
+                    : (type == tf::appnotify::Type::Warning
+                           ? tf::BalloonIcon::Warning
+                           : tf::BalloonIcon::Info);
+            return g.tray->showBalloon(title, body, icon);
+        });
 
     // FR-14 置顶贴图: preview 贴图 button pins the capture in place (1:1 px);
     // fleet changes refresh the tray 置顶管理 submenu.
