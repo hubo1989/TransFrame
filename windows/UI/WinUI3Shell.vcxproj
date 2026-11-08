@@ -93,9 +93,17 @@
   </ItemGroup>
     <ItemDefinitionGroup>
     <Link>
-      <AdditionalLibraryDirectories>$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\lib\win10-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\lib\win10-$(Platform.ToLower());%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Microsoft.WindowsAppRuntime.Bootstrap.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <!-- Generated WinRT impl headers call GetCurrentTime(...) while
+           windows.h still maps it to a zero-arg macro; C4002 is the
+           noise that survives WIN32_LEAN_AND_MEAN. -->
+      <DisableSpecificWarnings>%(DisableSpecificWarnings);4002</DisableSpecificWarnings>
+    </ClCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

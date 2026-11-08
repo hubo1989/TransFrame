@@ -39,8 +39,11 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build solution
+        # -restore: the solution references WASDK/CppWinRT via
+        # PackageReference (WinUI3Shell + App); a fresh runner has no
+        # packages until NuGet restore runs.
         working-directory: windows
-        run: msbuild TransFrame.sln /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
+        run: msbuild TransFrame.sln /m /restore /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
 
       - name: Run Catch2 tests
         # x64 runner cannot execute ARM64 binaries (no emulation on

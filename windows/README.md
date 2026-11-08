@@ -73,6 +73,27 @@ clang++ -std=c++20 \
 
 ## 构建（Windows 全量，含 NativeShell）
 
+推荐走解决方案（含 NuGet restore；**新 worktree/干净缓存首次构建必须带
+`/restore`**，否则 WinUI3Shell 的 PackageReference 资产不生成）：
+
+```
+msbuild windows\TransFrame.sln /m /restore /p:Configuration=Release /p:Platform=x64
+```
+
+sln 内五个工程：Core / NativeShell / App / WinUI3Shell / Core.Tests /
+NativeShell.Tests（两个测试 exe 在 `windows\build\x64\Release\` 下）。
+ARM64 交叉编译同命令改 `/p:Platform=ARM64`（WASDK 库路径已按平台参数化）。
+
+运行 WinUI 设置壳（unpackaged）：App 构建输出已自动复制
+`Microsoft.WindowsAppRuntime.Bootstrap.dll`；系统需装 WASDK 1.6 运行时
+（框架 + Main + Singleton + DDLM，见 docs/winui3-migration.md）。
+
+手工冒烟（GUI 会话，见 Tests/manual/）：`build_smoke_settings_tabs.cmd`、
+`build_smoke_capture.bat`、`build_smoke_overlay.bat`、
+`build_smoke_pinned_history.bat`。
+
+等价的单命令编译（CI portable 腿用 CMake：`cmake -S windows -B build`）：
+
 ```
 cl /std:c++20 /EHsc ^
   /I windows\Core\include /I windows\Core\vendor /I windows\NativeShell\include ^

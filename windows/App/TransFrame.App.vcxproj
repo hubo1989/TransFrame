@@ -55,7 +55,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>%(DisableSpecificWarnings);3779;4002;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>%(DisableSpecificWarnings);4002;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <ConformanceMode>true</ConformanceMode>
       <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -66,7 +66,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\lib\win10-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\lib\win10-$(Platform.ToLower());%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>windowsapp.lib;shell32.lib;comctl32.lib;Microsoft.WindowsAppRuntime.Bootstrap.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -79,7 +79,7 @@
     <!-- Unpackaged runs statically import the dynamic-dependency bootstrap
          DLL; ship it next to the EXE (packaged runs skip the call but the
          import table still needs the module present). -->
-    <Content Include="$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll">
+    <Content Include="$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\runtimes\win-$(Platform.ToLower())\native\Microsoft.WindowsAppRuntime.Bootstrap.dll">
       <Link>Microsoft.WindowsAppRuntime.Bootstrap.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

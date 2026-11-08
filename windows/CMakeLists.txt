@@ -17,6 +17,16 @@ file(GLOB CORE_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/src/*.cpp)
 # glob above misses them).
 set(CORE_MODEL_SRC
     Core/AnnotationDocument.cpp
+    Core/PerformanceRecorder.cpp
+)
+# Settings ViewModels are pure C++ (no WinUI): the portable runner links
+# them so the *PageViewModelTests cover GCC too.
+set(SETTINGS_VM_SRC
+    UI/GeneralPage/GeneralPageViewModel.cpp
+    UI/EnginesPage/EnginesPageViewModel.cpp
+    # ShortcutsPageViewModel.h types against the portable HotkeyManager
+    # strategy layer (no Win32 in this TU; mirrors NativeShell CMake).
+    NativeShell/src/HotkeyManager.cpp
 )
 set(TEST_SRC
     Tests/TranslationSchedulerTests.cpp
@@ -29,6 +39,13 @@ set(TEST_SRC
     Tests/EngineConfigStoreTests.cpp
     Tests/HotkeySettingsStoreTests.cpp
     Tests/HistoryStoreTests.cpp
+    Tests/PerformanceRecorderTests.cpp
+    Tests/GeneralPageViewModelTests.cpp
+    Tests/LanguagePageViewModelTests.cpp
+    Tests/ShortcutsPageViewModelTests.cpp
+    Tests/PromptsPageViewModelTests.cpp
+    Tests/AdvancedPageViewModelTests.cpp
+    Tests/EnginesPageViewModelTests.cpp
 )
 
 # Vendored SQLite amalgamation for HistoryStore (FR-30): compile as C and
@@ -43,6 +60,7 @@ endif()
 add_executable(translation_tests
     ${CORE_SRC}
     ${CORE_MODEL_SRC}
+    ${SETTINGS_VM_SRC}
     # Engine bootstrap lives under App/ but is platform-clean (no Win32), so
     # the portable test runner builds it too (PRD FR-16..24 wiring tests).
     App/EngineBootstrap.cpp
@@ -50,14 +68,28 @@ add_executable(translation_tests
     ${SQLITE_SRC}
     Tests/vendor/catch_amalgamated.cpp
 )
+# Core/Uuid.h calls BCryptGenRandom inline on MSVC targets (its
+# #pragma comment(lib) does not always propagate from headers).
+if (WIN32)
+    target_link_libraries(translation_tests PRIVATE bcrypt)
+endif()
 target_include_directories(translation_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     Core
     Core/include
     Core/vendor
+    Core/vendor/sqlite
     App
     external
     Tests
     Tests/vendor
+    NativeShell/include
+    UI/GeneralPage
+    UI/EnginesPage
+    UI/AdvancedPage
+    UI/LanguagePage
+    UI/PromptsPage
+    UI/ShortcutsPage
 )
 
 if (MSVC)
@@ -89,11 +121,15 @@ if (WIN32)
     add_executable(nativeshell_smoke
         ${CORE_SRC}
         ${NS_SRC}
+        ${SQLITE_SRC}
         Tests/manual/smoke_translation.cpp
     )
     target_include_directories(nativeshell_smoke PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        Core
         Core/include
         Core/vendor
+        Core/vendor/sqlite
         NativeShell/include
     )
     if (MSVC)
