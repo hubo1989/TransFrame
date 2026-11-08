@@ -1,154 +1,168 @@
-// SettingsShell.cpp — WinUI 3 C++/WinRT main window host (navigation shell).
-// Built entirely in code: no XAML compiler/PRI dependency (the Build Tools
-// probe showed PRI generation is unavailable there). NavigationView and
-// MicaBackdrop are native WinUI 3 controls, so Fluent 2 styling is preserved.
+// WinUI settings runs on one dedicated STA for the lifetime of the process.
 #include "SettingsWindowWinUI.hpp"
-
-#include <windows.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
+#include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
+#include <microsoft.ui.xaml.window.h>
 #include <MddBootstrap.h>
+#include <appmodel.h>
 #include <mutex>
+#include <thread>
 
 namespace tf::ui {
-
 namespace {
-void shellLog(const char* step, long v) {
-    char path[MAX_PATH];
-    if (::GetTempPathA(MAX_PATH, path) == 0) return;
-    lstrcatA(path, "TransFrameShellInit.log");
-    HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
-                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return;
-    char line[160];
-    const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s v=%ld\n", step, v);
-    DWORD written = 0;
-    if (len > 0) ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
-    ::CloseHandle(f);
-}
-}  // namespace
-
-namespace {
-
 using namespace winrt::Microsoft::UI::Xaml;
 using namespace winrt::Microsoft::UI::Xaml::Controls;
 using namespace winrt::Microsoft::UI::Xaml::Media;
 using namespace winrt::Microsoft::UI::Dispatching;
 
-std::mutex g_windowMutex;
-bool g_launching = false;
+std::mutex g_mutex;
+bool g_starting = false;
+DispatcherQueue g_queue{nullptr};
+Window g_window{nullptr}; // Accessed only on the settings STA.
 
-struct PageDef {
-    const wchar_t* label;
-    const wchar_t* tag;
-};
+void logFailure(const wchar_t* message) {
+    ::OutputDebugStringW(message);
+    wchar_t path[MAX_PATH]{};
+    const DWORD n = ::GetTempPathW(MAX_PATH, path);
+    if (!n || n >= MAX_PATH - 30) return;
+    wcscat_s(path, L"TransFrameShellInit.log");
+    HANDLE f = ::CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    DWORD written;
+    ::WriteFile(f, message, static_cast<DWORD>(wcslen(message) * sizeof(wchar_t)), &written, nullptr);
+    ::CloseHandle(f);
+}
 
-constexpr PageDef kPages[] = {
-    {L"通用",   L"general"},
-    {L"引擎",   L"engines"},
-    {L"Prompt", L"prompts"},
-    {L"语言",   L"languages"},
-    {L"快捷键", L"shortcuts"},
-    {L"高级",   L"advanced"},
-};
+void reportFailure(HWND owner, const winrt::hresult_error& error) {
+    wchar_t text[1024]{};
+    _snwprintf_s(text, _countof(text), _TRUNCATE,
+                 L"无法打开设置（0x%08lX）。\n%s\n",
+                 static_cast<unsigned long>(error.code().value), error.message().c_str());
+    logFailure(text);
+    ::MessageBoxW(owner, text, L"TransFrame 设置", MB_OK | MB_ICONERROR);
+}
 
-winrt::fire_and_forget LaunchAsync() {
-    shellLog("launch-enter", 0);
-    co_await winrt::resume_background();
-    shellLog("resumed-bg", 0);
-    try {
-        // Framework-dependent WASDK: resolve the 1.6 runtime before any
-        // Microsoft.UI.Xaml activation, otherwise WinUI 3 classes throw
-        // (the tray command then looks like a no-op).
-        constexpr UINT32 kMajorMinor = 0x00010006;  // Windows App SDK 1.6
-        PACKAGE_VERSION minVersion{};
-        minVersion.Version = (static_cast<UINT64>(6000)) |
-                             (static_cast<UINT64>(519) << 16) |
-                             (static_cast<UINT64>(329) << 32);
-        shellLog("before-bootstrap", 0);
-        const HRESULT boot = ::MddBootstrapInitialize(kMajorMinor, L"", minVersion);
-        shellLog("bootstrap-hr", static_cast<long>(boot));
-        if (FAILED(boot) && boot != HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
-            wchar_t msg[96];
-            _snwprintf_s(msg, _countof(msg), _TRUNCATE,
-                         L"TransFrame: MddBootstrapInitialize failed hr=0x%08lX\n",
-                         static_cast<unsigned long>(boot));
-            ::OutputDebugStringW(msg);
-            std::lock_guard<std::mutex> lock(g_windowMutex);
-            g_launching = false;
-            co_return;
-        }
-        winrt::init_apartment(winrt::apartment_type::single_threaded);
-        shellLog("apartment-ok", 0);
-        auto controller = DispatcherQueueController::CreateOnCurrentThread();
-        shellLog("dispatcher-ok", 0);
+void activateWindow() {
+    auto native = g_window.as<IWindowNative>();
+    HWND hwnd{};
+    winrt::check_hresult(native->get_WindowHandle(&hwnd));
+    ::ShowWindow(hwnd, ::IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    g_window.Activate();
+    ::SetForegroundWindow(hwnd);
+}
 
-        shellLog("first-control", 0);
-        auto nav = NavigationView();
-        shellLog("nav-created", 0);
+struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft::UI::Xaml::Markup::IXamlMetadataProvider> {
+    winrt::Microsoft::UI::Xaml::XamlTypeInfo::XamlControlsXamlMetaDataProvider metadata;
+    auto GetXamlType(winrt::Windows::UI::Xaml::Interop::TypeName const& type) { return metadata.GetXamlType(type); }
+    auto GetXamlType(winrt::hstring const& name) { return metadata.GetXamlType(name); }
+    auto GetXmlnsDefinitions() { return metadata.GetXmlnsDefinitions(); }
+    void OnLaunched(LaunchActivatedEventArgs const&) {
+        try {
+        // WinUI controls require both Application and their theme resources.
+        Resources().MergedDictionaries().Append(XamlControlsResources());
+        NavigationView nav;
         nav.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
         nav.IsSettingsVisible(false);
         nav.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
-        for (const auto& def : kPages) {
+        for (const auto* label : {L"通用", L"引擎", L"Prompt", L"语言", L"快捷键", L"高级"}) {
             NavigationViewItem item;
-            item.Content(winrt::box_value(def.label));
-            item.Tag(winrt::box_value(def.tag));
+            item.Content(winrt::box_value(label));
             nav.MenuItems().Append(item);
         }
         nav.SelectedItem(nav.MenuItems().GetAt(0));
-
-        auto placeholder = TextBlock();
+        TextBlock placeholder;
         placeholder.Text(L"页签内容由 windows/UI/<Page>/ 提供");
         placeholder.Margin(Thickness{24, 24, 24, 24});
         nav.Content(placeholder);
-
-        auto window = Window();
-        window.Title(L"TransFrame 设置");
-        window.Content(nav);
-        window.SystemBackdrop(MicaBackdrop());
-        shellLog("backdrop-ok", 0);
-        window.Activate();
-        shellLog("window-activated", 0);
-
-        controller.DispatcherQueue().RunEventLoop();
-    } catch (const winrt::hresult_error& e) {
-        char msg[200] = {};
-        WideCharToMultiByte(CP_UTF8, 0, e.message().c_str(), -1, msg, sizeof(msg), nullptr, nullptr);
-        char line[280];
-        const int len = _snprintf_s(line, sizeof(line), _TRUNCATE, "EXCEPTION hr=0x%08lX %s\n",
-                                    static_cast<unsigned long>(e.code().value), msg);
-        if (len > 0) {
-            char path[MAX_PATH];
-            if (::GetTempPathA(MAX_PATH, path) > 0) {
-                lstrcatA(path, "TransFrameShellInit.log");
-                HANDLE f = ::CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
-                                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (f != INVALID_HANDLE_VALUE) {
-                    DWORD written = 0;
-                    ::WriteFile(f, line, static_cast<DWORD>(len), &written, nullptr);
-                    ::CloseHandle(f);
-                }
-            }
+        g_window = Window();
+        g_window.Title(L"TransFrame 设置");
+        g_window.Content(nav);
+        g_window.SystemBackdrop(MicaBackdrop());
+        // Keep the XAML Application alive: WinUI cannot be restarted after
+        // its last window closes. Subsequent tray clicks reuse this window.
+        g_window.Closed([](auto const&, WindowEventArgs const& args) {
+            args.Handled(true);
+            HWND hwnd{};
+            winrt::check_hresult(g_window.as<IWindowNative>()->get_WindowHandle(&hwnd));
+            ::ShowWindow(hwnd, SW_HIDE);
+        });
+        activateWindow();
+        std::lock_guard lock(g_mutex);
+        g_queue = DispatcherQueue::GetForCurrentThread();
+        g_starting = false;
+        } catch (const winrt::hresult_error& error) {
+            reportFailure(nullptr, error);
+            Application::Current().Exit();
         }
-    } catch (...) {
-        shellLog("EXCEPTION-unknown", 0);
     }
-    std::lock_guard<std::mutex> lock(g_windowMutex);
-    g_launching = false;
+};
+
+void runSettings(HWND owner) noexcept {
+    bool bootstrapped = false;
+    bool apartment = false;
+    try {
+        UINT32 length = 0;
+        const LONG identity = ::GetCurrentPackageFullName(&length, nullptr);
+        if (identity == APPMODEL_ERROR_NO_PACKAGE) {
+            // Packaged apps resolve WASDK through their manifest dependency;
+            // the dynamic-dependency bootstrapper is for unpackaged apps only.
+            PACKAGE_VERSION minimum{};
+            winrt::check_hresult(::MddBootstrapInitialize(0x00010006, L"", minimum));
+            bootstrapped = true;
+        } else if (identity != ERROR_INSUFFICIENT_BUFFER) {
+            winrt::check_hresult(HRESULT_FROM_WIN32(identity));
+        }
+        winrt::init_apartment(winrt::apartment_type::single_threaded);
+        apartment = true;
+        Application::Start([](auto const&) {
+            winrt::make<SettingsApplication>();
+        });
+    } catch (const winrt::hresult_error& error) {
+        reportFailure(owner, error);
+    } catch (...) {
+        reportFailure(owner, winrt::hresult_error(E_FAIL, L"设置窗口初始化失败"));
+    }
+    {
+        std::lock_guard lock(g_mutex);
+        g_queue = nullptr;
+        g_starting = false;
+    }
+    g_window = nullptr;
+    if (apartment) winrt::uninit_apartment();
+    if (bootstrapped) ::MddBootstrapShutdown();
 }
+} // namespace
 
-}  // namespace
-
-void OpenSettingsWindow(HWND /*owner*/) {
-    shellLog("open-called", 0);
-    std::lock_guard<std::mutex> lock(g_windowMutex);
-    if (g_launching) { shellLog("open-rejected-busy", 0); return; }
-    g_launching = true;
-    LaunchAsync();
+void OpenSettingsWindow(HWND owner) {
+    DispatcherQueue queue{nullptr};
+    {
+        std::lock_guard lock(g_mutex);
+        if (g_starting) return;
+        queue = g_queue;
+        if (!queue) g_starting = true;
+    }
+    if (queue) {
+        if (!queue.TryEnqueue([owner] {
+            try { activateWindow(); }
+            catch (const winrt::hresult_error& error) { reportFailure(owner, error); }
+        })) {
+            reportFailure(owner, winrt::hresult_error(E_FAIL, L"设置窗口消息队列已停止"));
+        }
+        return;
+    }
+    try {
+        // A thread-pool coroutine may already be MTA. Never switch it to STA.
+        std::thread(runSettings, owner).detach();
+    } catch (...) {
+        { std::lock_guard lock(g_mutex); g_starting = false; }
+        reportFailure(owner, winrt::hresult_error(E_FAIL, L"无法创建设置窗口线程"));
+    }
 }
-
-}  // namespace tf::ui
+} // namespace tf::ui

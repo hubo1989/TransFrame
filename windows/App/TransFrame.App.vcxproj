@@ -76,6 +76,13 @@
     <ClCompile Include="EngineBootstrap.cpp" />
     <ClCompile Include="UpdateService.cpp" />
     <ResourceCompile Include="App.rc" />
+    <!-- Unpackaged runs statically import the dynamic-dependency bootstrap
+         DLL; ship it next to the EXE (packaged runs skip the call but the
+         import table still needs the module present). -->
+    <Content Include="$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll">
+      <Link>Microsoft.WindowsAppRuntime.Bootstrap.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- The static library cannot embed the manifest in the app EXE; merge
          it here so physical-pixel coordinates remain PerMonitorV2. -->
     <Manifest Include="..\NativeShell\app.manifest" />
