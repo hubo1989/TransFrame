@@ -46,6 +46,9 @@
 #include "tf/ImageExporter.hpp"
 #include "tf/NativeShellInit.hpp"
 #include "tf/OcrEngines.hpp"
+#include "tf/PinnedWindowManager.hpp"
+#include "tf/PreviewWindow.hpp"
+#include "tf/RecentShots.hpp"
 #include "tf/ResultWindow.hpp"
 #include "tf/SelectionOverlay.hpp"
 #include "tf/TextSelectionInsertion.hpp"
@@ -79,6 +82,7 @@ namespace {
 // ---------------------------------------------------------------------------
 constexpr wchar_t kHiddenWndClass[] = L"TransFrameMainWnd";
 constexpr UINT kAppQuit = WM_APP + 0x100;
+constexpr UINT kRefreshTrayRecents = WM_APP + 0x103;  // worker recorded a shot
 const UINT kTaskbarCreated = ::RegisterWindowMessageW(L"TaskbarCreated");
 
 // Default target language (PRD default: auto → zh). Settings UI lands later;
@@ -133,6 +137,10 @@ struct AppState {
     // mutex); the windows are main-thread-only like every other HWND.
     std::unique_ptr<tf::core::HistoryStore> history;
     std::unique_ptr<tf::HistoryWindowController> historyWindow;
+
+    // FR-14: last capture handed to the preview window (贴图 pins it in place).
+    std::shared_ptr<tf::PixelBuffer> lastCapturePixels;
+    tf::Rect lastCaptureAnchor{};
     std::vector<tf::HotkeySpec> hotkeySpecs;
     tf::HotkeyRegistrationReport hotkeyReport;
     tf::core::EngineConfig engineConfig;
@@ -244,6 +252,48 @@ bool writeTextFileAtomic(const std::wstring& path, const std::string& content) {
 // ---------------------------------------------------------------------------
 
 constexpr UINT kShowResult = WM_APP + 0x101;
+
+/// Defined below (ResultBox plumbing); the tray helpers forward to it.
+void showResultOnMain(const tf::ResultWindowContent& c);
+
+// ---------------------------------------------------------------------------
+// Tray refresh helpers (main thread; the worker posts kRefreshTrayRecents)
+// ---------------------------------------------------------------------------
+std::vector<tf::PinnedSnapshot> pinnedSnapshotsForTray() {
+    std::vector<tf::PinnedSnapshot> out;
+    for (const tf::PinnedWindowInfo& p : tf::PinnedWindowManager::instance().snapshot()) {
+        out.push_back({p.id, p.widthPx, p.heightPx, p.clickThrough});
+    }
+    return out;
+}
+
+void refreshTrayPinned() {
+    if (g.tray) g.tray->setPinnedWindows(pinnedSnapshotsForTray());
+}
+
+void refreshTrayRecents() {
+    if (g.tray && g.history) g.tray->setRecentShots(tf::shots::trayRecentShots(*g.history));
+}
+
+/// FR-34: tray 最近截图 #index -> preview window (full PNG, thumb fallback).
+void openRecentShot(int index) {
+    if (!g.history) return;
+    const auto recents = g.history->recentScreenshots(5);
+    if (index < 0 || index >= static_cast<int>(recents.size())) return;
+    tf::PixelBuffer px = tf::shots::loadRecentShotPixels(recents[static_cast<std::size_t>(index)]);
+    if (!px.valid()) {
+        tf::ResultWindowContent c;
+        c.translatedText = L"该截图文件已被清理（历史行仍保留缩略图）";
+        showResultOnMain(c);
+        return;
+    }
+    tf::PreviewWindowSpec spec;
+    spec.image = std::make_shared<tf::PixelBuffer>(std::move(px));
+    spec.suggestedFileName = L"TransFrame_recent";
+    spec.titleSuffix = L" · " + std::to_wstring(spec.image->width) + L"×" +
+                       std::to_wstring(spec.image->height);
+    tf::PreviewWindowController::instance().show(spec);
+}
 
 /// Posts content to the main thread; ownership via a small heap box.
 struct ResultBox {
@@ -524,6 +574,17 @@ void runScreenshotPipeline(const tf::CaptureResult& cap, const std::string& opId
                                 std::to_wstring(ms(tOcr, tEnd)) + L"ms";
     c.statusLine = timing + L" · " + c.engineLabel;
     c.anchorPhysical = cap.screenshot.sourceDisplay.framePhysical;
+
+    // FR-14/FR-30/FR-34: remember the pixels for 贴图置顶, record the
+    // screenshot history entry (PNG + thumbnail, best-effort) and ping the
+    // main thread to rebuild the tray recent-5 strip.
+    g.lastCapturePixels = c.previewImage;
+    g.lastCaptureAnchor = c.anchorPhysical;
+    if (g.history && cap.screenshot.pixels.valid()) {
+        tf::shots::recordScreenshot(*g.history, cap.screenshot.pixels,
+                                    g.localDir + L"\\recent");
+        ::PostMessageW(g.hwnd, kRefreshTrayRecents, 0, 0);
+    }
 
     if (inPlace) {
         // FR-06: source/translation rows into the overlay panel. The session
@@ -942,7 +1003,8 @@ void dispatchAction(tf::HotkeyAction action) {
     }
 }
 
-void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
+void onTrayCommand(tf::TrayCommand command, int payloadIndex) {
+    auto& pins = tf::PinnedWindowManager::instance();
     switch (command) {
         case tf::TrayCommand::FullScreen: dispatchAction(tf::HotkeyAction::FullScreen); break;
         case tf::TrayCommand::Region:     dispatchAction(tf::HotkeyAction::Region); break;
@@ -961,10 +1023,21 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
             ::PostMessageW(g.hwnd, kAppQuit, 0, 0);
             break;
         case tf::TrayCommand::RecentShot:
-            // Recent-shots history view lands with task D (history store).
+            openRecentShot(payloadIndex);
             break;
+        // FR-14 置顶管理 submenu (payloadIndex = pinned index where noted).
+        case tf::TrayCommand::PinnedSelect: {
+            const auto snap = pins.snapshot();
+            if (payloadIndex >= 0 && payloadIndex < static_cast<int>(snap.size())) {
+                pins.bringToFront(snap[static_cast<std::size_t>(payloadIndex)].id);
+            }
+            break;
+        }
+        case tf::TrayCommand::PinnedToggleThrough: pins.toggleClickThroughFleet(); break;
+        case tf::TrayCommand::PinnedGather:        pins.gatherAll(); break;
+        case tf::TrayCommand::PinnedCloseAll:      pins.unpinAll(); break;
         default:
-            break;  // remaining placeholders (PinnedManager/RecentShot — later milestones)
+            break;  // PinnedManager itself only opens the submenu (never dispatches)
     }
 }
 
@@ -987,6 +1060,9 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             delete box;
             return 0;
         }
+        case kRefreshTrayRecents:
+            refreshTrayRecents();
+            return 0;
         case WM_APP + 0x5446:  // tray callback ('TF' — matches TrayIcon.cpp)
             if (lp == WM_LBUTTONUP || lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
                 g.tray->showMenuAtCursor();
@@ -1145,6 +1221,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         // Tray is best-effort in v1: hotkeys keep working without it.
     }
 
+    // FR-14 置顶贴图: preview 贴图 button pins the capture in place (1:1 px);
+    // fleet changes refresh the tray 置顶管理 submenu.
+    tf::PreviewWindowController::instance().setPinHandler([] {
+        if (!g.lastCapturePixels || !g.lastCapturePixels->valid()) return;
+        const std::optional<std::pair<int, int>> origin{
+            std::pair<int, int>{static_cast<int>(g.lastCaptureAnchor.x),
+                                static_cast<int>(g.lastCaptureAnchor.y)}};
+        tf::PinnedWindowManager::instance().pin(0, g.lastCapturePixels, origin);
+    });
+    tf::PinnedWindowManager::instance().setOnChanged([] { refreshTrayPinned(); });
+    refreshTrayPinned();
+    refreshTrayRecents();
+
     // Hotkeys (FR-33): persisted specs (settings.json) on top of the PRD
     // defaults; conflicts surface in the settings hotkey page.
     g.hotkeySpecs = tf::defaultHotkeySpecs();
@@ -1241,6 +1330,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g.hotkeys->unregisterAll();
     g.tray->remove();
     g.shutdownToken.cancel();
+    // FR-14: pinned windows outlive the message loop only until here.
+    tf::PinnedWindowManager::instance().unpinAll();
+    tf::PinnedWindowManager::destroyInstance();
     // Wait for in-flight pipeline workers (OCR/HTTP) before process exit —
     // the CRT would otherwise kill detached threads mid-system-call.
     {

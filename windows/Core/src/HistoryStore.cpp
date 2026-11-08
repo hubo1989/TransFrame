@@ -363,4 +363,56 @@ std::int64_t HistoryStore::totalEntries() const {
     return total;
 }
 
+// ---------------------------------------------------------------------------
+// Additive queries (FR-30 full history + FR-34 tray recent-5); same row
+// mapping as query(), no change to the existing CRUD semantics.
+// ---------------------------------------------------------------------------
+std::vector<TranslationHistory> HistoryStore::recentScreenshots(int count) const {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    std::vector<TranslationHistory> rows;
+    if (count <= 0) return rows;
+    sqlite3_stmt* stmt = nullptr;
+    if (::sqlite3_prepare_v2(impl_->db,
+                             "SELECT id, category, source_text, translated_text, source_lang, "
+                             "target_lang, timestamp, thumbnail_path, is_favorite, meta_json "
+                             "FROM entries WHERE category='screenshot' "
+                             "ORDER BY timestamp DESC LIMIT ?1;",
+                             -1, &stmt, nullptr) != kSqliteOk) {
+        return rows;
+    }
+    ::sqlite3_bind_int(stmt, 1, count);
+    while (::sqlite3_step(stmt) == SQLITE_ROW) rows.push_back(rowToEntry(stmt));
+    ::sqlite3_finalize(stmt);
+    return rows;
+}
+
+std::optional<TranslationHistory> HistoryStore::entryById(const std::string& id) const {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    sqlite3_stmt* stmt = nullptr;
+    if (::sqlite3_prepare_v2(impl_->db,
+                             "SELECT id, category, source_text, translated_text, source_lang, "
+                             "target_lang, timestamp, thumbnail_path, is_favorite, meta_json "
+                             "FROM entries WHERE id=?1;",
+                             -1, &stmt, nullptr) != kSqliteOk) {
+        return std::nullopt;
+    }
+    ::sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<TranslationHistory> out;
+    if (::sqlite3_step(stmt) == SQLITE_ROW) out = rowToEntry(stmt);
+    ::sqlite3_finalize(stmt);
+    return out;
+}
+
+std::int64_t HistoryStore::favoriteCount() const {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    sqlite3_stmt* stmt = nullptr;
+    std::int64_t total = 0;
+    if (::sqlite3_prepare_v2(impl_->db, "SELECT COUNT(*) FROM entries WHERE is_favorite=1;",
+                             -1, &stmt, nullptr) == kSqliteOk) {
+        if (::sqlite3_step(stmt) == SQLITE_ROW) total = sqlite3_column_int64(stmt, 0);
+        ::sqlite3_finalize(stmt);
+    }
+    return total;
+}
+
 }  // namespace tf::core

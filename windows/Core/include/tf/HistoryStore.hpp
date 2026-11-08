@@ -57,6 +57,18 @@ public:
     /// Total row count (no filters).
     std::int64_t totalEntries() const;
 
+    // --- additive queries (FR-30 full history + FR-34 tray recent-5) ---
+
+    /// Newest `count` screenshot-category entries (newest first; the tray
+    /// recent-shots strip and the history screenshot tab read this).
+    std::vector<TranslationHistory> recentScreenshots(int count) const;
+
+    /// One entry by id string (Uuid::toString). Nullopt when missing.
+    std::optional<TranslationHistory> entryById(const std::string& id) const;
+
+    /// Favorite row count (history window capacity line).
+    std::int64_t favoriteCount() const;
+
     /// Current schema version recorded in the migration table.
     static constexpr int kSchemaVersion = 1;
 
