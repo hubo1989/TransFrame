@@ -71,13 +71,17 @@ endif()
 add_library(native_shell STATIC ${PORTABLE_SOURCES})
 target_include_directories(native_shell PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Core        # root headers (TranslationHistory.h etc.)
     ${CMAKE_CURRENT_SOURCE_DIR}/../Core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../Core/vendor
 )
 target_compile_features(native_shell PUBLIC cxx_std_20)
 
 if (MSVC)
-    target_compile_options(native_shell PRIVATE /W4 /WX /permissive-)
+    # /utf-8 matches the sln vcxproj: sources carry Chinese comments and a
+    # CJK-locale compiler reads them as the ANSI code page otherwise (C4819,
+    # fatal under /WX).
+    target_compile_options(native_shell PRIVATE /W4 /WX /permissive- /utf-8)
     if (NOT CMAKE_CXX_FLAGS MATCHES "/Zc:__cplusplus")
         target_compile_options(native_shell PRIVATE /Zc:__cplusplus)
     endif()
@@ -116,7 +120,8 @@ add_executable(native_shell_tests
 target_include_directories(native_shell_tests PRIVATE tests)
 target_link_libraries(native_shell_tests PRIVATE native_shell)
 if (MSVC)
-    target_compile_options(native_shell_tests PRIVATE /W4)
+    # /utf-8: test sources carry Chinese comments (CJK-locale C4819 noise).
+    target_compile_options(native_shell_tests PRIVATE /W4 /utf-8)
     # Amalgamated Catch2 + /W4 is noisy; tests are not /WX (policy TUs are).
     target_compile_options(native_shell_tests PRIVATE /wd4996 /wd26819)
 endif()

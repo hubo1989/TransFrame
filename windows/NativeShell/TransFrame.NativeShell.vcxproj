@@ -125,6 +125,7 @@
     <ClInclude Include="include\tf\ResultWindow.hpp"/>
     <ClInclude Include="include\tf\PreviewWindow.hpp"/>
     <ClInclude Include="include\tf\ImageExporter.hpp"/>
+    <ClInclude Include="src\CaptureD3dDevice.h"/>
     <ClInclude Include="src\pch.h"/>
   </ItemGroup>
 
