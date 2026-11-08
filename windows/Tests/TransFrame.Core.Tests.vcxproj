@@ -41,7 +41,7 @@
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
     <IncludePath>$(ProjectDir);$(ProjectDir)vendor;$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor\nlohmann;$(ProjectDir)..\App;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
 
-    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor;$(ProjectDir)..\external;$(ProjectDir)..\UI\GeneralPage;$(ProjectDir)..\UI\EnginesPage;$(ProjectDir)..\UI\PromptsPage;$(ProjectDir)..\UI\LanguagePage;$(ProjectDir)..\UI\ShortcutsPage;$(ProjectDir)..\UI\AdvancedPage;$(ProjectDir)..\NativeShell\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -51,7 +51,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <ConformanceMode>true</ConformanceMode>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
       <AdditionalOptions>/Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -78,6 +78,18 @@
     <ClCompile Include="EngineConfigStoreTests.cpp" />
     <ClCompile Include="HotkeySettingsStoreTests.cpp" />
     <ClCompile Include="HistoryStoreTests.cpp" />
+
+    <!-- FR-35 six-tab settings: page ViewModels (pure C++, WinRT-free) +
+         their implementation TUs. UI headers live in ../UI/&lt;Page&gt;,
+         NativeShell\include for HotkeyManager.hpp (shortcuts VM). -->
+    <ClCompile Include="GeneralPageViewModelTests.cpp" />
+    <ClCompile Include="LanguagePageViewModelTests.cpp" />
+    <ClCompile Include="ShortcutsPageViewModelTests.cpp" />
+    <ClCompile Include="PromptsPageViewModelTests.cpp" />
+    <ClCompile Include="AdvancedPageViewModelTests.cpp" />
+    <ClCompile Include="EnginesPageViewModelTests.cpp" />
+    <ClCompile Include="..\UI\GeneralPage\GeneralPageViewModel.cpp" />
+    <ClCompile Include="..\UI\EnginesPage\EnginesPageViewModel.cpp" />
     <ClCompile Include="..\external\catch2\catch_amalgamated.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
