@@ -10,12 +10,14 @@
 
 #include "tf/ResultWindow.hpp"
 #include "tf/PreviewWindow.hpp"
+#include "tf/Localization.hpp"
 
 #include <windowsx.h>
 
 namespace tf {
 
 namespace {
+namespace loc = core::loc;
 
 constexpr wchar_t kResultWndClass[] = L"TransFrameResultWnd";
 constexpr int kWindowWidth = 480;
@@ -214,10 +216,14 @@ struct ResultWindowController::Impl {
 
         // Buttons: Preview (when pixels exist) / Copy / Close (owner draw).
         if (content.previewImage) {
-            drawButton(dc, layout.previewBtn, L"预览", RGB(16, 124, 16));
+            drawButton(dc, layout.previewBtn,
+                      loc::tw("win.result.preview", L"预览").c_str(), RGB(16, 124, 16));
         }
-        drawButton(dc, layout.copyBtn, L"复制译文", RGB(0, 120, 215));
-        drawButton(dc, layout.closeBtn, L"关闭", RGB(60, 64, 74));
+        drawButton(dc, layout.copyBtn,
+                      loc::tw("history.copy.translation", L"复制译文").c_str(),
+                      RGB(0, 120, 215));
+        drawButton(dc, layout.closeBtn,
+                      loc::tw("action.close", L"关闭").c_str(), RGB(60, 64, 74));
 
         // Source text (gray, small).
         ::SetTextColor(dc, RGB(130, 135, 148));
@@ -253,7 +259,7 @@ struct ResultWindowController::Impl {
 
     void flashStatus(HWND h) {
         // Brief "copied" feedback: repaint with an updated status line.
-        content.statusLine += L"  · 已复制";
+        content.statusLine += L"  · " + loc::tw("common.copied", L"已复制");
         ::InvalidateRect(h, nullptr, FALSE);
     }
 
@@ -303,7 +309,7 @@ bool ResultWindowController::show(const ResultWindowContent& content) {
         if (!registerClass(impl.instance)) return false;
         impl.hwnd = ::CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-            kResultWndClass, L"TransFrame Result",
+            kResultWndClass, loc::tw("win.result.title", L"TransFrame Result").c_str(),
             WS_POPUP | WS_BORDER,
             CW_USEDEFAULT, CW_USEDEFAULT, kWindowWidth, kWindowHeight,
             nullptr, nullptr, impl.instance, &impl);

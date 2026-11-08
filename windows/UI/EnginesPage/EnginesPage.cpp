@@ -60,11 +60,11 @@ std::string VlmCredentialAccount(const std::string& provider) {
 constexpr const char* kPaddleCloudAccount = "TransFrame/paddleocr/cloud";
 
 /// 四态健康图例色说明。
-const wchar_t* HealthStateLabel(const std::string& state) {
-    if (state == "green") return L"正常";
-    if (state == "red") return L"异常";
-    if (state == "orange") return L"缺少凭证";
-    return L"未验证";
+std::wstring HealthStateLabel(const std::string& state) {
+    if (state == "green") return core::loc::tw("engine.health.available", L"可用");
+    if (state == "red") return core::loc::tw("win.engines.health.abnormal", L"异常");
+    if (state == "orange") return core::loc::tw("win.engines.health.noCredentials", L"缺少凭证");
+    return core::loc::tw("engine.health.unverified", L"未验证");
 }
 
 }  // namespace
@@ -72,7 +72,8 @@ const wchar_t* HealthStateLabel(const std::string& state) {
 EnginesPage::EnginesPage() {
     BindPersistence();
     rootStack_ = kit::MakePageRoot(*this);
-    rootStack_.Children().Append(kit::MakeSectionHeader(L"引擎"));
+    rootStack_.Children().Append(kit::MakeSectionHeader(
+        kit::Lx("settings.section.engines", L"引擎").c_str()));
 
     BuildVlmCard();
     BuildPaddleCard();
@@ -121,10 +122,13 @@ void EnginesPage::BindPersistence() {
 void EnginesPage::BuildVlmCard() {
     kit::Card card = kit::MakeCard();
     card.panel.Children().Append(kit::MakeLabelBlock(
-        L"VLM 配置", L"视觉语言模型，用于截图翻译前的图像理解（API Key 存于凭据管理器）"));
+        kit::Lx("settings.vlm.title", L"VLM 配置").c_str(),
+        kit::Lx("win.engines.vlm.hint",
+                L"视觉语言模型，用于截图翻译前的图像理解（API Key 存于凭据管理器）").c_str()));
 
     vlmProviderCombo_ = Controls::ComboBox();
-    vlmProviderCombo_.Header(winrt::box_value(L"提供商"));
+    vlmProviderCombo_.Header(winrt::box_value(
+            kit::Lx("settings.vlm.provider", L"提供商")));
     vlmProviderCombo_.MinWidth(240.0);
     FillCombo(vlmProviderCombo_,
               {{"openai", L"OpenAI"},
@@ -143,17 +147,20 @@ void EnginesPage::BuildVlmCard() {
     card.panel.Children().Append(vlmProviderCombo_);
 
     vlmBaseUrlBox_ = Controls::TextBox();
-    vlmBaseUrlBox_.Header(winrt::box_value(L"Base URL"));
+    vlmBaseUrlBox_.Header(winrt::box_value(
+            kit::Lx("settings.vlm.baseURL", L"Base URL")));
     vlmBaseUrlBox_.MinWidth(320.0);
     card.panel.Children().Append(vlmBaseUrlBox_);
 
     vlmModelBox_ = Controls::TextBox();
-    vlmModelBox_.Header(winrt::box_value(L"模型名"));
+    vlmModelBox_.Header(winrt::box_value(
+            kit::Lx("settings.vlm.model", L"模型名")));
     vlmModelBox_.MinWidth(320.0);
     card.panel.Children().Append(vlmModelBox_);
 
     vlmOpenAIModeCombo_ = Controls::ComboBox();
-    vlmOpenAIModeCombo_.Header(winrt::box_value(L"OpenAI 接口模式"));
+    vlmOpenAIModeCombo_.Header(winrt::box_value(
+            kit::Lx("settings.vlm.apiMode", L"OpenAI 接口模式")));
     vlmOpenAIModeCombo_.MinWidth(200.0);
     FillCombo(vlmOpenAIModeCombo_, {{"chat", L"Chat Completions"}, {"responses", L"Responses"}});
     vlmOpenAIModeCombo_.SelectionChanged([this](auto&&, auto&&) {
@@ -165,7 +172,8 @@ void EnginesPage::BuildVlmCard() {
     Controls::StackPanel keyRow;
     keyRow.Spacing(8.0);
     vlmApiKeyBox_ = Controls::PasswordBox();
-    vlmApiKeyBox_.Header(winrt::box_value(L"API Key"));
+    vlmApiKeyBox_.Header(winrt::box_value(
+            kit::Lx("win.engines.apiKey", L"API Key")));
     vlmApiKeyBox_.MinWidth(320.0);
     vlmApiKeyBox_.PasswordRevealMode(Controls::PasswordRevealMode::Peek);
     vlmApiKeyBox_.PasswordChanged([this](auto&&, auto&&) {
@@ -180,7 +188,8 @@ void EnginesPage::BuildVlmCard() {
     card.panel.Children().Append(keyRow);
 
     Controls::Button save;
-    save.Content(winrt::box_value(L"保存 VLM 配置"));
+    save.Content(winrt::box_value(
+            kit::Lx("win.engines.saveVlm", L"保存 VLM 配置")));
     save.Click([this](auto&&, auto&&) {
         vm_.SetVlmBaseURL(winrt::to_string(vlmBaseUrlBox_.Text()));
         vm_.SetVlmModelName(winrt::to_string(vlmModelBox_.Text()));
@@ -192,7 +201,10 @@ void EnginesPage::BuildVlmCard() {
             vlmApiKeyBox_.Password(L"");
             RefreshVlmKeyIndicator();
         }
-        statusText_.Text(vm_.SaveVlm() ? L"VLM 配置已保存" : L"保存失败（engines.json 不可写）");
+        statusText_.Text(vm_.SaveVlm()
+                         ? kit::Lx("win.engines.vlmSaved", L"VLM 配置已保存")
+                         : kit::Lx("win.common.saveFailedEngines",
+                                   L"保存失败（engines.json 不可写）"));
     });
     card.panel.Children().Append(save);
 
@@ -214,7 +226,9 @@ void EnginesPage::UpdateVlmOpenAIModeVisibility() {
 
 void EnginesPage::RefreshVlmKeyIndicator() {
     const bool has = credentials_.has(VlmCredentialAccount(vm_.VlmProvider()));
-    vlmKeyStatusText_.Text(has ? L"已保存密钥（输入可替换）" : L"未设置密钥");
+    vlmKeyStatusText_.Text(has
+                            ? kit::Lx("win.engines.keyStored", L"已保存密钥（输入可替换）")
+                            : kit::Lx("win.engines.keyNotSet", L"未设置密钥"));
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +236,9 @@ void EnginesPage::RefreshVlmKeyIndicator() {
 // ---------------------------------------------------------------------------
 void EnginesPage::BuildPaddleCard() {
     kit::Card card = kit::MakeCard();
-    card.panel.Children().Append(kit::MakeLabelBlock(L"PaddleOCR", L"本地 OCR 引擎（可选云端）"));
+    card.panel.Children().Append(kit::MakeLabelBlock(
+        L"PaddleOCR",
+        kit::Lx("win.engines.ocr.paddleHint", L"本地 OCR 引擎（可选云端）").c_str()));
 
     Controls::StackPanel statusRow;
     statusRow.Orientation(Controls::Orientation::Horizontal);
@@ -235,11 +251,12 @@ void EnginesPage::BuildPaddleCard() {
     card.panel.Children().Append(statusRow);
 
     paddleModeCombo_ = Controls::ComboBox();
-    paddleModeCombo_.Header(winrt::box_value(L"OCR 模式"));
+    paddleModeCombo_.Header(winrt::box_value(
+            kit::Lx("win.engines.ocrMode", L"OCR 模式")));
     paddleModeCombo_.MinWidth(220.0);
     FillCombo(paddleModeCombo_,
-              {{"fast", L"快速（fast，约 1s，行分组）"},
-               {"precise", L"精准（precise，约 12s，VL-1.5）"}});
+              {{"fast", kit::Lx("win.engines.ocr.fast", L"快速（fast，约 1s，行分组）").c_str()},
+               {"precise", kit::Lx("win.engines.ocr.precise", L"精准（precise，约 12s，VL-1.5）").c_str()}});
     paddleModeCombo_.SelectionChanged([this](auto&&, auto&&) {
         if (updating_) return;
         vm_.SetPaddleOcrMode(TagOf(paddleModeCombo_.SelectedItem()));
@@ -247,9 +264,10 @@ void EnginesPage::BuildPaddleCard() {
     card.panel.Children().Append(paddleModeCombo_);
 
     paddleUseCloudToggle_ = Controls::ToggleSwitch();
-    paddleUseCloudToggle_.Header(winrt::box_value(L"使用云端"));
-    paddleUseCloudToggle_.OnContent(winrt::box_value(L"开"));
-    paddleUseCloudToggle_.OffContent(winrt::box_value(L"关"));
+    paddleUseCloudToggle_.Header(winrt::box_value(
+            kit::Lx("settings.paddleocr.useCloud", L"使用云端")));
+    paddleUseCloudToggle_.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
+    paddleUseCloudToggle_.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
     paddleUseCloudToggle_.Toggled([this](auto&&, auto&&) {
         if (updating_) return;
         vm_.SetPaddleOcrUseCloud(paddleUseCloudToggle_.IsOn());
@@ -258,12 +276,14 @@ void EnginesPage::BuildPaddleCard() {
     card.panel.Children().Append(paddleUseCloudToggle_);
 
     paddleCloudBaseUrlBox_ = Controls::TextBox();
-    paddleCloudBaseUrlBox_.Header(winrt::box_value(L"云端 Base URL"));
+    paddleCloudBaseUrlBox_.Header(winrt::box_value(
+            kit::Lx("win.engines.ocr.cloudUrl", L"云端 Base URL")));
     paddleCloudBaseUrlBox_.MinWidth(320.0);
     card.panel.Children().Append(paddleCloudBaseUrlBox_);
 
     paddleCloudApiKeyBox_ = Controls::PasswordBox();
-    paddleCloudApiKeyBox_.Header(winrt::box_value(L"云端 API Key"));
+    paddleCloudApiKeyBox_.Header(winrt::box_value(
+            kit::Lx("win.engines.ocr.cloudKey", L"云端 API Key")));
     paddleCloudApiKeyBox_.MinWidth(320.0);
     paddleCloudApiKeyBox_.PasswordRevealMode(Controls::PasswordRevealMode::Peek);
     paddleCloudApiKeyBox_.PasswordChanged([this](auto&&, auto&&) {
@@ -272,12 +292,14 @@ void EnginesPage::BuildPaddleCard() {
     card.panel.Children().Append(paddleCloudApiKeyBox_);
 
     paddleCloudModelBox_ = Controls::TextBox();
-    paddleCloudModelBox_.Header(winrt::box_value(L"云端模型 ID"));
+    paddleCloudModelBox_.Header(winrt::box_value(
+            kit::Lx("win.engines.ocr.cloudModel", L"云端模型 ID")));
     paddleCloudModelBox_.MinWidth(320.0);
     card.panel.Children().Append(paddleCloudModelBox_);
 
     Controls::Button save;
-    save.Content(winrt::box_value(L"保存 PaddleOCR 配置"));
+    save.Content(winrt::box_value(
+            kit::Lx("win.engines.savePaddle", L"保存 PaddleOCR 配置")));
     save.Click([this](auto&&, auto&&) {
         vm_.SetPaddleOcrCloudBaseURL(winrt::to_string(paddleCloudBaseUrlBox_.Text()));
         vm_.SetPaddleOcrCloudModelId(winrt::to_string(paddleCloudModelBox_.Text()));
@@ -289,8 +311,10 @@ void EnginesPage::BuildPaddleCard() {
             paddleApiKeyDraft_.clear();
             paddleCloudApiKeyBox_.Password(L"");
         }
-        statusText_.Text(vm_.SavePaddleOcr() ? L"PaddleOCR 配置已保存"
-                                             : L"保存失败（engines.json 不可写）");
+        statusText_.Text(vm_.SavePaddleOcr()
+                             ? kit::Lx("win.engines.paddleSaved", L"PaddleOCR 配置已保存")
+                             : kit::Lx("win.common.saveFailedEngines",
+                                       L"保存失败（engines.json 不可写）"));
     });
     card.panel.Children().Append(save);
 
@@ -317,17 +341,19 @@ void EnginesPage::BuildMultiEngineCard() {
 
     // C-1 策略
     kit::Card modeCard = kit::MakeCard();
-    modeCard.panel.Children().Append(kit::MakeLabelBlock(L"翻译策略"));
+    modeCard.panel.Children().Append(kit::MakeLabelBlock(
+        kit::Lx("win.engines.translationPolicy", L"翻译策略").c_str()));
     engineModeCombo_ = Controls::ComboBox();
     engineModeCombo_.MinWidth(260.0);
     FillCombo(engineModeCombo_,
-              {{"ordered", L"顺序回退链（ordered）"}, {"compare", L"并行对比（compare）"}});
+              {{"ordered", kit::Lx("win.engines.policyOrdered", L"顺序回退链（ordered）").c_str()},
+               {"compare", kit::Lx("win.engines.policyCompare", L"并行对比（compare）").c_str()}});
     engineModeCombo_.SelectionChanged([this](auto&&, auto&&) {
         if (updating_) return;
         vm_.SetEngineModeV2(TagOf(engineModeCombo_.SelectedItem()));
         vm_.SaveEngineModeV2();
         UpdateModeSectionVisibility();
-        statusText_.Text(L"翻译策略已保存");
+        statusText_.Text(kit::Lx("win.engines.policySaved", L"翻译策略已保存"));
     });
     modeCard.panel.Children().Append(engineModeCombo_);
     rootStack_.Children().Append(modeCard.border);
@@ -338,12 +364,14 @@ void EnginesPage::BuildMultiEngineCard() {
         Controls::StackPanel header;
         header.Orientation(Controls::Orientation::Horizontal);
         header.Spacing(12.0);
-        header.Children().Append(kit::MakeText(L"顺序回退链", true));
+        header.Children().Append(kit::MakeText(
+            kit::Lx("win.engines.chainTitle", L"顺序回退链").c_str(), true));
         chainCountText_ = Controls::TextBlock();
         chainCountText_.VerticalAlignment(VerticalAlignment::Center);
         chainCountText_.Opacity(0.7);
         header.Children().Append(chainCountText_);
-        header.Children().Append(kit::MakeCaption(L"按顺序尝试，失败自动回退到下一个"));
+        header.Children().Append(kit::MakeCaption(
+            kit::Lx("win.engines.policyOrderedHint", L"按顺序尝试，失败自动回退到下一个").c_str()));
         card.panel.Children().Append(header);
 
         chainListPanel_ = Controls::StackPanel();
@@ -351,7 +379,8 @@ void EnginesPage::BuildMultiEngineCard() {
         card.panel.Children().Append(chainListPanel_);
 
         addChainButton_ = Controls::Button();
-        addChainButton_.Content(winrt::box_value(L"添加引擎 ▾"));
+        addChainButton_.Content(winrt::box_value(
+            kit::Lx("win.engines.addEngine", L"添加引擎 ▾")));
         card.panel.Children().Append(addChainButton_);
 
         orderedChainSection_ = card.border;
@@ -364,12 +393,14 @@ void EnginesPage::BuildMultiEngineCard() {
         Controls::StackPanel header;
         header.Orientation(Controls::Orientation::Horizontal);
         header.Spacing(12.0);
-        header.Children().Append(kit::MakeText(L"并行对比引擎", true));
+        header.Children().Append(kit::MakeText(
+            kit::Lx("win.engines.compareTitle", L"并行对比引擎").c_str(), true));
         compareCountText_ = Controls::TextBlock();
         compareCountText_.VerticalAlignment(VerticalAlignment::Center);
         compareCountText_.Opacity(0.7);
         header.Children().Append(compareCountText_);
-        header.Children().Append(kit::MakeCaption(L"同时调用，结果并排对比（2–4 个）"));
+        header.Children().Append(kit::MakeCaption(
+            kit::Lx("win.engines.policyCompareHint", L"同时调用，结果并排对比（2–4 个）").c_str()));
         card.panel.Children().Append(header);
 
         compareListPanel_ = Controls::StackPanel();
@@ -377,7 +408,8 @@ void EnginesPage::BuildMultiEngineCard() {
         card.panel.Children().Append(compareListPanel_);
 
         addCompareButton_ = Controls::Button();
-        addCompareButton_.Content(winrt::box_value(L"添加引擎 ▾"));
+        addCompareButton_.Content(winrt::box_value(
+            kit::Lx("win.engines.addEngine", L"添加引擎 ▾")));
         card.panel.Children().Append(addCompareButton_);
 
         compareSection_ = card.border;
@@ -387,7 +419,9 @@ void EnginesPage::BuildMultiEngineCard() {
     // C-4 可用引擎 + 兼容实例 + 健康刷新
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"可用引擎", L"点击名称配置；开关控制是否可加入链/对比集"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+        kit::Lx("engine.available.title", L"可用引擎").c_str(),
+        kit::Lx("win.engines.available.hint", L"点击名称配置；开关控制是否可加入链/对比集").c_str()));
         engineCardsPanel_ = Controls::StackPanel();
         engineCardsPanel_.Spacing(10.0);
         card.panel.Children().Append(engineCardsPanel_);
@@ -396,17 +430,22 @@ void EnginesPage::BuildMultiEngineCard() {
         legend.Orientation(Controls::Orientation::Horizontal);
         legend.Spacing(12.0);
         legend.Children().Append(kit::MakeStatusDot("#10893E"));
-        legend.Children().Append(kit::MakeCaption(L"正常"));
+        legend.Children().Append(kit::MakeCaption(
+                kit::Lx("engine.health.available", L"可用").c_str()));
         legend.Children().Append(kit::MakeStatusDot("#C42B1C"));
-        legend.Children().Append(kit::MakeCaption(L"异常"));
+        legend.Children().Append(kit::MakeCaption(
+                kit::Lx("win.engines.health.abnormal", L"异常").c_str()));
         legend.Children().Append(kit::MakeStatusDot("#FF8C00"));
-        legend.Children().Append(kit::MakeCaption(L"缺少凭证"));
+        legend.Children().Append(kit::MakeCaption(
+                kit::Lx("win.engines.health.noCredentials", L"缺少凭证").c_str()));
         legend.Children().Append(kit::MakeStatusDot("#9E9E9E"));
-        legend.Children().Append(kit::MakeCaption(L"未验证"));
+        legend.Children().Append(kit::MakeCaption(
+                kit::Lx("engine.health.unverified", L"未验证").c_str()));
         card.panel.Children().Append(legend);
 
         Controls::Button refresh;
-        refresh.Content(winrt::box_value(L"刷新健康状态"));
+        refresh.Content(winrt::box_value(
+            kit::Lx("win.engines.refreshHealth", L"刷新健康状态")));
         refresh.Click([this](auto&&, auto&&) { RefreshHealth(); });
         card.panel.Children().Append(refresh);
 
@@ -519,7 +558,8 @@ void EnginesPage::RebuildCompareRows() {
             replaceMenu.Items().Append(mi);
         }
         Controls::DropDownButton replace;
-        replace.Content(winrt::box_value(L"替换 ▾"));
+        replace.Content(winrt::box_value(
+                kit::Lx("win.engines.replace", L"替换 ▾")));
         replace.Flyout(replaceMenu);
 
         Controls::Button del;
@@ -578,18 +618,20 @@ void EnginesPage::RebuildEngineCards() {
     engineCardsPanel_.Children().Clear();
 
     struct Group {
-        const wchar_t* title;
+        const char* titleKey;          // FR-37：分组标题走 Localization 表
+        const wchar_t* titleFallback;
         std::vector<std::string> raws;
     };
     static const std::vector<Group> kGroups = {
-        {L"内置引擎", {"mtran"}},
-        {L"LLM", {"openai", "claude", "gemini", "ollama"}},
-        {L"云服务", {"google", "deepl", "baidu"}},
-        {L"其他", {"custom"}},
+        {"win.engines.group.builtin", L"内置引擎", {"mtran"}},
+        {"win.engines.group.llm", L"LLM", {"openai", "claude", "gemini", "ollama"}},
+        {"engine.category.cloud", L"云服务", {"google", "deepl", "baidu"}},
+        {"win.engines.group.other", L"其他", {"custom"}},
     };
 
     for (const Group& g : kGroups) {
-        Controls::TextBlock header = kit::MakeCaption(g.title);
+        Controls::TextBlock header =
+            kit::MakeCaption(kit::Lx(g.titleKey, g.titleFallback).c_str());
         header.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
         header.Margin({0, 6, 0, 0});
         engineCardsPanel_.Children().Append(header);
@@ -620,7 +662,7 @@ void EnginesPage::RebuildEngineCards() {
                 vm_.SetBuiltinEnabled(rawCopy, toggle.IsOn());
                 vm_.SaveEngineConfigs();
                 RebuildAddMenus();
-                statusText_.Text(L"引擎开关已保存");
+                statusText_.Text(kit::Lx("win.engines.toggleSaved", L"引擎开关已保存"));
             });
 
             Controls::HyperlinkButton open;
@@ -629,7 +671,8 @@ void EnginesPage::RebuildEngineCards() {
                 ShowEngineConfigSheetAsync(raw);
             });
 
-            Controls::TextBlock desc = kit::MakeCaption(L"点击名称配置");
+            Controls::TextBlock desc =
+                    kit::MakeCaption(kit::Lx("win.engines.clickToConfigure", L"点击名称配置").c_str());
             desc.VerticalAlignment(VerticalAlignment::Center);
 
             Controls::Border dot = kit::MakeStatusDot(vm_.HealthColorHex(raw));
@@ -645,7 +688,8 @@ void EnginesPage::RebuildEngineCards() {
     }
 
     // 兼容实例（spec §2.3 C-4：0–5，动态）
-    Controls::TextBlock compHeader = kit::MakeCaption(L"兼容引擎（OpenAI 兼容端点）");
+    Controls::TextBlock compHeader =
+        kit::MakeCaption(kit::Lx("win.engines.compatibleSection", L"兼容引擎（OpenAI 兼容端点）").c_str());
     compHeader.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
     compHeader.Margin({0, 6, 0, 0});
     engineCardsPanel_.Children().Append(compHeader);
@@ -671,7 +715,9 @@ void EnginesPage::RebuildEngineCards() {
         open.Click([this, id](auto&&, auto&&) { ShowCompatibleSheetAsync(id); });
 
         Controls::TextBlock inUse = kit::MakeCaption(
-            vm_.CompatibleInUse(inst.id) ? L"使用中" : L"未加入链/对比集");
+            vm_.CompatibleInUse(inst.id)
+                ? kit::Lx("win.engines.inUse", L"使用中").c_str()
+                : kit::Lx("win.engines.notInChain", L"未加入链/对比集").c_str());
         inUse.VerticalAlignment(VerticalAlignment::Center);
 
         Controls::Border dot = kit::MakeStatusDot(vm_.HealthColorHex(inst.id));
@@ -679,7 +725,7 @@ void EnginesPage::RebuildEngineCards() {
             dot, winrt::box_value(HealthStateLabel(vm_.HealthOf(inst.id))));
 
         Controls::Button del;
-        del.Content(winrt::box_value(L"删除"));
+        del.Content(winrt::box_value(kit::Lx("action.delete", L"删除")));
         del.Click([this, id](auto&&, auto&&) {
             vm_.RemoveCompatibleInstance(id);
             vm_.SaveEngineConfigs();
@@ -687,7 +733,7 @@ void EnginesPage::RebuildEngineCards() {
             RebuildAddMenus();
             RebuildChainRows();
             RebuildCompareRows();
-            statusText_.Text(L"兼容实例已删除");
+            statusText_.Text(kit::Lx("win.engines.compatibleDeleted", L"兼容实例已删除"));
         });
 
         card.Children().Append(icon);
@@ -700,11 +746,13 @@ void EnginesPage::RebuildEngineCards() {
 
     if (vm_.CanAddCompatibleInstance()) {
         Controls::Button add;
-        add.Content(winrt::box_value(L"新建兼容引擎"));
+        add.Content(winrt::box_value(
+            kit::Lx("engine.compatible.new", L"新建兼容引擎")));
         add.Click([this](auto&&, auto&&) { ShowCompatibleSheetAsync({}); });
         engineCardsPanel_.Children().Append(add);
     } else if (!vm_.CompatibleInstances().empty()) {
-        engineCardsPanel_.Children().Append(kit::MakeCaption(L"兼容引擎已达上限（5）"));
+        engineCardsPanel_.Children().Append(kit::MakeCaption(
+            kit::Lx("win.engines.compatibleLimit", L"兼容引擎已达上限（5）").c_str()));
     }
 }
 
@@ -731,23 +779,28 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
     Controls::ComboBox presetCombo{nullptr};
     if (isOpenAI) {
         presetCombo = Controls::ComboBox();
-        presetCombo.Header(winrt::box_value(L"预设"));
+        presetCombo.Header(winrt::box_value(
+                kit::Lx("win.engines.presets", L"预设")));
         FillCombo(presetCombo,
-                  {{"openAI", L"OpenAI 官方"}, {"ollamaLocal", L"本地 Ollama"}, {"custom", L"自定义"}});
+                  {{"openAI", kit::Lx("engine.preset.openai", L"OpenAI 官方").c_str()},
+                   {"ollamaLocal", kit::Lx("engine.preset.ollama", L"本地 Ollama").c_str()},
+                   {"custom", kit::Lx("engine.preset.custom", L"自定义").c_str()}});
         SelectComboByTag(presetCombo, vm_.OpenAIPreset());
         content.Children().Append(presetCombo);
     }
 
     Controls::ToggleSwitch enableSwitch;
-    enableSwitch.Header(winrt::box_value(L"启用"));
-    enableSwitch.OnContent(winrt::box_value(L"开"));
-    enableSwitch.OffContent(winrt::box_value(L"关"));
+    enableSwitch.Header(winrt::box_value(
+            kit::Lx("win.engines.enabledShort", L"启用")));
+    enableSwitch.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
+    enableSwitch.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
     enableSwitch.IsOn(draft.isEnabled);
     content.Children().Append(enableSwitch);
 
     Controls::TextBox baseUrlBox;
     if (hasBaseUrl) {
-        baseUrlBox.Header(winrt::box_value(L"Base URL"));
+        baseUrlBox.Header(winrt::box_value(
+            kit::Lx("settings.vlm.baseURL", L"Base URL")));
         baseUrlBox.PlaceholderText(isMtran ? L"http://localhost:8989" : L"");
         baseUrlBox.Text(winrt::to_hstring(draft.baseURL.empty() && isMtran
                                               ? "http://localhost:8989"
@@ -757,7 +810,8 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
 
     Controls::TextBox modelBox;
     if (hasModel) {
-        modelBox.Header(winrt::box_value(L"模型名"));
+        modelBox.Header(winrt::box_value(
+            kit::Lx("settings.vlm.model", L"模型名")));
         modelBox.Text(winrt::to_hstring(draft.modelName));
         content.Children().Append(modelBox);
     }
@@ -765,10 +819,13 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
     Controls::PasswordBox keyBox;
     bool showsKey = requiresKey;
     if (showsKey) {
-        keyBox.Header(winrt::box_value(L"API Key"));
+        keyBox.Header(winrt::box_value(
+            kit::Lx("win.engines.apiKey", L"API Key")));
         keyBox.PasswordRevealMode(Controls::PasswordRevealMode::Peek);
         const bool hasSaved = credentials_.has(credentialAccount(*translationEngineFromRaw(engineRaw)));
-        keyBox.PlaceholderText(hasSaved ? L"已保存密钥（输入可替换）" : L"未设置");
+        keyBox.PlaceholderText(hasSaved
+                                  ? kit::Lx("win.engines.keyStored", L"已保存密钥（输入可替换）")
+                                  : kit::Lx("win.engines.keyNotSet", L"未设置"));
         content.Children().Append(keyBox);
     }
 
@@ -782,7 +839,8 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
         if (saved) {
             appIdBox.Password(winrt::to_hstring(saved->appID));
             if (!saved->apiKey.empty()) {
-                secretBox.PlaceholderText(L"已保存密钥（输入可替换）");
+                secretBox.PlaceholderText(
+                    kit::Lx("win.engines.keyStored", L"已保存密钥（输入可替换）"));
             }
         }
         content.Children().Append(appIdBox);
@@ -809,31 +867,36 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
     Controls::TextBlock testResult;
     testResult.FontSize(12.0);
     Controls::Button testBtn;
-    testBtn.Content(winrt::box_value(L"测试连接"));
+    testBtn.Content(winrt::box_value(
+            kit::Lx("engine.config.test", L"测试连接")));
     testBtn.Click([this, engineRaw, testResult](auto&&, auto&&) {
         auto engine = translationEngineFromRaw(engineRaw);
         if (!engine) return;
-        testResult.Text(L"测试中…");
+        testResult.Text(kit::Lx("win.engines.healthTesting", L"测试中…"));
         auto checker = MakeHealthChecker();
         auto queue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
         std::thread([checker, engine = *engine, queue, testResult]() {
             const EngineHealth h = checker->refresh(EngineHealthKey::forBuiltin(engine));
-            const wchar_t* text = h == EngineHealth::Available
-                                      ? L"连接正常（绿）"
-                                      : (h == EngineHealth::Unconfigured ? L"缺少凭证（橙）"
-                                                                         : L"连接失败（红）");
-            queue.TryEnqueue([testResult, text]() { testResult.Text(text); });
+            const std::wstring text =
+                h == EngineHealth::Available
+                    ? core::loc::tw("win.engines.legendGreen", L"连接正常（绿）")
+                    : (h == EngineHealth::Unconfigured
+                           ? core::loc::tw("win.engines.legendOrange", L"缺少凭证（橙）")
+                           : core::loc::tw("win.engines.legendRed", L"连接失败（红）"));
+            queue.TryEnqueue(
+                [testResult, text]() { testResult.Text(text.c_str()); });
         }).detach();
     });
     content.Children().Append(testBtn);
     content.Children().Append(testResult);
 
     Controls::ContentDialog dialog;
-    dialog.Title(winrt::box_value(
-        (L"配置 " + kit::ToWide(engineRaw)).c_str()));
+    dialog.Title(winrt::box_value(core::loc::formatArgsWide(
+        kit::Lx("win.engines.configureEngine", L"配置 %@"),
+        {kit::ToWide(engineRaw)})));
     dialog.Content(content);
-    dialog.PrimaryButtonText(L"保存");
-    dialog.CloseButtonText(L"取消");
+    dialog.PrimaryButtonText(kit::Lx("action.save", L"保存"));
+    dialog.CloseButtonText(kit::Lx("action.cancel", L"取消"));
     dialog.DefaultButton(Controls::ContentDialogButton::Primary);
     dialog.XamlRoot(XamlRoot());
 
@@ -869,7 +932,7 @@ EnginesPage::ShowEngineConfigSheetAsync(const std::string& engineRaw) {
         vm_.SaveEngineConfigs();
         RebuildEngineCards();
         RebuildAddMenus();
-        statusText_.Text(L"引擎配置已保存");
+        statusText_.Text(kit::Lx("win.engines.engineSaved", L"引擎配置已保存"));
     }
     co_return result;
 }
@@ -883,21 +946,26 @@ EnginesPage::ShowCompatibleSheetAsync(const std::string& instanceId) {
     auto draft = isNew ? vm_.NewCompatibleSheetDraft() : vm_.OpenCompatibleSheetDraft(instanceId);
 
     Controls::TextBox nameBox;
-    nameBox.Header(winrt::box_value(L"显示名称"));
+    nameBox.Header(winrt::box_value(
+            kit::Lx("engine.compatible.displayName", L"显示名称")));
     nameBox.Text(winrt::to_hstring(draft.displayName));
     Controls::TextBox baseUrlBox;
-    baseUrlBox.Header(winrt::box_value(L"Base URL"));
+    baseUrlBox.Header(winrt::box_value(
+            kit::Lx("settings.vlm.baseURL", L"Base URL")));
     baseUrlBox.PlaceholderText(L"http://localhost:8000/v1");
     baseUrlBox.Text(winrt::to_hstring(draft.baseURL));
     Controls::TextBox modelBox;
-    modelBox.Header(winrt::box_value(L"模型名"));
+    modelBox.Header(winrt::box_value(
+            kit::Lx("settings.vlm.model", L"模型名")));
     modelBox.PlaceholderText(L"gpt-4o-mini");
     modelBox.Text(winrt::to_hstring(draft.modelName));
     Controls::PasswordBox keyBox;
-    keyBox.Header(winrt::box_value(L"API Key"));
+    keyBox.Header(winrt::box_value(
+            kit::Lx("win.engines.apiKey", L"API Key")));
     keyBox.PasswordRevealMode(Controls::PasswordRevealMode::Peek);
     if (!isNew && draft.hasAPIKey) {
-        keyBox.PlaceholderText(L"已保存密钥（输入可替换）");
+        keyBox.PlaceholderText(
+            kit::Lx("win.engines.keyStored", L"已保存密钥（输入可替换）"));
     }
 
     Controls::StackPanel content;
@@ -909,10 +977,12 @@ EnginesPage::ShowCompatibleSheetAsync(const std::string& instanceId) {
     content.Children().Append(keyBox);
 
     Controls::ContentDialog dialog;
-    dialog.Title(winrt::box_value(isNew ? L"新建兼容引擎" : L"编辑兼容引擎"));
+    dialog.Title(winrt::box_value(
+        isNew ? kit::Lx("engine.compatible.new", L"新建兼容引擎")
+              : kit::Lx("win.engines.editCompatible", L"编辑兼容引擎")));
     dialog.Content(content);
-    dialog.PrimaryButtonText(L"保存");
-    dialog.CloseButtonText(L"取消");
+    dialog.PrimaryButtonText(kit::Lx("action.save", L"保存"));
+    dialog.CloseButtonText(kit::Lx("action.cancel", L"取消"));
     dialog.DefaultButton(Controls::ContentDialogButton::Primary);
     dialog.XamlRoot(XamlRoot());
 
@@ -933,7 +1003,7 @@ EnginesPage::ShowCompatibleSheetAsync(const std::string& instanceId) {
         vm_.SaveEngineConfigs();
         RebuildEngineCards();
         RebuildAddMenus();
-        statusText_.Text(L"兼容实例已保存");
+        statusText_.Text(kit::Lx("win.engines.compatibleSaved", L"兼容实例已保存"));
     }
     co_return result;
 }
@@ -971,7 +1041,7 @@ void EnginesPage::RefreshHealth() {
         keys->push_back(EngineHealthKey::forCompatible(inst.id));
     }
 
-    statusText_.Text(L"正在检查引擎健康状态…");
+    statusText_.Text(kit::Lx("win.engines.healthChecking", L"正在检查引擎健康状态…"));
     auto checker = MakeHealthChecker();
     auto queue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
     auto weak = get_weak();
@@ -994,7 +1064,7 @@ void EnginesPage::ApplyHealthResults(
     const std::vector<std::pair<std::string, std::string>>& results) {
     for (const auto& [key, state] : results) vm_.SetHealthOf(key, state);
     RebuildEngineCards();
-    statusText_.Text(L"健康状态已刷新");
+    statusText_.Text(kit::Lx("win.engines.healthRefreshed", L"健康状态已刷新"));
 }
 
 }  // namespace tf::ui

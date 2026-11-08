@@ -92,6 +92,7 @@
     <ClInclude Include="include\tf\EngineConfigStore.hpp" />
     <ClInclude Include="include\tf\HotkeySettingsStore.hpp" />
     <ClInclude Include="include\tf\HistoryStore.hpp" />
+    <ClInclude Include="include\tf\Localization.hpp" />
     <ClInclude Include="vendor\sqlite\sqlite3.h" />
   </ItemGroup>
   <ItemGroup>
@@ -114,6 +115,10 @@
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
     <ClCompile Include="src\HistoryStore.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <!-- wt-locale-onboard: FR-37 string tables. -->
+    <ClCompile Include="src\Localization.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
     <!-- Vendored SQLite amalgamation (FR-30 history.db): public-domain C.

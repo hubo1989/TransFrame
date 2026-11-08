@@ -83,6 +83,13 @@
       <Link>Microsoft.WindowsAppRuntime.Bootstrap.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- FR-37 localization tables (PRI bypass — no .resw / XAML compiler in
+         Build Tools): AppMain loads exe_dir\Assets\Strings at startup; msix
+         packaging stages App\Assets wholesale, so both layouts match. -->
+    <Content Include="Assets\Strings\*.json">
+      <Link>Assets\Strings\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- The static library cannot embed the manifest in the app EXE; merge
          it here so physical-pixel coordinates remain PerMonitorV2. -->
     <Manifest Include="..\NativeShell\app.manifest" />

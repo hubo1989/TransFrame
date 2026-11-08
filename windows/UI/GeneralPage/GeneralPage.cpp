@@ -122,7 +122,9 @@ void GeneralPage::BuildUi() {
     // ---------------- 卡片 1：保存位置（spec §1.2） ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"保存位置", L"截图与导出文件的默认目录"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("settings.save.location", L"保存位置").c_str(),
+            kit::Lx("settings.save.location.message", L"截图与导出文件的默认目录").c_str()));
 
         savePathText_ = Controls::TextBlock();
         savePathText_.TextWrapping(TextWrapping::NoWrap);
@@ -135,31 +137,35 @@ void GeneralPage::BuildUi() {
         buttons.Orientation(Controls::Orientation::Horizontal);
         buttons.Spacing(8.0);
         Controls::Button pick;
-        pick.Content(winrt::box_value(L"选择…"));
+        pick.Content(winrt::box_value(kit::Lx("settings.save.location.choose", L"选择…")));
         pick.Click([this](auto&&, auto&&) { PickSaveFolder(); });
         Controls::Button reveal;
-        reveal.Content(winrt::box_value(L"在资源管理器中显示"));
+        reveal.Content(winrt::box_value(kit::Lx("win.settings.save.reveal", L"在资源管理器中显示")));
         reveal.Click([this](auto&&, auto&&) { RevealSaveLocation(); });
         buttons.Children().Append(pick);
         buttons.Children().Append(reveal);
         card.panel.Children().Append(buttons);
 
-        root.Children().Append(kit::MakeSectionHeader(L"通用"));
+        root.Children().Append(
+            kit::MakeSectionHeader(kit::Lx("settings.section.general", L"通用").c_str()));
         root.Children().Append(card.border);
     }
 
     // ---------------- 卡片 2：导出格式与质量 ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"导出格式与质量"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("win.settings.export.title", L"导出格式与质量").c_str()));
 
         formatCombo_ = Controls::ComboBox();
-        formatCombo_.Header(winrt::box_value(L"默认格式"));
+        formatCombo_.Header(winrt::box_value(kit::Lx("settings.format", L"默认格式")));
         formatCombo_.MinWidth(200.0);
-        for (const auto& [raw, name] : {std::pair{"png", L"PNG"}, std::pair{"jpeg", L"JPEG"},
-                                        std::pair{"heic", L"HEIC"}}) {
+        for (const auto& [raw, key, fallback] :
+             {std::tuple{"png", "settings.format.png", L"PNG"},
+              std::tuple{"jpeg", "settings.format.jpeg", L"JPEG"},
+              std::tuple{"heic", "settings.format.heic", L"HEIC"}}) {
             Controls::ComboBoxItem item;
-            item.Content(winrt::box_value(name));
+            item.Content(winrt::box_value(kit::Lx(key, fallback)));
             item.Tag(winrt::box_value(winrt::to_hstring(raw)));
             formatCombo_.Items().Append(item);
         }
@@ -175,7 +181,7 @@ void GeneralPage::BuildUi() {
         qualityRow.Orientation(Controls::Orientation::Horizontal);
         qualityRow.Spacing(12.0);
         qualitySlider_ = Controls::Slider();
-        qualitySlider_.Header(winrt::box_value(L"导出质量"));
+        qualitySlider_.Header(winrt::box_value(kit::Lx("win.settings.export.quality", L"导出质量")));
         qualitySlider_.Minimum(10.0);
         qualitySlider_.Maximum(100.0);
         qualitySlider_.StepFrequency(5.0);
@@ -200,15 +206,21 @@ void GeneralPage::BuildUi() {
         root.Children().Append(card.border);
     }
 
-    // ---------------- 卡片 3：界面语言（spec §1.2） ----------------
+    // ---------------- 卡片 3：界面语言（spec §1.2；FR-37 即时生效） ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"界面语言", L"设置窗口与托盘菜单的显示语言"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("settings.language", L"界面语言").c_str(),
+            kit::Lx("win.settings.language.hint", L"设置窗口与托盘菜单的显示语言").c_str()));
         languageCombo_ = Controls::ComboBox();
         languageCombo_.MinWidth(200.0);
         for (const auto& opt : GeneralPageViewModel::AppLanguageOptions()) {
+            const std::wstring display =
+                opt.raw == "system"
+                    ? std::wstring(kit::Lx("settings.language.system", L"跟随系统").c_str())
+                    : opt.displayName;
             Controls::ComboBoxItem item;
-            item.Content(winrt::box_value(opt.displayName));
+            item.Content(winrt::box_value(display));
             item.Tag(winrt::box_value(winrt::to_hstring(opt.raw)));
             languageCombo_.Items().Append(item);
         }
@@ -216,6 +228,8 @@ void GeneralPage::BuildUi() {
             if (updating_) return;
             vm_.SetAppLanguage(TagOf(languageCombo_.SelectedItem()));
             PersistWithStatus();
+            // FR-37 即时生效（与语言页共用 engines.json appLanguage 键）。
+            core::loc::Localization::instance().setLanguage(vm_.AppLanguage());
         });
         card.panel.Children().Append(languageCombo_);
         root.Children().Append(card.border);
@@ -224,29 +238,34 @@ void GeneralPage::BuildUi() {
     // ---------------- 卡片 4：启动与更新 ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"启动与更新"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("win.settings.startupUpdates.title", L"启动与更新").c_str()));
 
         launchAtLoginToggle_ = Controls::ToggleSwitch();
-        launchAtLoginToggle_.Header(winrt::box_value(L"开机自启"));
-        launchAtLoginToggle_.OnContent(winrt::box_value(L"开"));
-        launchAtLoginToggle_.OffContent(winrt::box_value(L"关"));
+        launchAtLoginToggle_.Header(
+            winrt::box_value(kit::Lx("win.settings.autostart", L"开机自启")));
+        launchAtLoginToggle_.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
+        launchAtLoginToggle_.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
         launchAtLoginToggle_.Toggled([this](auto&&, auto&&) {
             if (updating_) return;
             const bool on = launchAtLoginToggle_.IsOn();
             SetLaunchAtLogin(on);
             vm_.SetLaunchAtLogin(LaunchAtLoginRegistered());
-            statusText_.Text(on ? L"已写入开机自启（HKCU Run）" : L"已移除开机自启");
+            statusText_.Text(on
+                                 ? kit::Lx("win.settings.autostart.added", L"已写入开机自启（HKCU Run）")
+                                 : kit::Lx("win.settings.autostart.removed", L"已移除开机自启"));
         });
         card.panel.Children().Append(launchAtLoginToggle_);
 
         checkUpdatesToggle_ = Controls::ToggleSwitch();
-        checkUpdatesToggle_.Header(winrt::box_value(L"更新检查"));
-        checkUpdatesToggle_.OnContent(winrt::box_value(L"开"));
-        checkUpdatesToggle_.OffContent(winrt::box_value(L"关"));
+        checkUpdatesToggle_.Header(
+            winrt::box_value(kit::Lx("win.settings.checkUpdates", L"更新检查")));
+        checkUpdatesToggle_.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
+        checkUpdatesToggle_.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
         checkUpdatesToggle_.Toggled([this](auto&&, auto&&) {
             if (updating_) return;
             WriteCheckForUpdates(checkUpdatesToggle_.IsOn());
-            statusText_.Text(L"已保存");
+            statusText_.Text(kit::Lx("win.common.saved", L"已保存"));
         });
         card.panel.Children().Append(checkUpdatesToggle_);
 
@@ -272,7 +291,7 @@ void GeneralPage::SyncFromViewModel() {
             display = desktop;
             ::CoTaskMemFree(desktop);
         } else {
-            display = L"桌面";
+            display = kit::Lx("win.settings.save.desktop", L"桌面");
         }
     }
     savePathText_.Text(display);
@@ -294,9 +313,9 @@ void GeneralPage::SyncFromViewModel() {
 
 void GeneralPage::PersistWithStatus() {
     if (vm_.Save()) {
-        statusText_.Text(L"已保存");
+        statusText_.Text(kit::Lx("win.common.saved", L"已保存"));
     } else {
-        statusText_.Text(L"保存失败（engines.json 不可写）");
+        statusText_.Text(kit::Lx("win.common.saveFailedEngines", L"保存失败（engines.json 不可写）"));
     }
 }
 

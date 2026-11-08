@@ -1,8 +1,15 @@
 // windows/UI/LanguagePage/LanguagePage.cpp
 // FR-35 语言页签 code-behind 实现（纯代码构建；控件清单见 .h 文件头）。
+// FR-37：界面语言卡片（engines.json 顶层 appLanguage 键，与通用页共用；
+// 切换即时生效 —— Localization 监听器会重建六页签 + 托盘/结果窗标题）。
 #include "LanguagePage.h"
+#include "GeneralPageViewModel.hpp"  // AppLanguageOptions（界面语言下拉数据源）
 #include "SettingsFileStore.hpp"
 #include "SettingsUiKit.hpp"
+
+#include "tf/Localization.hpp"
+
+#include <winrt/Windows.Globalization.h>
 
 namespace tf::ui {
 namespace {
@@ -24,8 +31,20 @@ void FillPicker(Controls::ComboBox const& picker,
                 const std::vector<LanguageOption>& options) {
     picker.Items().Clear();
     for (const LanguageOption& option : options) {
+        // 语言名跟随系统 UI 语言（mac localizedName 的对等实现）；auto/
+        // 空串两个特例与解析失败时退回 VM 的 zh 表。
+        std::wstring display = option.displayName;
+        if (!option.raw.empty() && option.raw != "auto") {
+            try {
+                winrt::Windows::Globalization::Language lang{
+                    winrt::to_hstring(option.raw)};
+                const winrt::hstring name = lang.DisplayName();
+                if (!name.empty()) display = std::wstring(name.c_str());
+            } catch (...) {
+            }
+        }
         Controls::ComboBoxItem item;
-        item.Content(winrt::box_value(option.displayName));
+        item.Content(winrt::box_value(display));
         item.Tag(winrt::box_value(winrt::to_hstring(option.raw)));
         picker.Items().Append(item);
     }
@@ -41,6 +60,21 @@ void SelectRaw(Controls::ComboBox const& picker, const std::string& raw) {
     // 未知持久化值：保守回退下标 0（源=自动检测 / 目标=跟随系统），
     // 原值保留在 EngineConfig 中，用户不改动就不丢失。
     picker.SelectedIndex(0);
+}
+
+/// engines.json 顶层 appLanguage（schema §2.1；缺省 "system"）。
+std::string ReadAppLanguage() {
+    if (auto v = store::EnginesKey("appLanguage"); v && v->is_string()) {
+        return v->get<std::string>();
+    }
+    return "system";
+}
+
+void WriteAppLanguage(const std::string& raw) {
+    store::WriteEnginesJsonAtomic(
+        store::MergeEnginesKey(store::ReadEnginesJson(), "appLanguage", raw));
+    // 即时生效（FR-37）：解析 "system" → 实际语言并通知监听器。
+    core::loc::Localization::instance().setLanguage(raw);
 }
 
 }  // namespace
@@ -65,17 +99,49 @@ void LanguagePage::OnShown() {
 
 void LanguagePage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(L"语言"));
+    root.Children().Append(kit::MakeSectionHeader(kit::Lx("settings.section.languages", L"语言").c_str()));
+
+    // ---- 界面语言（FR-37）----
+    {
+        kit::Card card = kit::MakeCard();
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("settings.language", L"界面语言").c_str(),
+            kit::Lx("win.settings.language.hint", L"设置窗口与托盘菜单的显示语言，切换立即生效").c_str()));
+        uiLanguagePicker_ = Controls::ComboBox();
+        uiLanguagePicker_.MinWidth(200.0);
+        for (const AppLanguageOption& option : GeneralPageViewModel::AppLanguageOptions()) {
+            // “跟随系统”行本地化；语言名用原生名（English/简体中文/…，
+            // 语言选择器惯例），与通用页下拉同源。
+            const std::wstring display =
+                option.raw == "system"
+                    ? std::wstring(kit::Lx("settings.language.system", L"跟随系统").c_str())
+                    : option.displayName;
+            Controls::ComboBoxItem item;
+            item.Content(winrt::box_value(display));
+            item.Tag(winrt::box_value(winrt::to_hstring(option.raw)));
+            uiLanguagePicker_.Items().Append(item);
+        }
+        uiLanguagePicker_.SelectionChanged([this](auto&&, auto&&) {
+            if (updating_) return;  // 回填初始选中不落库
+            auto item = uiLanguagePicker_.SelectedItem().try_as<Controls::ComboBoxItem>();
+            if (!item) return;
+            WriteAppLanguage(TagOf(item));
+        });
+        card.panel.Children().Append(uiLanguagePicker_);
+        root.Children().Append(card.border);
+    }
 
     kit::Card card = kit::MakeCard();
-    card.panel.Children().Append(
-        kit::MakeLabelBlock(L"翻译语言", L"全局翻译与翻译插入可分别设置语言对"));
+    card.panel.Children().Append(kit::MakeLabelBlock(
+        kit::Lx("win.language.translation.title", L"翻译语言").c_str(),
+        kit::Lx("win.language.translation.hint", L"全局翻译与翻译插入可分别设置语言对").c_str()));
 
-    auto makeLanguageRow = [](const wchar_t* title, Controls::ComboBox& source,
+    auto makeLanguageRow = [](winrt::hstring const& title, Controls::ComboBox& source,
                               Controls::ComboBox& target) {
         Controls::StackPanel row;
         row.Spacing(12.0);
-        row.Children().Append(kit::MakeText(title, true));
+        Controls::TextBlock titleText = kit::MakeText(title.c_str(), true);
+        row.Children().Append(titleText);
 
         Controls::StackPanel pickers;
         pickers.Orientation(Controls::Orientation::Horizontal);
@@ -94,10 +160,12 @@ void LanguagePage::BuildUi() {
         return row;
     };
 
-    card.panel.Children().Append(makeLanguageRow(L"全局翻译", globalSourcePicker_,
+    card.panel.Children().Append(makeLanguageRow(kit::Lx("win.language.global", L"全局翻译"),
+                                                 globalSourcePicker_,
                                                  globalTargetPicker_));
-    card.panel.Children().Append(makeLanguageRow(L"翻译插入", insertSourcePicker_,
-                                                 insertTargetPicker_));
+    card.panel.Children().Append(
+        makeLanguageRow(kit::Lx("win.language.translateInsert", L"翻译插入"),
+                        insertSourcePicker_, insertTargetPicker_));
 
     root.Children().Append(card.border);
 
@@ -130,6 +198,7 @@ void LanguagePage::SyncFromConfig() {
     SelectRaw(globalTargetPicker_, vm_.GlobalTargetLanguage());
     SelectRaw(insertSourcePicker_, vm_.InsertSourceLanguage());
     SelectRaw(insertTargetPicker_, vm_.InsertTargetLanguage());
+    SelectRaw(uiLanguagePicker_, ReadAppLanguage());
     updating_ = false;
 }
 
@@ -154,9 +223,9 @@ void LanguagePage::Persist() {
     const std::string merged =
         tf::core::serializeEngineConfigPatch(store::ReadEnginesJson(), config_);
     if (store::WriteEnginesJsonAtomic(merged)) {
-        statusText_.Text(L"已保存");
+        statusText_.Text(kit::Lx("win.common.saved", L"已保存"));
     } else {
-        statusText_.Text(L"保存失败（engines.json 不可写）");
+        statusText_.Text(kit::Lx("win.common.saveFailedEngines", L"保存失败（engines.json 不可写）"));
     }
 }
 

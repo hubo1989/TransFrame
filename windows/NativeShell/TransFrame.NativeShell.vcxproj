@@ -84,6 +84,11 @@
     <ClCompile Include="src\HistoryExport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- wt-locale-onboard: FR-37 system-locale probe for the
+         language table (GetUserDefaultUILanguage). -->
+    <ClCompile Include="src\Win32Locale.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
 
   <!-- Windows-only sources: use pch.h. -->

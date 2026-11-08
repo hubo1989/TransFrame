@@ -56,11 +56,13 @@ void ShortcutsPage::LoadFromDisk() {
 
 void ShortcutsPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(L"快捷键"));
+    root.Children().Append(kit::MakeSectionHeader(
+        kit::Lx("settings.section.shortcuts", L"快捷键").c_str()));
 
     kit::Card card = kit::MakeCard();
     card.panel.Children().Append(kit::MakeLabelBlock(
-        L"全局快捷键", L"点击组合按钮后按下新组合键（需含至少一个修饰键），Esc 取消录制；冲突的组合会标红"));
+        kit::Lx("win.shortcuts.title", L"全局快捷键").c_str(),
+        kit::Lx("win.shortcuts.hint", L"点击组合按钮后按下新组合键（需含至少一个修饰键），Esc 取消录制；冲突的组合会标红").c_str()));
 
     for (int row = 0; row < kShortcutRowCount; ++row) {
         Controls::StackPanel line;
@@ -76,7 +78,8 @@ void ShortcutsPage::BuildUi() {
         recordButtons_[row].Click([this, row](auto&&, auto&&) { HandleRecordClick(row); });
 
         resetButtons_[row] = Controls::Button();
-        resetButtons_[row].Content(winrt::box_value(L"重置"));
+        resetButtons_[row].Content(winrt::box_value(
+            kit::Lx("prompt.button.reset", L"重置")));
         resetButtons_[row].Click([this, row](auto&&, auto&&) { HandleResetClick(row); });
 
         line.Children().Append(label);
@@ -160,7 +163,8 @@ void ShortcutsPage::HandleKeyDown(winrt::Windows::Foundation::IInspectable const
 void ShortcutsPage::RefreshRow(int row) {
     const bool recording = vm_.RecordingRow() == row;
     recordButtons_[row].Content(winrt::box_value(
-        recording ? L"录制中…" : winrt::to_hstring(vm_.ComboTextForRow(row))));
+        recording ? kit::Lx("win.shortcuts.recording", L"录制中…")
+                  : winrt::to_hstring(vm_.ComboTextForRow(row))));
     recordButtons_[row].FontWeight(recording ? Windows::UI::Text::FontWeights::Bold()
                                              : Windows::UI::Text::FontWeights::Normal());
     // 冲突标红：组合按钮红字 + 行下红色说明
@@ -201,9 +205,9 @@ void ShortcutsPage::PersistBindings() {
         json, kPickColorKey,
         nlohmann::json{{"vk", pick.vk}, {"modifiers", pick.modifiers}});
     if (store::WriteSettingsJsonAtomic(json)) {
-        statusText_.Text(L"快捷键已保存");
+        statusText_.Text(kit::Lx("win.shortcuts.saved", L"快捷键已保存"));
     } else {
-        statusText_.Text(L"保存失败（settings.json 不可写）");
+        statusText_.Text(kit::Lx("win.common.saveFailedSettings", L"保存失败（settings.json 不可写）"));
     }
     statusText_.Visibility(Visibility::Visible);
 }

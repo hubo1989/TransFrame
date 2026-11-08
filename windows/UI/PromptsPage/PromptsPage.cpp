@@ -14,11 +14,15 @@ using namespace winrt;
 using namespace winrt::Microsoft::UI::Xaml;
 namespace Controls = winrt::Microsoft::UI::Xaml::Controls;
 
-const wchar_t* SceneDisplayNameZh(tf::TranslationScene scene) {
+std::wstring SceneDisplayNameZh(tf::TranslationScene scene) {
+    namespace loc = tf::core::loc;
     switch (scene) {
-        case tf::TranslationScene::Screenshot: return L"截图翻译";
-        case tf::TranslationScene::TextSelection: return L"划词翻译";
-        case tf::TranslationScene::TranslateAndInsert: return L"翻译插入";
+        case tf::TranslationScene::Screenshot:
+            return loc::tw("win.prompts.scene.screenshot", L"截图翻译");
+        case tf::TranslationScene::TextSelection:
+            return loc::tw("win.prompts.scene.textSelection", L"划词翻译");
+        case tf::TranslationScene::TranslateAndInsert:
+            return loc::tw("win.prompts.scene.translateInsert", L"翻译插入");
     }
     return L"";
 }
@@ -43,13 +47,15 @@ PromptsPage::PromptsPage() {
 // ---------------------------------------------------------------------------
 void PromptsPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(L"Prompt"));
+    root.Children().Append(kit::MakeSectionHeader(
+        kit::Lx("settings.section.prompts", L"Prompt").c_str()));
 
     // 卡片 1：引擎 Prompt（spec §3.1）
     {
         kit::Card card = kit::MakeCard();
         card.panel.Children().Append(kit::MakeLabelBlock(
-            L"引擎 Prompt", L"为单个引擎设置自定义 Prompt（覆盖内置默认）"));
+            kit::Lx("prompt.engine.title", L"引擎 Prompt").c_str(),
+            kit::Lx("win.prompts.engine.hint", L"为单个引擎设置自定义 Prompt（覆盖内置默认）").c_str()));
         engineRowsHost_ = Controls::StackPanel();
         engineRowsHost_.Spacing(8.0);
         card.panel.Children().Append(engineRowsHost_);
@@ -60,8 +66,9 @@ void PromptsPage::BuildUi() {
     {
         kit::Card card = kit::MakeCard();
         compatibleSection_ = card.border;
-        card.panel.Children().Append(
-            kit::MakeLabelBlock(L"兼容引擎 Prompt", L"按 OpenAI 兼容实例单独设置"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("prompt.compatible.title", L"兼容引擎 Prompt").c_str(),
+            kit::Lx("win.prompts.compatible.hint", L"按 OpenAI 兼容实例单独设置").c_str()));
         compatibleRowsHost_ = Controls::StackPanel();
         compatibleRowsHost_.Spacing(8.0);
         card.panel.Children().Append(compatibleRowsHost_);
@@ -72,7 +79,8 @@ void PromptsPage::BuildUi() {
     {
         kit::Card card = kit::MakeCard();
         card.panel.Children().Append(kit::MakeLabelBlock(
-            L"场景 Prompt", L"按使用场景设置（优先级：场景 > 引擎 > 默认）"));
+            kit::Lx("prompt.scene.title", L"场景 Prompt").c_str(),
+            kit::Lx("win.prompts.scene.hint", L"按使用场景设置（优先级：场景 > 引擎 > 默认）").c_str()));
         sceneRowsHost_ = Controls::StackPanel();
         sceneRowsHost_.Spacing(8.0);
         card.panel.Children().Append(sceneRowsHost_);
@@ -82,10 +90,11 @@ void PromptsPage::BuildUi() {
     // 卡片 4：默认 Prompt 预览（spec §3.4，只读）
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"默认 Prompt 预览"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("win.prompts.default.title", L"默认 Prompt 预览").c_str()));
 
         Controls::TextBox def = Controls::TextBox();
-        def.Header(winrt::box_value(L"通用默认"));
+        def.Header(winrt::box_value(kit::Lx("win.prompts.fallback", L"通用默认")));
         def.Text(winrt::to_hstring(PromptsPageViewModel::defaultPromptText()));
         def.IsReadOnly(true);
         def.TextWrapping(TextWrapping::Wrap);
@@ -94,7 +103,8 @@ void PromptsPage::BuildUi() {
         card.panel.Children().Append(def);
 
         Controls::TextBox defInsert = Controls::TextBox();
-        defInsert.Header(winrt::box_value(L"翻译插入默认"));
+        defInsert.Header(winrt::box_value(
+            kit::Lx("win.prompts.insertDefault", L"翻译插入默认")));
         defInsert.Text(winrt::to_hstring(PromptsPageViewModel::defaultInsertPromptText()));
         defInsert.IsReadOnly(true);
         defInsert.TextWrapping(TextWrapping::Wrap);
@@ -148,10 +158,11 @@ void PromptsPage::RebuildAllRows() {
         pencil.VerticalAlignment(VerticalAlignment::Center);
         pencil.Visibility(vm_.hasEnginePrompt(engine) ? Visibility::Visible
                                                       : Visibility::Collapsed);
-        Controls::ToolTipService::SetToolTip(pencil, winrt::box_value(L"已设置自定义 Prompt"));
+        Controls::ToolTipService::SetToolTip(
+                pencil, winrt::box_value(kit::Lx("win.prompts.customSet", L"已设置自定义 Prompt")));
 
         Controls::Button edit;
-        edit.Content(winrt::box_value(L"编辑"));
+        edit.Content(winrt::box_value(kit::Lx("prompt.button.edit", L"编辑")));
         edit.Click([this, engine](auto&&, auto&&) { EditEnginePrompt(engine); });
 
         line.Children().Append(name);
@@ -182,7 +193,7 @@ void PromptsPage::RebuildAllRows() {
                                                            : Visibility::Collapsed);
 
         Controls::Button edit;
-        edit.Content(winrt::box_value(L"编辑"));
+        edit.Content(winrt::box_value(kit::Lx("prompt.button.edit", L"编辑")));
         std::string id = inst.id;
         edit.Click([this, id](auto&&, auto&&) { EditCompatiblePrompt(id); });
 
@@ -199,7 +210,8 @@ void PromptsPage::RebuildAllRows() {
         line.Orientation(Controls::Orientation::Horizontal);
         line.Spacing(10.0);
 
-        Controls::TextBlock name = kit::MakeText(SceneDisplayNameZh(scene));
+        Controls::TextBlock name =
+            kit::MakeText(SceneDisplayNameZh(scene).c_str());
         name.VerticalAlignment(VerticalAlignment::Center);
         name.MinWidth(120.0);
 
@@ -211,7 +223,7 @@ void PromptsPage::RebuildAllRows() {
                                                     : Visibility::Collapsed);
 
         Controls::Button edit;
-        edit.Content(winrt::box_value(L"编辑"));
+        edit.Content(winrt::box_value(kit::Lx("prompt.button.edit", L"编辑")));
         edit.Click([this, scene](auto&&, auto&&) { EditScenePrompt(scene); });
 
         line.Children().Append(name);
@@ -265,7 +277,7 @@ void PromptsPage::EditScenePrompt(tf::TranslationScene scene) {
     } else {
         initial = vm_.defaultPromptText();
     }
-    OpenEditorAsync(std::wstring(SceneDisplayNameZh(scene)) + L" Prompt", initial)
+    OpenEditorAsync(SceneDisplayNameZh(scene) + L" Prompt", initial)
         .Completed([this, scene](auto const& op, auto const&) {
             if (op.GetResults() == Controls::ContentDialogResult::Primary) {
                 vm_.setScenePrompt(scene, editingText_);
@@ -294,12 +306,11 @@ PromptsPage::OpenEditorAsync(const std::wstring& title, std::string initialText)
     Controls::StackPanel tokens;
     tokens.Orientation(Controls::Orientation::Horizontal);
     tokens.Spacing(8.0);
-    for (const auto& [token, label] :
-         {std::pair{L"{source_language}", L"插入 {source_language}"},
-          std::pair{L"{target_language}", L"插入 {target_language}"},
-          std::pair{L"{text}", L"插入 {text}"}}) {
+    for (const std::wstring token :
+         {L"{source_language}", L"{target_language}", L"{text}"}) {
         Controls::Button b;
-        b.Content(winrt::box_value(label));
+        b.Content(winrt::box_value(core::loc::formatArgsWide(
+            kit::Lx("win.prompts.insertVariable", L"插入 %@"), {token})));
         b.Click([editor, token](auto&&, auto&&) { InsertTokenAtCursor(editor, token); });
         tokens.Children().Append(b);
     }
@@ -312,8 +323,8 @@ PromptsPage::OpenEditorAsync(const std::wstring& title, std::string initialText)
     Controls::ContentDialog dialog;
     dialog.Title(winrt::box_value(title));
     dialog.Content(content);
-    dialog.PrimaryButtonText(L"保存");
-    dialog.CloseButtonText(L"取消");
+    dialog.PrimaryButtonText(kit::Lx("action.save", L"保存"));
+    dialog.CloseButtonText(kit::Lx("action.cancel", L"取消"));
     dialog.DefaultButton(Controls::ContentDialogButton::Primary);
     dialog.XamlRoot(XamlRoot());
 
