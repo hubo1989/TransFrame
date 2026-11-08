@@ -195,3 +195,55 @@ TEST_CASE("HistoryStore open failure on unwritable path", "[history][sqlite]") {
         CHECK_FALSE(err.empty());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Additive queries (FR-30 full history + FR-34 tray recent-5)
+// ---------------------------------------------------------------------------
+TEST_CASE("HistoryStore recentScreenshots caps and orders newest-first",
+          "[history][sqlite]") {
+    TempDb db;
+    auto store = HistoryStore::open(db.path());
+    REQUIRE(store != nullptr);
+    for (int i = 0; i < 7; ++i) {
+        TranslationHistory shot =
+            makeEntry("shot " + std::to_string(i), "", HistoryCategory::Screenshot);
+        shot.timestamp = tf::core::TimePoint{std::chrono::seconds(1700000000 + i * 60)};
+        REQUIRE(store->insert(shot));
+    }
+    REQUIRE(store->insert(makeEntry("t", "t")));  // translation ignored
+
+    const auto recents = store->recentScreenshots(5);
+    REQUIRE(recents.size() == 5);
+    CHECK(recents.front().sourceText == "shot 6");  // newest first
+    CHECK(recents.back().sourceText == "shot 2");   // oldest survivor
+    CHECK(store->recentScreenshots(0).empty());     // 0 = nothing
+}
+TEST_CASE("HistoryStore entryById round-trips and misses cleanly",
+          "[history][sqlite]") {
+    TempDb db;
+    auto store = HistoryStore::open(db.path());
+    REQUIRE(store != nullptr);
+    const TranslationHistory e = makeEntry("hello", "bonjour");
+    REQUIRE(store->insert(e));
+
+    const auto found = store->entryById(e.id.toString());
+    REQUIRE(found.has_value());
+    CHECK(found->sourceText == "hello");
+    CHECK(found->translatedText == "bonjour");
+    CHECK_FALSE(store->entryById(Uuid::randomUuid().toString()).has_value());
+}
+TEST_CASE("HistoryStore favoriteCount tracks toggles", "[history][sqlite]") {
+    TempDb db;
+    auto store = HistoryStore::open(db.path());
+    REQUIRE(store != nullptr);
+    const TranslationHistory a = makeEntry("a", "a");
+    const TranslationHistory b = makeEntry("b", "b");
+    REQUIRE(store->insert(a));
+    REQUIRE(store->insert(b));
+    CHECK(store->favoriteCount() == 0);
+    REQUIRE(store->setFavorite(a.id.toString(), true));
+    REQUIRE(store->setFavorite(b.id.toString(), true));
+    CHECK(store->favoriteCount() == 2);
+    REQUIRE(store->setFavorite(b.id.toString(), false));
+    CHECK(store->favoriteCount() == 1);
+}

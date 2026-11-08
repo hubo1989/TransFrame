@@ -67,6 +67,7 @@
     <ClCompile Include="tests\CaptureServiceTests.cpp"/>
     <ClCompile Include="tests\OverlayRendererTests.cpp"/>
     <ClCompile Include="tests\TrayMenuTests.cpp"/>
+    <ClCompile Include="tests\PinnedWindowManagerTests.cpp"/>
   </ItemGroup>
 
   <ItemGroup>
