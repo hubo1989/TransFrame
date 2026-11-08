@@ -80,6 +80,12 @@
     <ClCompile Include="HotkeySettingsStoreTests.cpp" />
     <ClCompile Include="HistoryStoreTests.cpp" />
 
+    <!-- FR-37/39: localization tables + onboarding pure logic. The shipped
+         10-language tables copy to the output dir (Strings\) for the schema
+         test below. -->
+    <ClCompile Include="LocalizationTests.cpp" />
+    <ClCompile Include="OnboardingTests.cpp" />
+
     <!-- FR-35 six-tab settings: page ViewModels (pure C++, WinRT-free) +
          their implementation TUs. UI headers live in ../UI/&lt;Page&gt;,
          NativeShell\include for HotkeyManager.hpp (shortcuts VM). -->
@@ -100,6 +106,11 @@
     <None Include="fixtures\visual-line-grouping.json">
       <CopyFileToOutputDirectory>PreserveNewest</CopyFileToOutputDirectory>
     </None>
+    <!-- FR-37 schema test reads every shipped language table. -->
+    <Content Include="..\UI\Strings\*.json">
+      <Link>Strings\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
