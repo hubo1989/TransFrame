@@ -1,68 +1,49 @@
+// windows/UI/LanguagePage/LanguagePage.h
+// FR-35 语言页签 code-behind —— 纯代码构建（原 LanguagePage.h/.cpp 依赖
+// XAML 编译器生成头 LanguagePage.g.h，Build Tools 上不可用，重构为与
+// SettingsShell 同路线；LanguagePage.xaml 保留为规格参考，不编译）。
+//
+// 内容（spec §4）：一张卡片，全局翻译对 + 翻译插入对，各为
+// 源语言（auto+全集）/ 目标语言（跟随系统+非 auto）两个下拉。
+// VM（LanguagePageViewModel.h）Attach 到本页持有的 EngineConfig；
+// 选择变化即写回 VM 并整份 patch 合并落盘（EngineConfigStore）。
+// 界面语言在通用页签（spec §1.2），不在本页。
 #pragma once
-// LanguagePage.h — 语言页签 code-behind（UserControl 根，嵌入 NavigationView Content）。
-//
-// 统一约定（四页一致）：
-// - C++/WinRT 纯头投影：只 include winrt 投影头，不写 .idl、不用 C++/CX。
-// - VM（tf::ui::LanguagePageViewModel）是普通 C++ 类，由本类持有，不依赖
-//   WinRT 属性系统。
-// - 本页无 x:Bind 路径：ComboBox 选中项与普通 C++ VM 的同步走
-//   SelectionChanged 事件 + code-behind 回填（TwoWay 到非依赖属性源需要
-//   WinRT 属性通知，按统一约定改事件驱动；后续若加纯展示文本的 x:Bind，
-//   路径必须与本文件公有声明一字不差）。
-//
-// [集成点] "LanguagePage.g.h" 由 XAML 编译器按 x:Class 生成（InitializeComponent、
-// x:Name 成员访问器如 GlobalSourceLanguagePicker() 均来自它）；本目录加入
-// vcxproj 时 XAML 以 Page 条目登记并启用 XAML 编译。
-// [集成点] 宿主在 C++ 代码里实例化本页需要激活工厂：若工具链要求，由 shell 侧
-// 统一补 .idl / factory_implementation（本页按约定不新增）。
-
-#include "LanguagePage.g.h"
 
 #include "LanguagePageViewModel.h"
 
 #include "tf/EngineConfigStore.hpp"
 
+#include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Windows.Foundation.h>
 
-namespace winrt::TransFrame::UI::implementation {
+namespace tf::ui {
 
-struct LanguagePage : LanguagePageT<LanguagePage> {
+class LanguagePage : public winrt::Microsoft::UI::Xaml::Controls::UserControlT<LanguagePage> {
+public:
     LanguagePage();
 
-    // 宿主注入配置对象（XAML 实例化无法走带参构造）；注入后按配置值回填四个 Picker。
-    // [集成点] 传入的对象由设置窗口持有：读自 engines.json，写回时机亦由宿主决定。
-    void AttachEngineConfig(tf::core::EngineConfig& config);
-
-    // 事件处理器（与 LanguagePage.xaml 的 SelectionChanged 属性一字不差；
-    // 签名符合 C++/WinRT SelectionChanged 委托）。
-    void OnGlobalSourceLanguageSelected(
-        winrt::Windows::Foundation::IInspectable const& sender,
-        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& args);
-    void OnGlobalTargetLanguageSelected(
-        winrt::Windows::Foundation::IInspectable const& sender,
-        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& args);
-    void OnInsertSourceLanguageSelected(
-        winrt::Windows::Foundation::IInspectable const& sender,
-        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& args);
-    void OnInsertTargetLanguageSelected(
-        winrt::Windows::Foundation::IInspectable const& sender,
-        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& args);
+    /// shell 页签激活时调用：从磁盘重载（其它页签可能改过 engines.json）。
+    void OnShown();
 
 private:
-    // 四个 Picker 的角色划分（回填初始选中与变化落库共用 VM 的两张选项表）。
-    enum class PickerRole { GlobalSource, GlobalTarget, InsertSource, InsertTarget };
+    void BuildUi();
+    void SyncFromConfig();
+    void Persist();
+    void ApplySelection(winrt::Microsoft::UI::Xaml::Controls::ComboBox const& combo, int role);
 
-    // 按 VM 选项表填充四个 ComboBox 并设置当前选中；条目 Tag 存 rawValue。
-    // 未 Attach 时按默认值显示（源 auto / 目标“跟随系统”）。
-    void RebuildPickers();
+    enum class PickerRole { GlobalSource = 0, GlobalTarget, InsertSource, InsertTarget };
 
-    // SelectionChanged 统一入口：从 ComboBoxItem.Tag 取 rawValue 写入 VM 对应字段。
-    void ApplySelectionFromPicker(
-        winrt::Windows::Foundation::IInspectable const& sender, PickerRole role);
+    winrt::Microsoft::UI::Xaml::Controls::ComboBox globalSourcePicker_;
+    winrt::Microsoft::UI::Xaml::Controls::ComboBox globalTargetPicker_;
+    winrt::Microsoft::UI::Xaml::Controls::ComboBox insertSourcePicker_;
+    winrt::Microsoft::UI::Xaml::Controls::ComboBox insertTargetPicker_;
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock statusText_;
 
-    tf::ui::LanguagePageViewModel m_viewModel;
-    bool m_updating = false;  // 回填初始选中期间触发的 SelectionChanged 不落库
+    tf::core::EngineConfig config_;  // 宿主持有（VM Attach 契约）
+    LanguagePageViewModel vm_;
+    bool updating_ = false;
 };
 
-}  // namespace winrt::TransFrame::UI::implementation
+}  // namespace tf::ui

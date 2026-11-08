@@ -1,131 +1,163 @@
-// LanguagePage.cpp — 语言页签 code-behind 实现。
-//
-// 职责：把 VM 的两张选项表（源/目标）填进四个 ComboBox，Tag 存 rawValue，
-// SelectionChanged 时按角色写回 VM 包装的 tf::core::EngineConfig 字段。
-// [集成点] XAML 编译器按 x:Class 生成的连接代码（LanguagePage.g.cpp /
-// LanguagePage.XamlTypeInfo.*）在构建时并入本编译单元；目录加入 vcxproj 后
-// 生效。若并入带 pch 的工程，可将下面的 winrt 头移入 pch。
+// windows/UI/LanguagePage/LanguagePage.cpp
+// FR-35 语言页签 code-behind 实现（纯代码构建；控件清单见 .h 文件头）。
 #include "LanguagePage.h"
+#include "SettingsFileStore.hpp"
+#include "SettingsUiKit.hpp"
 
-#if __has_include("LanguagePage.g.cpp")
-#include "LanguagePage.g.cpp"
-#endif
-
-#include <cstdint>
-#include <string>
-#include <vector>
-
-namespace winrt::TransFrame::UI::implementation {
-
+namespace tf::ui {
 namespace {
 
-// raw 值均为 ASCII 短码（"auto"/"en"/"zh-Hans"/…），逐字节加宽/收窄即可，
-// 不依赖 locale 或 cppwinrt 的窄宽转换语义。
-winrt::hstring RawToHString(std::string const& raw) {
-    return winrt::hstring{std::wstring(raw.begin(), raw.end())};
+using namespace winrt;
+using namespace winrt::Microsoft::UI::Xaml;
+namespace Controls = winrt::Microsoft::UI::Xaml::Controls;
+
+std::string TagOf(winrt::Windows::Foundation::IInspectable const& item) {
+    if (!item) return {};
+    auto box = item.try_as<winrt::Windows::Foundation::IPropertyValue>();
+    if (box && box.Type() == winrt::Windows::Foundation::PropertyType::String) {
+        return winrt::to_string(box.GetString());
+    }
+    return {};
 }
 
-std::string HStringToRaw(winrt::hstring const& value) {
-    std::wstring const wide{value};
-    return std::string(wide.begin(), wide.end());
-}
-
-void FillPicker(Microsoft::UI::Xaml::Controls::ComboBox const& picker,
-                std::vector<tf::ui::LanguageOption> const& options) {
+void FillPicker(Controls::ComboBox const& picker,
+                const std::vector<LanguageOption>& options) {
     picker.Items().Clear();
-    for (tf::ui::LanguageOption const& option : options) {
-        Microsoft::UI::Xaml::Controls::ComboBoxItem item;
-        item.Content(winrt::box_value(winrt::hstring{option.displayName}));
-        item.Tag(winrt::box_value(RawToHString(option.raw)));  // Tag=rawValue，不依赖显示文本反查
+    for (const LanguageOption& option : options) {
+        Controls::ComboBoxItem item;
+        item.Content(winrt::box_value(option.displayName));
+        item.Tag(winrt::box_value(winrt::to_hstring(option.raw)));
         picker.Items().Append(item);
     }
 }
 
-void SelectRaw(Microsoft::UI::Xaml::Controls::ComboBox const& picker,
-               std::string const& raw, std::int32_t fallbackIndex) {
+void SelectRaw(Controls::ComboBox const& picker, const std::string& raw) {
     for (std::uint32_t i = 0; i < picker.Items().Size(); ++i) {
-        auto item = picker.Items().GetAt(i).as<Microsoft::UI::Xaml::Controls::ComboBoxItem>();
-        if (item.Tag() &&
-            HStringToRaw(winrt::unbox_value<winrt::hstring>(item.Tag())) == raw) {
+        if (TagOf(picker.Items().GetAt(i)) == raw) {
             picker.SelectedIndex(i);
             return;
         }
     }
-    // 未知持久化值的保守回退：下标 0（源=自动检测 / 目标=跟随系统）；
+    // 未知持久化值：保守回退下标 0（源=自动检测 / 目标=跟随系统），
     // 原值保留在 EngineConfig 中，用户不改动就不丢失。
-    picker.SelectedIndex(fallbackIndex);
+    picker.SelectedIndex(0);
 }
 
 }  // namespace
 
 LanguagePage::LanguagePage() {
-    InitializeComponent();
-    RebuildPickers();  // 未 Attach 时按默认值显示（源 auto / 目标“跟随系统”）
-}
-
-void LanguagePage::AttachEngineConfig(tf::core::EngineConfig& config) {
-    m_viewModel.Attach(config);
-    RebuildPickers();
-}
-
-void LanguagePage::OnGlobalSourceLanguageSelected(
-    Windows::Foundation::IInspectable const& sender,
-    Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& /*args*/) {
-    ApplySelectionFromPicker(sender, PickerRole::GlobalSource);
-}
-
-void LanguagePage::OnGlobalTargetLanguageSelected(
-    Windows::Foundation::IInspectable const& sender,
-    Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& /*args*/) {
-    ApplySelectionFromPicker(sender, PickerRole::GlobalTarget);
-}
-
-void LanguagePage::OnInsertSourceLanguageSelected(
-    Windows::Foundation::IInspectable const& sender,
-    Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& /*args*/) {
-    ApplySelectionFromPicker(sender, PickerRole::InsertSource);
-}
-
-void LanguagePage::OnInsertTargetLanguageSelected(
-    Windows::Foundation::IInspectable const& sender,
-    Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& /*args*/) {
-    ApplySelectionFromPicker(sender, PickerRole::InsertTarget);
-}
-
-void LanguagePage::RebuildPickers() {
-    m_updating = true;
-    // x:Name 访问器（GlobalSourceLanguagePicker() 等）来自 LanguagePage.g.h
-    FillPicker(GlobalSourceLanguagePicker(), m_viewModel.SourceLanguageOptions());
-    FillPicker(GlobalTargetLanguagePicker(), m_viewModel.TargetLanguageOptions());
-    FillPicker(InsertSourceLanguagePicker(), m_viewModel.SourceLanguageOptions());
-    FillPicker(InsertTargetLanguagePicker(), m_viewModel.TargetLanguageOptions());
-
-    SelectRaw(GlobalSourceLanguagePicker(), m_viewModel.GlobalSourceLanguage(), 0);
-    SelectRaw(GlobalTargetLanguagePicker(), m_viewModel.GlobalTargetLanguage(), 0);
-    SelectRaw(InsertSourceLanguagePicker(), m_viewModel.InsertSourceLanguage(), 0);
-    SelectRaw(InsertTargetLanguagePicker(), m_viewModel.InsertTargetLanguage(), 0);
-    m_updating = false;
-}
-
-void LanguagePage::ApplySelectionFromPicker(
-    Windows::Foundation::IInspectable const& sender, PickerRole role) {
-    if (m_updating) return;  // 初始回填引发的选中变化不落库
-    auto combo = sender.try_as<Microsoft::UI::Xaml::Controls::ComboBox>();
-    if (!combo || !m_viewModel.IsAttached()) return;
-    auto item = combo.SelectedItem().try_as<Microsoft::UI::Xaml::Controls::ComboBoxItem>();
-    if (!item || !item.Tag()) return;
-    std::string const raw = HStringToRaw(winrt::unbox_value<winrt::hstring>(item.Tag()));
-
-    switch (role) {
-        case PickerRole::GlobalSource: m_viewModel.SetGlobalSourceLanguage(raw); break;
-        case PickerRole::GlobalTarget: m_viewModel.SetGlobalTargetLanguage(raw); break;
-        case PickerRole::InsertSource: m_viewModel.SetInsertSourceLanguage(raw); break;
-        case PickerRole::InsertTarget: m_viewModel.SetInsertTargetLanguage(raw); break;
+    vm_.Attach(config_);
+    if (const std::string json = store::ReadEnginesJson(); !json.empty()) {
+        auto parsed = tf::core::parseEngineConfig(json);
+        if (parsed.ok) config_ = std::move(parsed.config);
     }
-    // [集成点] 值已写入宿主持有的 EngineConfig；此后写盘（tf::core
-    // writeEngineConfigFileAtomic，目标选“跟随系统”时以空串 targetLang 落 JSON——
-    // Core put(...) 写空串值而非删键，读取时空串/缺键均回退默认，语义等价）
-    // 与翻译管线语言刷新的时机由宿主统一决定（对应 mac 的 settings 持久化 + 引擎重载）。
+    BuildUi();
+    SyncFromConfig();
 }
 
-}  // namespace winrt::TransFrame::UI::implementation
+void LanguagePage::OnShown() {
+    if (const std::string json = store::ReadEnginesJson(); !json.empty()) {
+        auto parsed = tf::core::parseEngineConfig(json);
+        if (parsed.ok) config_ = std::move(parsed.config);
+    }
+    SyncFromConfig();
+}
+
+void LanguagePage::BuildUi() {
+    Controls::StackPanel root = kit::MakePageRoot(*this);
+    root.Children().Append(kit::MakeSectionHeader(L"语言"));
+
+    kit::Card card = kit::MakeCard();
+    card.panel.Children().Append(
+        kit::MakeLabelBlock(L"翻译语言", L"全局翻译与翻译插入可分别设置语言对"));
+
+    auto makeLanguageRow = [](const wchar_t* title, Controls::ComboBox& source,
+                              Controls::ComboBox& target) {
+        Controls::StackPanel row;
+        row.Spacing(12.0);
+        row.Children().Append(kit::MakeText(title, true));
+
+        Controls::StackPanel pickers;
+        pickers.Orientation(Controls::Orientation::Horizontal);
+        pickers.Spacing(8.0);
+        source.MinWidth(200.0);
+        source.MaxWidth(240.0);
+        target.MinWidth(200.0);
+        target.MaxWidth(240.0);
+        Controls::TextBlock arrow = kit::MakeText(L"→");
+        arrow.VerticalAlignment(VerticalAlignment::Bottom);
+        arrow.Margin({0, 0, 0, 8});
+        pickers.Children().Append(source);
+        pickers.Children().Append(arrow);
+        pickers.Children().Append(target);
+        row.Children().Append(pickers);
+        return row;
+    };
+
+    card.panel.Children().Append(makeLanguageRow(L"全局翻译", globalSourcePicker_,
+                                                 globalTargetPicker_));
+    card.panel.Children().Append(makeLanguageRow(L"翻译插入", insertSourcePicker_,
+                                                 insertTargetPicker_));
+
+    root.Children().Append(card.border);
+
+    statusText_ = Controls::TextBlock();
+    statusText_.FontSize(12.0);
+    statusText_.Opacity(0.7);
+    root.Children().Append(statusText_);
+
+    auto wire = [this](Controls::ComboBox& combo, PickerRole role) {
+        combo.SelectionChanged(
+            [this, role](winrt::Windows::Foundation::IInspectable const& sender, auto&&) {
+                if (updating_) return;  // 回填初始选中不落库
+                auto picker = sender.as<Controls::ComboBox>();
+                ApplySelection(picker, static_cast<int>(role));
+            });
+    };
+    wire(globalSourcePicker_, PickerRole::GlobalSource);
+    wire(globalTargetPicker_, PickerRole::GlobalTarget);
+    wire(insertSourcePicker_, PickerRole::InsertSource);
+    wire(insertTargetPicker_, PickerRole::InsertTarget);
+}
+
+void LanguagePage::SyncFromConfig() {
+    updating_ = true;
+    FillPicker(globalSourcePicker_, vm_.SourceLanguageOptions());
+    FillPicker(globalTargetPicker_, vm_.TargetLanguageOptions());
+    FillPicker(insertSourcePicker_, vm_.SourceLanguageOptions());
+    FillPicker(insertTargetPicker_, vm_.TargetLanguageOptions());
+    SelectRaw(globalSourcePicker_, vm_.GlobalSourceLanguage());
+    SelectRaw(globalTargetPicker_, vm_.GlobalTargetLanguage());
+    SelectRaw(insertSourcePicker_, vm_.InsertSourceLanguage());
+    SelectRaw(insertTargetPicker_, vm_.InsertTargetLanguage());
+    updating_ = false;
+}
+
+void LanguagePage::ApplySelection(Controls::ComboBox const& combo, int role) {
+    if (!vm_.IsAttached()) return;
+    auto item = combo.SelectedItem().try_as<Controls::ComboBoxItem>();
+    if (!item) return;
+    const std::string raw = TagOf(item);
+
+    switch (static_cast<PickerRole>(role)) {
+        case PickerRole::GlobalSource: vm_.SetGlobalSourceLanguage(raw); break;
+        case PickerRole::GlobalTarget: vm_.SetGlobalTargetLanguage(raw); break;
+        case PickerRole::InsertSource: vm_.SetInsertSourceLanguage(raw); break;
+        case PickerRole::InsertTarget: vm_.SetInsertTargetLanguage(raw); break;
+    }
+    Persist();
+}
+
+void LanguagePage::Persist() {
+    // 值已写入本页持有的 EngineConfig；整份 patch 合并回 engines.json
+    //（serializeEngineConfigPatch 以磁盘文本为基，未知键全保留）。
+    const std::string merged =
+        tf::core::serializeEngineConfigPatch(store::ReadEnginesJson(), config_);
+    if (store::WriteEnginesJsonAtomic(merged)) {
+        statusText_.Text(L"已保存");
+    } else {
+        statusText_.Text(L"保存失败（engines.json 不可写）");
+    }
+}
+
+}  // namespace tf::ui

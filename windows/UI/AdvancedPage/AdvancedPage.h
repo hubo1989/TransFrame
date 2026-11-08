@@ -1,79 +1,55 @@
 // windows/UI/AdvancedPage/AdvancedPage.h
-// 高级页签 code-behind（C++/WinRT 纯头投影，无 .idl / 无 C++/CX）。
-// 命名空间 winrt::TransFrame::UI::implementation；x:Bind 解析到本类公有成员/方法。
-// 持有 AdvancedPageViewModel（普通 C++ 类），事件驱动 + code-behind 同步：
-// Slider ValueChanged / 色钮 Click / 重置确认后统一走 VM，再刷新 UI 与持久化。
-// （Slider.Value 是依赖属性可 TwoWay，但为保持与 VM 单写者一致，采用事件驱动同步。）
-
+// FR-35 高级页签 code-behind —— 纯代码构建（原 AdvancedPage.h/.cpp 面向
+// Windows.UI.Xaml（UWP 投影）且依赖 XAML 生成头，重构为 WinUI 3 代码
+// 构建；AdvancedPage.xaml 保留为规格参考，不编译）。
+//
+// 内容：
+//   * 标注默认样式（spec §6）：描边颜色 9 预设 + 描边宽度 1–20 + 文本
+//     大小 8–72，全部经 VM patch 合并落 engines.json。
+//   * 数据与日志（PRD FR-35 高级页签条目）：数据目录（打开
+//     %APPDATA%\TransFrame）、日志（打开 %LOCALAPPDATA%\TransFrame\logs）、
+//     性能报告（导出环境快照 JSON 到 reports\ —— FR-40 埋点未接入，
+//     当前仅快照，见交付差异清单）。
+//   * 全部重置（spec §6）：destructive + ContentDialog 二次确认。
 #pragma once
 
 #include "AdvancedPageViewModel.h"
 
+#include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#include <winrt/Microsoft.UI.Xaml.Shapes.h>
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.UI.h>
-#include <winrt/Windows.UI.Xaml.h>
-#include <winrt/Windows.UI.Xaml.Controls.h>
-#include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
-#include <winrt/Windows.UI.Xaml.Media.h>
-#include <winrt/Windows.UI.Xaml.Shapes.h>
 
-#if __has_include("AdvancedPage.g.h")
-#include "AdvancedPage.g.h"
-#endif
+#include <vector>
 
-namespace winrt::TransFrame::UI::implementation {
+namespace tf::ui {
 
-// [待确认] spec §6：是否另有自定义取色器；当前保守选择：仅 9 个预设色圆形按钮，不加取色器。
-
-struct AdvancedPage : AdvancedPageT<AdvancedPage> {
+class AdvancedPage : public winrt::Microsoft::UI::Xaml::Controls::UserControlT<AdvancedPage> {
 public:
     AdvancedPage();
 
-    // --- x:Bind 目标（与 AdvancedPage.xaml 路径一字不差） ---
-    // Slider 旁显当前值（OneWay，格式保留 1 位小数）。
-    hstring StrokeWidthText() const;
-    hstring TextSizeText() const;
-
-    // --- 事件处理器（签名符合 C++/WinRT 委托） ---
-    void OnStrokeWidthChanged(Windows::Foundation::IInspectable const& sender,
-                              Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs const& args);
-    void OnTextSizeChanged(Windows::Foundation::IInspectable const& sender,
-                           Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs const& args);
-    void OnColorButtonClick(Windows::Foundation::IInspectable const& sender,
-                            Windows::UI::Xaml::RoutedEventArgs const& args);
-    void OnResetAllClick(Windows::Foundation::IInspectable const& sender,
-                         Windows::UI::Xaml::RoutedEventArgs const& args);
-
-    // --- ColorConfig ↔ Windows::UI::Color 转换器（VM 静态要求：写成 code-behind 静态函数） ---
-    static Windows::UI::Color ToUiColor(tf::core::ColorConfig const& c);
-    static tf::core::ColorConfig FromUiColor(Windows::UI::Color const& c);
+    /// shell 页签激活时调用：从磁盘重载。
+    void OnShown();
 
 private:
-    // 初始化时用 VM 当前值填充控件（Slider 初值 / 色钮选中态）。
+    void BuildUi();
     void SyncFromViewModel();
-    // 重建 9 个预设色圆形按钮（描边按钮动态生成，避免 XAML 重复 9 段）。
-    void BuildColorButtons();
-    // 更新色钮选中外环（选中项 Border 双层描边）。
     void UpdateColorSelectionVisuals();
-    // VM 值变化 → 落盘 + 通知 shell。
-    void PersistAndNotifyShell();
+    void Persist();
+    winrt::Windows::Foundation::IAsyncAction ShowResetConfirmAsync();
+    void ExportPerformanceReport();
 
-    AdvancedPageViewModel m_viewModel{tf::core::EngineConfig::makeDefault()};
-    // 动态色钮数组（顺序同 VM::presetColors()），索引即预设下标。
-    std::vector<Windows::UI::Xaml::Controls::Button> m_colorButtons;
+    winrt::Microsoft::UI::Xaml::Controls::StackPanel colorPanel_;
+    winrt::Microsoft::UI::Xaml::Controls::Slider strokeWidthSlider_;
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock strokeWidthValueText_;
+    winrt::Microsoft::UI::Xaml::Controls::Slider textSizeSlider_;
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock textSizeValueText_;
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock statusText_;
+    std::vector<winrt::Microsoft::UI::Xaml::Controls::Border> colorSwatches_;
 
-    // [集成点] shell 侧需注入：engines.json 现有内容（%APPDATA%\TransFrame\engines.json）。
-    //          页面构造后由 shell 调用 SetExistingJson / 或扩展构造器传入。
-    std::string m_existingJson;
-
-    // [集成点] shell 侧需提供：全部重置确认后重新注册热键 + 重绘叠加层
-    //          （mac: appDelegate.updateHotkeys()）。本页只发状态，具体回调由 shell 挂接。
-    //          建议 shell 侧提供 winrt::TransFrame::UI::IShellNotifier 挂到本页，
-    //          或在 PersistAndNotifyShell 内直接调用 NativeShell 的 HotkeyManager 句柄。
+    winrt::TransFrame::UI::AdvancedPageViewModel vm_;
+    bool updating_ = false;
 };
 
-} // namespace winrt::TransFrame::UI::implementation
-
-namespace winrt::TransFrame::UI::factory_implementation {
-// UserControl 无需 factory；保留空命名空间占位避免误加 .idl。
-}
+}  // namespace tf::ui

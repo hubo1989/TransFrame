@@ -86,7 +86,8 @@ inline std::string FormatCombo(std::uint32_t vk, std::uint32_t modifiers) {
     return s;
 }
 
-/// 行 → UI 动作名（中文文案；与 SettingsWindow.cpp 现有文案风格一致）。inline const wchar_t* ActionLabelForRow(int row) {
+/// 行 → UI 动作名（中文文案；与 SettingsWindow.cpp 现有文案风格一致）。
+inline const wchar_t* ActionLabelForRow(int row) {
     switch (static_cast<ShortcutRow>(row)) {
         case ShortcutRow::FullScreen:      return L"全屏截图";
         case ShortcutRow::Region:          return L"区域截图";
@@ -158,6 +159,10 @@ public:
     };
     RecordResult HandleRecordInput(std::uint32_t vk, std::uint32_t modifiers) {
         constexpr std::uint32_t VK_Escape = 0x1B;
+        if (recordingRow_ < 0) {
+            // 防御：未在录制（页面仅 IsRecording() 为真时喂键），按取消处理。
+            return {true, true, false};
+        }
         if (vk == VK_Escape) {
             CancelRecording();
             return {true, true, false};

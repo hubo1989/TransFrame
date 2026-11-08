@@ -83,6 +83,10 @@ public:
     EnginesPageViewModel(const EnginesPageViewModel&) = delete;
     EnginesPageViewModel& operator=(const EnginesPageViewModel&) = delete;
 
+    /// 集成接线（shell 侧）：构造后注入持久化闭包并重载全部镜像
+    /// （vlm/paddle/链/对比集 + engineConfigs + compatibleProviderConfigs）。
+    void SetPersistence(Persistence persistence);
+
     // ------------------------------------------------------------------
     // 卡片 B：VLM 配置（schema vlm*，模型 = tf::core::VlmConfig）
     // ------------------------------------------------------------------
@@ -220,6 +224,26 @@ public:
     // 测试/集成注入：直接读写内存镜像的 engineConfigs。
     const std::map<std::string, tf::EngineConfig>& EngineConfigMirror() const { return engineConfigs_; }
     void UpsertEngineConfig(const tf::EngineConfig& cfg);
+
+    // ------------------------------------------------------------------
+    // engineConfigs / compatibleProviderConfigs 的 JSON 编解码。
+    // schema §2.5.2/§2.5.3（settings-config-schema.md）：Core 的
+    // EngineConfigStore 未收录这两段（归属引擎管理分支，parse/serialize
+    // 按“未知键保留”语义放行）——设置页接线在 VM 层做纯函数编解码，
+    // 由页面经 Persistence 闭包合并进 engines.json 顶层键。
+    // ------------------------------------------------------------------
+    /// engines.json 全文 → per-engine 配置镜像（键 = 引擎 raw；非法条目跳过）。
+    static std::map<std::string, tf::EngineConfig> ParseEngineConfigs(
+        const std::string& enginesJsonUtf8);
+    /// 镜像 → "engineConfigs" 对象的 JSON 文本（options 只写已设置字段）。
+    static std::string SerializeEngineConfigs(
+        const std::map<std::string, tf::EngineConfig>& configs);
+    /// engines.json 全文 → 兼容实例镜像（缺字段回默认；非法条目跳过）。
+    static std::vector<CompatibleInstanceRow> ParseCompatibleInstances(
+        const std::string& enginesJsonUtf8);
+    /// 镜像 → "compatibleProviderConfigs" 数组的 JSON 文本。
+    static std::string SerializeCompatibleInstances(
+        const std::vector<CompatibleInstanceRow>& instances);
 
 private:
     std::string SerializeCurrent() const;   // 整文件 JSON（patch 序列化）

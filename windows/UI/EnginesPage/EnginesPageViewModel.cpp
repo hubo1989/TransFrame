@@ -2,6 +2,8 @@
 // FR-35 引擎页签 ViewModel 实现 —— 纯 C++，无 WinRT/UI 依赖（可进 Core 单测）。
 #include "EnginesPageViewModel.hpp"
 
+#include "tf/Json.hpp"
+
 #include <algorithm>
 #include <sstream>
 
@@ -31,6 +33,12 @@ std::string EngineDisplay(const std::string& raw) {
     return raw;
 }
 
+Json ParseObjectOrEmpty(const std::string& text) {
+    Json parsed = Json::parse(text, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) return Json::object();
+    return parsed;
+}
+
 }  // namespace
 
 EnginesPageViewModel::EnginesPageViewModel(Persistence persistence)
@@ -43,6 +51,24 @@ EnginesPageViewModel::EnginesPageViewModel(Persistence persistence)
             vlm_ = config_.vlm;
             paddle_ = config_.paddleOcr;
         }
+        const std::string text = persistence_.loadEnginesJson();
+        engineConfigs_ = ParseEngineConfigs(text);
+        compatible_ = ParseCompatibleInstances(text);
+    }
+}
+
+void EnginesPageViewModel::SetPersistence(Persistence persistence) {
+    persistence_ = std::move(persistence);
+    if (persistence_.loadEnginesJson) {
+        auto r = core::parseEngineConfig(persistence_.loadEnginesJson());
+        if (r.ok) {
+            config_ = std::move(r.config);
+            vlm_ = config_.vlm;
+            paddle_ = config_.paddleOcr;
+        }
+        const std::string text = persistence_.loadEnginesJson();
+        engineConfigs_ = ParseEngineConfigs(text);
+        compatible_ = ParseCompatibleInstances(text);
     }
 }
 
@@ -371,6 +397,125 @@ bool EnginesPageViewModel::SaveAll() {
 
 void EnginesPageViewModel::UpsertEngineConfig(const tf::EngineConfig& cfg) {
     engineConfigs_[translationEngineRaw(cfg.engine)] = cfg;
+}
+
+// ---------------------------------------------------------------------------
+// engineConfigs / compatibleProviderConfigs 编解码（schema §2.5.2 / §2.5.3）
+// ---------------------------------------------------------------------------
+std::map<std::string, tf::EngineConfig> EnginesPageViewModel::ParseEngineConfigs(
+    const std::string& enginesJsonUtf8) {
+    std::map<std::string, tf::EngineConfig> out;
+    Json root = ParseObjectOrEmpty(enginesJsonUtf8);
+    if (!root.contains("engineConfigs")) return out;
+    const Json& section = root.at("engineConfigs");
+    if (!section.is_object()) return out;
+    for (auto it = section.begin(); it != section.end(); ++it) {
+        const std::string raw = it.key();
+        // apple 在 Windows 无枚举（PRD §6.12）但 schema 保留其条目 —— 原样镜像。
+        auto engineType = translationEngineFromRaw(raw);
+        const Json& v = it.value();
+        if (!v.is_object()) continue;
+        tf::EngineConfig cfg;
+        if (engineType) cfg = tf::EngineConfig::make(*engineType);
+        cfg.engine = engineType.value_or(TranslationEngineType::Custom);
+        if (raw == "apple") {
+            // apple 条目无枚举可 make —— 直接按默认 isEnabled 语义读。
+            cfg.isEnabled = true;
+        }
+        if (v.contains("isEnabled") && v.at("isEnabled").is_boolean()) {
+            cfg.isEnabled = v.at("isEnabled").get<bool>();
+        }
+        // options 子对象（schema §2.5.2）；容错：顶层 baseURL/modelName 也接受。
+        const Json* options = nullptr;
+        if (v.contains("options") && v.at("options").is_object()) options = &v.at("options");
+        auto readStringOpt = [&](const char* key) -> std::string {
+            for (const Json* src : {options, &v}) {
+                if (!src) continue;
+                if (src->contains(key) && src->at(key).is_string()) {
+                    std::string s = src->at(key).get<std::string>();
+                    if (!s.empty()) return s;
+                }
+            }
+            return {};
+        };
+        cfg.baseURL = readStringOpt("baseURL");
+        cfg.modelName = readStringOpt("modelName");
+        if (options) {
+            if (options->contains("timeout") && options->at("timeout").is_number()) {
+                const double t = options->at("timeout").get<double>();
+                if (t > 0.0) cfg.timeoutSeconds = t;
+            }
+            if (options->contains("maxTokens") && options->at("maxTokens").is_number_unsigned()) {
+                const std::uint64_t m = options->at("maxTokens").get<std::uint64_t>();
+                if (m > 0 && m <= 1'000'000) cfg.maxTokens = static_cast<std::int64_t>(m);
+            }
+            if (options->contains("temperature") && options->at("temperature").is_number()) {
+                const double tp = options->at("temperature").get<double>();
+                if (tp >= 0.0 && tp <= 2.0) cfg.temperature = tp;
+            }
+        }
+        out[raw] = cfg;
+    }
+    return out;
+}
+
+std::string EnginesPageViewModel::SerializeEngineConfigs(
+    const std::map<std::string, tf::EngineConfig>& configs) {
+    Json section = Json::object();
+    for (const auto& [raw, cfg] : configs) {
+        Json options = Json::object();
+        if (!cfg.baseURL.empty()) options["baseURL"] = cfg.baseURL;
+        if (!cfg.modelName.empty()) options["modelName"] = cfg.modelName;
+        if (cfg.timeoutSeconds) options["timeout"] = *cfg.timeoutSeconds;
+        if (cfg.maxTokens) options["maxTokens"] = *cfg.maxTokens;
+        if (cfg.temperature) options["temperature"] = *cfg.temperature;
+        section[raw] = Json{{"id", raw}, {"isEnabled", cfg.isEnabled}, {"options", options}};
+    }
+    return section.dump(2);
+}
+
+std::vector<CompatibleInstanceRow> EnginesPageViewModel::ParseCompatibleInstances(
+    const std::string& enginesJsonUtf8) {
+    std::vector<CompatibleInstanceRow> out;
+    Json root = ParseObjectOrEmpty(enginesJsonUtf8);
+    if (!root.contains("compatibleProviderConfigs")) return out;
+    const Json& arr = root.at("compatibleProviderConfigs");
+    if (!arr.is_array()) return out;
+    for (const Json& item : arr) {
+        if (!item.is_object()) continue;
+        CompatibleInstanceRow row;
+        if (item.contains("id") && item.at("id").is_string()) {
+            row.id = item.at("id").get<std::string>();
+        }
+        if (row.id.empty()) continue;  // 无 id 的条目无法与链/密钥关联
+        if (item.contains("displayName") && item.at("displayName").is_string()) {
+            row.displayName = item.at("displayName").get<std::string>();
+        }
+        if (item.contains("baseURL") && item.at("baseURL").is_string()) {
+            row.baseURL = item.at("baseURL").get<std::string>();
+        }
+        if (item.contains("modelName") && item.at("modelName").is_string()) {
+            row.modelName = item.at("modelName").get<std::string>();
+        }
+        if (item.contains("hasAPIKey") && item.at("hasAPIKey").is_boolean()) {
+            row.hasAPIKey = item.at("hasAPIKey").get<bool>();
+        }
+        out.push_back(std::move(row));
+    }
+    return out;
+}
+
+std::string EnginesPageViewModel::SerializeCompatibleInstances(
+    const std::vector<CompatibleInstanceRow>& instances) {
+    Json arr = Json::array();
+    for (const auto& row : instances) {
+        arr.push_back(Json{{"id", row.id},
+                           {"displayName", row.displayName},
+                           {"baseURL", row.baseURL},
+                           {"modelName", row.modelName},
+                           {"hasAPIKey", row.hasAPIKey}});
+    }
+    return arr.dump(2);
 }
 
 // ---------------------------------------------------------------------------

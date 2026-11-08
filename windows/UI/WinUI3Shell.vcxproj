@@ -31,8 +31,16 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <!-- NOMINMAX: Geo.hpp (NativeShell) uses std::numeric_limits<>::max();
+           WIN32_LEAN_AND_MEAN: keep windows.h from defining the GetCurrentTime
+           macro that collides with generated CppWinRT headers. -->
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalIncludeDirectories>$(ProjectDir)SettingsShell;$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- Page dirs (code-built pages include their VM headers flat) + Core
+           (store models, AppLanguage.h) + Core vendor nlohmann + NativeShell
+           (HotkeyManager / CredManKeyStore / WinHttpTransport for the
+           shortcuts VM and engine health probing). -->
+      <AdditionalIncludeDirectories>$(ProjectDir)SettingsShell;$(ProjectDir)GeneralPage;$(ProjectDir)EnginesPage;$(ProjectDir)LanguagePage;$(ProjectDir)PromptsPage;$(ProjectDir)ShortcutsPage;$(ProjectDir)AdvancedPage;$(SolutionDir)Core;$(SolutionDir)Core\include;$(SolutionDir)Core\vendor;$(SolutionDir)NativeShell\include;$(NuGetPackageRoot)microsoft.windowsappsdk\1.6.250205002\include;$(UserProfile)\.nuget\packages\microsoft.windowsappsdk\1.6.250205002\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -42,10 +50,46 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.250303.1" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Shell: STA host + tab navigation + shared persistence/UI kit. -->
     <ClCompile Include="SettingsShell\SettingsShell.cpp" />
+    <ClCompile Include="SettingsShell\SettingsFileStore.cpp" />
+    <!-- Six settings pages (FR-35): code-built WinUI controls + pure VMs. -->
+    <ClCompile Include="GeneralPage\GeneralPageViewModel.cpp" />
+    <ClCompile Include="GeneralPage\GeneralPage.cpp" />
+    <ClCompile Include="EnginesPage\EnginesPageViewModel.cpp" />
+    <ClCompile Include="EnginesPage\EnginesPage.cpp" />
+    <ClCompile Include="LanguagePage\LanguagePage.cpp" />
+    <ClCompile Include="PromptsPage\PromptsPage.cpp" />
+    <ClCompile Include="ShortcutsPage\ShortcutsPage.cpp" />
+    <ClCompile Include="AdvancedPage\AdvancedPage.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SettingsShell\SettingsWindowWinUI.hpp" />
+    <ClInclude Include="SettingsShell\SettingsFileStore.hpp" />
+    <ClInclude Include="SettingsShell\SettingsUiKit.hpp" />
+    <ClInclude Include="GeneralPage\GeneralPage.h" />
+    <ClInclude Include="GeneralPage\GeneralPageViewModel.hpp" />
+    <ClInclude Include="EnginesPage\EnginesPage.h" />
+    <ClInclude Include="EnginesPage\EnginesPageViewModel.hpp" />
+    <ClInclude Include="LanguagePage\LanguagePage.h" />
+    <ClInclude Include="LanguagePage\LanguagePageViewModel.h" />
+    <ClInclude Include="PromptsPage\PromptsPage.h" />
+    <ClInclude Include="PromptsPage\PromptsPageViewModel.h" />
+    <ClInclude Include="ShortcutsPage\ShortcutsPage.h" />
+    <ClInclude Include="ShortcutsPage\ShortcutsPageViewModel.h" />
+    <ClInclude Include="AdvancedPage\AdvancedPage.h" />
+    <ClInclude Include="AdvancedPage\AdvancedPageViewModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Store models (EngineConfigStore pure functions) and the engine
+         health probe stack (CredManKeyStore + WinHttpTransport live in
+         NativeShell). Link-time only; headers via AdditionalIncludeDirectories. -->
+    <ProjectReference Include="..\Core\TransFrame.Core.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000A}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\NativeShell\TransFrame.NativeShell.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000B}</Project>
+    </ProjectReference>
   </ItemGroup>
     <ItemDefinitionGroup>
     <Link>
