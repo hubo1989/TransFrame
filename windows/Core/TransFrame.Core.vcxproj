@@ -85,6 +85,7 @@
     <ClInclude Include="TranslationPromptConfig.h" />
     <ClInclude Include="TranslationResultBundle.h" />
     <ClInclude Include="TranslationScene.h" />
+    <ClInclude Include="PerformanceRecorder.h" />
     <ClInclude Include="Uuid.h" />
     <ClInclude Include="VLMProviderType.h" />
     <ClInclude Include="VisualLineGrouping.h" />
@@ -101,6 +102,7 @@
     <ClCompile Include="LLMTranslationCore.cpp" />
     <ClCompile Include="TranslationHistory.cpp" />
     <ClCompile Include="TranslationResultBundle.cpp" />
+    <ClCompile Include="PerformanceRecorder.cpp" />
     <ClCompile Include="VLMProviderType.cpp" />
     <ClCompile Include="VisualLineGrouping.cpp" />
     <!-- wt-settings: engines.json / settings.json / history stores (portable).
