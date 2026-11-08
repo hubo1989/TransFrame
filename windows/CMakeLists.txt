@@ -29,6 +29,7 @@ set(TEST_SRC
     Tests/EngineConfigStoreTests.cpp
     Tests/HotkeySettingsStoreTests.cpp
     Tests/HistoryStoreTests.cpp
+    Tests/ImageUploadProviderTests.cpp
 )
 
 # Vendored SQLite amalgamation for HistoryStore (FR-30): compile as C and
