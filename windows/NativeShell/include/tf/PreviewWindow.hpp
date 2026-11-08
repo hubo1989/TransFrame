@@ -12,6 +12,7 @@
 
 #include "tf/CoreTypes.hpp"
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -33,6 +34,10 @@ public:
     /// Show (or refresh) the preview. Copies the spec; the shared pixel
     /// buffer is not duplicated. Async show on the caller's (main) thread.
     bool show(const PreviewWindowSpec& spec);
+
+    /// FR-14 hook: fires when the toolbar 贴图 button is clicked. AppMain
+    /// owns the PinnedWindowManager wiring; the preview stays decoupled.
+    void setPinHandler(std::function<void()> handler);
 
     void close();
     bool isVisible() const;

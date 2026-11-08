@@ -17,19 +17,41 @@ namespace {
 constexpr UINT kTrayIconId = 1;
 constexpr UINT kTrayCallbackMessage = WM_APP + 0x5446;  // 'TF'
 
-HMENU buildHMenu(const std::vector<TrayMenuItem>& items) {
+HMENU buildHMenu(const TrayMenuModel& model) {
     HMENU menu = ::CreatePopupMenu();
-    UINT index = 1;
-    for (const auto& item : items) {
-        if (item.command == TrayCommand::None && !item.label.empty()) {
-            // (no None entries produced by buildTrayMenu today)
+    // The pinned submenu owns IDs kPinnedMenuIdBase+1..; its parent entry
+    // consumes one flat index (unselectable, MF_POPUP) so the flat item IDs
+    // stay aligned with trayMenuItemForId.
+    HMENU pinnedSub = nullptr;
+    if (!model.pinnedItems.empty()) {
+        pinnedSub = ::CreatePopupMenu();
+        unsigned subIndex = 1;
+        for (const auto& sub : model.pinnedItems) {
+            const UINT flags = MF_STRING | (sub.enabled ? MF_ENABLED : MF_GRAYED);
+            ::AppendMenuW(pinnedSub, flags, kPinnedMenuIdBase + subIndex,
+                          sub.label.c_str());
+            if (sub.separatorAfter) ::AppendMenuW(pinnedSub, MF_SEPARATOR, 0, nullptr);
+            ++subIndex;
         }
-        const UINT flags = MF_STRING | (item.enabled ? MF_ENABLED : MF_GRAYED);
-        ::AppendMenuW(menu, flags, index++, item.label.c_str());
+    }
+    UINT index = 1;
+    for (const auto& item : model.items) {
+        UINT flags = MF_STRING | (item.enabled ? MF_ENABLED : MF_GRAYED);
+        if (item.command == TrayCommand::PinnedManager && pinnedSub) {
+            // Popup entry: never returns from TrackPopupMenu itself, but the
+            // flat index is still consumed so trayMenuItemForId stays aligned.
+            ::AppendMenuW(menu, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(pinnedSub),
+                          item.label.c_str());
+            pinnedSub = nullptr;  // ownership passes to `menu`
+        } else {
+            ::AppendMenuW(menu, flags, index, item.label.c_str());
+        }
+        ++index;
         if (item.separatorAfter) {
             ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         }
     }
+    if (pinnedSub) ::DestroyMenu(pinnedSub);  // no parent consumed it (disabled)
     return menu;
 }
 
@@ -83,11 +105,15 @@ void TrayIconService::setRecentShots(std::vector<RecentShot> shots) {
     recent_ = std::move(shots);
 }
 
+void TrayIconService::setPinnedWindows(std::vector<PinnedSnapshot> pinned) {
+    pinned_ = std::move(pinned);
+}
+
 void TrayIconService::showMenuAtCursor() {
-    const auto items = buildTrayMenu(recent_);
+    const TrayMenuModel model = buildTrayMenuModel(recent_, pinned_);
     const auto owner = static_cast<HWND>(callbackWindow_);
     if (!owner) return;
-    HMENU menu = buildHMenu(items);
+    HMENU menu = buildHMenu(model);
     if (!menu) return;
     POINT pt;
     ::GetCursorPos(&pt);
@@ -99,14 +125,19 @@ void TrayIconService::showMenuAtCursor() {
         pt.x, pt.y, owner, nullptr);
     ::DestroyMenu(menu);
     ::PostMessageW(owner, WM_NULL, 0, 0);
-    if (const auto* item = trayMenuItemForId(items, static_cast<unsigned>(picked))) {
+    const unsigned id = static_cast<unsigned>(picked);
+    if (const auto* sub = trayMenuPinnedItemForId(model.pinnedItems, id)) {
+        dispatch(sub->command, sub->pinnedIndex);
+        return;
+    }
+    if (const auto* item = trayMenuItemForId(model.items, id)) {
         dispatch(item->command, item->recentIndex);
     }
 }
 
 
-void TrayIconService::dispatch(TrayCommand command, int recentIndex) {
-    if (handler_) handler_(command, recentIndex);
+void TrayIconService::dispatch(TrayCommand command, int payloadIndex) {
+    if (handler_) handler_(command, payloadIndex);
 }
 
 } // namespace tf

@@ -85,6 +85,7 @@ enum class ToolButton : int {
     Copy = 107,
     Close = 108,
     Status = 109,  // static text
+    Pin = 110,     // 贴图置顶 (FR-14 hook; AppMain injects the handler)
 };
 
 // ------------------------------------------------- text input mini dialog —
@@ -241,7 +242,10 @@ struct PreviewWindowController::Impl {
     core::Point moveLast{};
 
     // Toolbar child HWNDs keyed by ToolButton.
-    HWND buttons[9] = {};
+    HWND buttons[11] = {};
+
+    // FR-14 贴图 handler (AppMain wires this to PinnedWindowManager).
+    std::function<void()> onPinRequested;
 
     // D2D device stack (created lazily per window; no DComp needed here).
     ComPtr<ID2D1Factory> d2d;
@@ -434,6 +438,7 @@ struct PreviewWindowController::Impl {
             {ToolButton::Redo, L"重做"},
             {ToolButton::Save, L"保存"},
             {ToolButton::Copy, L"复制"},
+            {ToolButton::Pin, L"贴图"},
             {ToolButton::Close, L"关闭"},
         };
         int x = 8;
@@ -660,8 +665,9 @@ struct PreviewWindowController::Impl {
                     ::InvalidateRect(h, nullptr, FALSE);
                 } else if (id == static_cast<int>(ToolButton::Save)) saveFlow();
                 else if (id == static_cast<int>(ToolButton::Copy)) copyFlow(false);
+                else if (id == static_cast<int>(ToolButton::Pin)) { if (onPinRequested) onPinRequested(); }
                 else if (id == static_cast<int>(ToolButton::Close)) ::PostMessageW(h, WM_CLOSE, 0, 0);
-                if (id <= static_cast<int>(ToolButton::Close)) {
+                if (id <= static_cast<int>(ToolButton::Pin)) {
                     ::SetFocus(h);  // keep FR-07 shortcuts on the preview window
                 }
                 return 0;
@@ -871,6 +877,10 @@ bool PreviewWindowController::show(const PreviewWindowSpec& specIn) {
 
 void PreviewWindowController::close() {
     if (impl_ && impl_->hwnd) ::PostMessageW(impl_->hwnd, WM_CLOSE, 0, 0);
+}
+
+void PreviewWindowController::setPinHandler(std::function<void()> handler) {
+    if (impl_) impl_->onPinRequested = std::move(handler);
 }
 
 bool PreviewWindowController::isVisible() const {

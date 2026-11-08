@@ -23,12 +23,17 @@ enum class TrayCommand : std::uint8_t {
     Translate,         // 翻译
     TextSelection,     // 划词
     TranslateInsert,   // 插入
-    PinnedManager,     // 置顶管理 (placeholder, task D)
-    History,           // 历史 (placeholder)
-    Settings,          // 设置 (placeholder)
+    PinnedManager,     // 置顶管理 (submenu parent; disabled while no pins)
+    History,           // 历史记录
+    Settings,          // 设置
     CheckUpdates,      // 检查更新
     Exit,              // 退出
     RecentShot,        // recent screenshot #n (index in payload)
+    // FR-14 置顶管理 submenu actions (payload int = pinnedIndex where noted).
+    PinnedSelect,        // bring pinned window #n to front (payload index)
+    PinnedToggleThrough, // 切换穿透 (fleet-wide click-through <-> interactive)
+    PinnedGather,        // 聚拢到前台 (tile + raise all pins)
+    PinnedCloseAll,      // 全部关闭
 };
 
 struct TrayMenuItem {
@@ -38,6 +43,8 @@ struct TrayMenuItem {
     bool separatorAfter = false;
     /// For RecentShot entries: index into the recent-shots list (0-based).
     int recentIndex = -1;
+    /// For PinnedSelect entries: index into the pinned-window list (0-based).
+    int pinnedIndex = -1;
     /// Thumbnail bitmap path/HBITMAP placeholder (task C/history integration).
     std::wstring thumbnailHint;
 };
@@ -48,13 +55,45 @@ struct RecentShot {
     std::wstring label;          // e.g. "14:32  1920x1080"
 };
 
-using TrayCommandHandler = std::function<void(TrayCommand command, int recentIndex)>;
+/// Pinned-window fleet state as seen by the tray (PinnedWindowManager feeds
+/// it; buildPinnedSubmenu renders it).
+struct PinnedSnapshot {
+    std::uint64_t id = 0;
+    int widthPx = 0;
+    int heightPx = 0;
+    bool clickThrough = true;
+};
 
-/// Pure menu construction: actions + placeholders + recent strip (<= 5).
+/// Full tray menu: flat items + the 置顶管理 submenu (empty = placeholder).
+struct TrayMenuModel {
+    std::vector<TrayMenuItem> items;
+    std::vector<TrayMenuItem> pinnedItems;
+};
+
+/// Win32 popup menu IDs for the pinned submenu live above this base so they
+/// cannot collide with the flat item IDs (1..N).
+constexpr unsigned kPinnedMenuIdBase = 1000;
+
+using TrayCommandHandler = std::function<void(TrayCommand command, int payloadIndex)>;
+
+/// Pure menu construction: actions + recent strip (<= 5), no pins (submenu
+/// stays a disabled placeholder — kept for the original call sites/tests).
 std::vector<TrayMenuItem> buildTrayMenu(const std::vector<RecentShot>& recentShots);
+
+/// Pure menu construction with the pinned-fleet submenu (FR-14).
+TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
+                                 const std::vector<PinnedSnapshot>& pinned);
+
+/// Pure 置顶管理 submenu: per-pin rows (序号+尺寸, interactive pins marked),
+/// then 切换穿透 / 聚拢到前台 / 全部关闭.
+std::vector<TrayMenuItem> buildPinnedSubmenu(const std::vector<PinnedSnapshot>& pinned);
 
 /// Win32 popup IDs start at 1; 0 means dismissed. Disabled IDs cannot dispatch.
 const TrayMenuItem* trayMenuItemForId(const std::vector<TrayMenuItem>& items, unsigned id);
+
+/// Submenu lookup for ids of the form kPinnedMenuIdBase + n (n counts from 1).
+const TrayMenuItem* trayMenuPinnedItemForId(const std::vector<TrayMenuItem>& pinnedItems,
+                                            unsigned id);
 
 class TrayIconService {
 public:
@@ -77,6 +116,10 @@ public:
     /// Swap recent-shot list; menu rebuilds on next open (FR-34: 5 thumbnails).
     void setRecentShots(std::vector<RecentShot> shots);
 
+    /// Swap pinned-fleet snapshot; the 置顶管理 submenu rebuilds on next open
+    /// (empty = the placeholder stays disabled).
+    void setPinnedWindows(std::vector<PinnedSnapshot> pinned);
+
     /// Left-click and right-click both open the menu.
     void showMenuAtCursor();
 
@@ -87,6 +130,7 @@ private:
 
     TrayCommandHandler handler_;
     std::vector<RecentShot> recent_;
+    std::vector<PinnedSnapshot> pinned_;
     void* callbackWindow_ = nullptr;  // HWND (void* keeps the header Win32-free)
     bool installed_ = false;
 };

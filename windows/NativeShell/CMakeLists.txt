@@ -30,6 +30,7 @@ set(PORTABLE_SOURCES
     src/CaptureService.cpp
     src/OverlayRenderer.cpp
     src/TrayMenu.cpp
+    src/HistoryExport.cpp
 )
 
 set(PORTABLE_HEADERS
@@ -64,6 +65,9 @@ if (WIN32)
         src/ResultWindow.cpp
         src/SettingsWindow.cpp
         src/HistoryWindow.cpp
+        src/PinnedWindowManager.cpp
+        src/ThumbnailCodec.cpp
+        src/RecentShots.cpp
         src/NativeShellInit.cpp
     )
 endif()
@@ -116,6 +120,7 @@ add_executable(native_shell_tests
     tests/CaptureServiceTests.cpp
     tests/OverlayRendererTests.cpp
     tests/TrayMenuTests.cpp
+    tests/PinnedWindowManagerTests.cpp
 )
 target_include_directories(native_shell_tests PRIVATE tests)
 target_link_libraries(native_shell_tests PRIVATE native_shell)
