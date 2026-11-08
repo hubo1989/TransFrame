@@ -224,3 +224,91 @@ TEST_CASE("observer sees fallback notifications", "[capture][observer]") {
     CHECK(result.ok);
     CHECK(rec.selected == 1);
 }
+
+namespace {
+
+/// Synthetic 8x4 BGRA surface on a 64-byte row stride (staging-like padding:
+/// RowPitch is 256-aligned on D3D, so engines see stride > width*4).
+struct TestSurface {
+    static constexpr std::int32_t kWidth = 8;
+    static constexpr std::int32_t kHeight = 4;
+    static constexpr std::int32_t kStride = 64;
+
+    std::uint8_t bytes[static_cast<std::size_t>(kStride) * kHeight]{};
+
+    TestSurface() {
+        for (std::int32_t y = 0; y < kHeight; ++y) {
+            for (std::int32_t x = 0; x < kWidth; ++x) {
+                std::uint8_t* px = &bytes[static_cast<std::size_t>(y) * kStride +
+                                          static_cast<std::size_t>(x) * 4];
+                px[0] = static_cast<std::uint8_t>(x);  // B
+                px[1] = static_cast<std::uint8_t>(y);  // G
+                px[2] = 0xAB;                          // R
+                px[3] = 0xFF;                          // A
+            }
+        }
+    }
+};
+
+}  // namespace
+
+TEST_CASE("copyBgraCrop packs rows tightly from an aligned-stride surface",
+          "[capture][crop]") {
+    const TestSurface surface;
+    std::int32_t outStride = -1;
+    const auto out = copyBgraCrop(surface.bytes, TestSurface::kStride,
+                                  TestSurface::kWidth, TestSurface::kHeight,
+                                  Rect{2, 1, 3, 2}, outStride);
+    REQUIRE(out != nullptr);
+    CHECK(outStride == 3 * 4);  // tight: no padding carried over
+    // Row 1, pixel (2,1): B=2 G=1 R=0xAB A=0xFF, then (3,1).
+    CHECK(out[0] == 2);
+    CHECK(out[1] == 1);
+    CHECK(out[2] == 0xAB);
+    CHECK(out[3] == 0xFF);
+    CHECK(out[4] == 3);
+    // Row 2 pixel (2,2): G moved to 2 while x stays 2.
+    CHECK(out[12] == 2);
+    CHECK(out[13] == 2);
+    CHECK(out[15] == 0xFF);
+}
+
+TEST_CASE("copyBgraCrop clamps crops hanging off the source bounds",
+          "[capture][crop]") {
+    const TestSurface surface;
+    std::int32_t outStride = 0;
+    // 10x10 at (6,3) -> only 2x1 fits inside the 8x4 surface.
+    const auto out = copyBgraCrop(surface.bytes, TestSurface::kStride,
+                                  TestSurface::kWidth, TestSurface::kHeight,
+                                  Rect{6, 3, 10, 10}, outStride);
+    REQUIRE(out != nullptr);
+    CHECK(outStride == 2 * 4);
+    CHECK(out[0] == 6);  // x=6, y=3
+    CHECK(out[1] == 3);
+    CHECK(out[4] == 7);  // x=7 (last valid column), same row y=3
+    CHECK(out[5] == 3);
+}
+
+TEST_CASE("copyBgraCrop rejects empty intersections and invalid input",
+          "[capture][crop]") {
+    const TestSurface surface;
+    std::int32_t outStride = -1;
+    // Fully outside the surface.
+    CHECK(copyBgraCrop(surface.bytes, TestSurface::kStride, TestSurface::kWidth,
+                       TestSurface::kHeight, Rect{40, 40, 4, 4},
+                       outStride) == nullptr);
+    // Touching the right/bottom edge exactly: empty intersection.
+    CHECK(copyBgraCrop(surface.bytes, TestSurface::kStride, TestSurface::kWidth,
+                       TestSurface::kHeight, Rect{8, 0, 4, 4},
+                       outStride) == nullptr);
+    // Degenerate inputs: null source, zero stride, non-positive source size.
+    CHECK(copyBgraCrop(nullptr, TestSurface::kStride, TestSurface::kWidth,
+                       TestSurface::kHeight, Rect{0, 0, 1, 1},
+                       outStride) == nullptr);
+    CHECK(copyBgraCrop(surface.bytes, 0, TestSurface::kWidth,
+                       TestSurface::kHeight, Rect{0, 0, 1, 1},
+                       outStride) == nullptr);
+    CHECK(copyBgraCrop(surface.bytes, TestSurface::kStride, 0, 0,
+                       Rect{0, 0, 1, 1}, outStride) == nullptr);
+    CHECK(outStride == 0);  // reset on every failure path
+}

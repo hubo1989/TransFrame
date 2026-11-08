@@ -4,6 +4,7 @@
 #include "tf/CaptureService.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 namespace tf {
 
@@ -13,6 +14,33 @@ bool wgcSupportsBorderless(std::uint32_t universalApiContractVersion) {
     // SDK 10.0.22000). Below that the property simply does not exist and the
     // yellow border stays (Win10 degradation path, PRD §6.13).
     return universalApiContractVersion >= 15;
+}
+
+std::shared_ptr<std::uint8_t[]> copyBgraCrop(const std::uint8_t* src,
+                                             std::int32_t srcStride,
+                                             std::int32_t srcWidth,
+                                             std::int32_t srcHeight,
+                                             const Rect& crop,
+                                             std::int32_t& outStride) {
+    outStride = 0;
+    if (!src || srcStride <= 0 || srcWidth <= 0 || srcHeight <= 0) return nullptr;
+    const Rect clipped = crop.intersection(Rect{0, 0, srcWidth, srcHeight});
+    if (clipped.empty()) return nullptr;
+
+    // Tight rows: the Core buffer carries no row padding (unlike the D3D
+    // staging textures / DIBs this copies from).
+    const std::int64_t rowBytes = clipped.width * 4;
+    outStride = static_cast<std::int32_t>(rowBytes);
+    auto out = std::shared_ptr<std::uint8_t[]>(
+        new std::uint8_t[static_cast<std::size_t>(rowBytes * clipped.height)]);
+    const std::uint8_t* srcRow = src + static_cast<std::size_t>(clipped.y) * srcStride +
+                                 static_cast<std::size_t>(clipped.x) * 4;
+    std::uint8_t* dst = out.get();
+    for (std::int64_t y = 0; y < clipped.height; ++y) {
+        std::memcpy(dst, srcRow + y * srcStride, static_cast<std::size_t>(rowBytes));
+        dst += rowBytes;
+    }
+    return out;
 }
 
 namespace {

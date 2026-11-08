@@ -100,6 +100,18 @@ private:
 /// tests via injection; production reads Windows.Foundation.UniversalApiContract.
 bool wgcSupportsBorderless(std::uint32_t universalApiContractVersion);
 
+/// Row-crop helper shared by the engine TUs (WGC/DXGI staging RowPitch is
+/// 256-aligned, GDI GetDIBits rows are 4-aligned). Copies `crop` out of a
+/// top-down BGRA8 surface into a tightly packed buffer (outStride =
+/// copiedWidth * 4). `crop` is first clamped to the source bounds; an empty
+/// intersection or invalid input returns nullptr.
+std::shared_ptr<std::uint8_t[]> copyBgraCrop(const std::uint8_t* src,
+                                             std::int32_t srcStride,
+                                             std::int32_t srcWidth,
+                                             std::int32_t srcHeight,
+                                             const Rect& crop,
+                                             std::int32_t& outStride);
+
 } // namespace tf
 
 #endif // TF_CAPTURE_SERVICE_HPP
