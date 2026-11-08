@@ -415,4 +415,54 @@ std::int64_t HistoryStore::favoriteCount() const {
     return total;
 }
 
+// ---------------------------------------------------------------------------
+// Additive queries (FR-32/FR-41 color picker + color history window); built
+// on the same row mapping, no change to the existing CRUD semantics.
+// ---------------------------------------------------------------------------
+std::vector<TranslationHistory> HistoryStore::colorEntries(const std::string& matching,
+                                                           bool favoritesOnly,
+                                                           int limit) const {
+    HistoryQuery q;
+    q.searchText = matching;               // LIKEs translated_text = the HEX
+    q.category = HistoryCategory::Color;
+    q.favoritesOnly = favoritesOnly;
+    q.limit = limit;
+    return query(q);
+}
+
+std::int64_t HistoryStore::colorCount() const {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    sqlite3_stmt* stmt = nullptr;
+    std::int64_t total = 0;
+    if (::sqlite3_prepare_v2(impl_->db, "SELECT COUNT(*) FROM entries WHERE category='color';",
+                             -1, &stmt, nullptr) == kSqliteOk) {
+        if (::sqlite3_step(stmt) == SQLITE_ROW) total = sqlite3_column_int64(stmt, 0);
+        ::sqlite3_finalize(stmt);
+    }
+    return total;
+}
+
+std::int64_t HistoryStore::removeCategory(HistoryCategory category, std::string* error) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    sqlite3_stmt* stmt = nullptr;
+    const std::string raw = toRaw(category);
+    if (raw.empty()) {
+        if (error) *error = "invalid category";
+        return -1;
+    }
+    if (::sqlite3_prepare_v2(impl_->db, "DELETE FROM entries WHERE category=?1;",
+                             -1, &stmt, nullptr) != kSqliteOk) {
+        if (error) *error = ::sqlite3_errmsg(impl_->db);
+        return -1;
+    }
+    ::sqlite3_bind_text(stmt, 1, raw.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = ::sqlite3_step(stmt) == SQLITE_DONE;
+    ::sqlite3_finalize(stmt);
+    if (!ok) {
+        if (error) *error = ::sqlite3_errmsg(impl_->db);
+        return -1;
+    }
+    return ::sqlite3_changes(impl_->db);
+}
+
 }  // namespace tf::core

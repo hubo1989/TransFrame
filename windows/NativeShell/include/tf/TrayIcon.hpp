@@ -23,8 +23,10 @@ enum class TrayCommand : std::uint8_t {
     Translate,         // 翻译
     TextSelection,     // 划词
     TranslateInsert,   // 插入
+    PickColor,        // 取色器 (FR-32)
     PinnedManager,     // 置顶管理 (submenu parent; disabled while no pins)
     History,           // 历史记录
+    ColorHistory,      // 取色历史 (FR-41)
     Settings,          // 设置
     CheckUpdates,      // 检查更新
     Exit,              // 退出
@@ -99,6 +101,10 @@ class TrayIconService {
 public:
     explicit TrayIconService(TrayCommandHandler handler);
     ~TrayIconService();
+
+    /// Info balloon (toast stand-in until the notification channel lands):
+    /// fires the callback message with NIN_BALLOONUSERCLICK when clicked.
+    void showBalloon(const std::wstring& title, const std::wstring& text);
 
     TrayIconService(const TrayIconService&) = delete;
     TrayIconService& operator=(const TrayIconService&) = delete;

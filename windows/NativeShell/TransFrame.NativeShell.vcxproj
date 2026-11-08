@@ -108,6 +108,8 @@
     <ClCompile Include="src\PinnedWindowManager.cpp"/>
     <ClCompile Include="src\ThumbnailCodec.cpp"/>
     <ClCompile Include="src\RecentShots.cpp"/>
+    <ClCompile Include="src\ColorPicker.cpp"/>
+    <ClCompile Include="src\ColorHistoryWindow.cpp"/>
     <ClCompile Include="src\WinHttpTransport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -135,6 +137,8 @@
     <ClInclude Include="include\tf\ThumbnailCodec.hpp"/>
     <ClInclude Include="include\tf\HistoryExport.hpp"/>
     <ClInclude Include="include\tf\RecentShots.hpp"/>
+    <ClInclude Include="include\tf\ColorPicker.hpp"/>
+    <ClInclude Include="include\tf\ColorHistoryWindow.hpp"/>
     <ClInclude Include="src\CaptureD3dDevice.h"/>
     <ClInclude Include="src\pch.h"/>
   </ItemGroup>

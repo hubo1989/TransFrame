@@ -20,13 +20,15 @@ void pushAction(std::vector<TrayMenuItem>& items, const wchar_t* label,
 }
 
 std::vector<TrayMenuItem> baseItems() {
-    // FR-34: full-screen / region / translate / text-selection / insert.
+    // FR-34: full-screen / region / translate / text-selection / insert,
+    // plus FR-32 eyedropper entry.
     std::vector<TrayMenuItem> items;
     pushAction(items, L"全屏截图", TrayCommand::FullScreen);
     pushAction(items, L"区域截图", TrayCommand::Region);
     pushAction(items, L"翻译模式", TrayCommand::Translate);
     pushAction(items, L"划词翻译", TrayCommand::TextSelection);
-    pushAction(items, L"翻译并插入", TrayCommand::TranslateInsert, /*separatorAfter=*/true);
+    pushAction(items, L"翻译并插入", TrayCommand::TranslateInsert);
+    pushAction(items, L"取色器", TrayCommand::PickColor, /*separatorAfter=*/true);
     return items;
 }
 
@@ -68,6 +70,7 @@ TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
     model.pinnedItems = buildPinnedSubmenu(pinned);
 
     pushAction(model.items, L"历史记录", TrayCommand::History);
+    pushAction(model.items, L"取色历史", TrayCommand::ColorHistory);
     pushAction(model.items, L"设置", TrayCommand::Settings);
     pushAction(model.items, L"检查更新", TrayCommand::CheckUpdates);
     pushAction(model.items, L"退出", TrayCommand::Exit);

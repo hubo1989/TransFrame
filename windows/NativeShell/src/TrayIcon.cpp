@@ -105,6 +105,19 @@ void TrayIconService::setRecentShots(std::vector<RecentShot> shots) {
     recent_ = std::move(shots);
 }
 
+void TrayIconService::showBalloon(const std::wstring& title, const std::wstring& text) {
+    if (!installed_ || !callbackWindow_) return;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_INFO;
+    ::wcsncpy_s(nid.szInfoTitle, title.c_str(), _TRUNCATE);
+    ::wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
+    ::Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
 void TrayIconService::setPinnedWindows(std::vector<PinnedSnapshot> pinned) {
     pinned_ = std::move(pinned);
 }
