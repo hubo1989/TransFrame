@@ -348,17 +348,17 @@ struct PreviewWindowController::Impl {
                                       CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) {
             return;
         }
+        // CreateBitmapFromMemory wraps the capture buffer directly (no
+        // upload copy, no mutation — CopyPixels on a fresh bitmap would read
+        // zeros back over the caller's pixels). The shared_ptr in spec.image
+        // keeps the buffer alive for the bitmap's lifetime.
         ComPtr<IWICBitmap> wicBitmap;
-        if (FAILED(wic->CreateBitmap(static_cast<UINT>(spec.image->width),
-                                     static_cast<UINT>(spec.image->height),
-                                     GUID_WICPixelFormat32bppBGRA, WICBitmapCacheOnLoad,
-                                     &wicBitmap))) {
-            return;
-        }
-        WICRect full{0, 0, spec.image->width, spec.image->height};
-        if (FAILED(wicBitmap->CopyPixels(&full, static_cast<UINT>(spec.image->stride),
-                                         static_cast<UINT>(spec.image->byteSize()),
-                                         spec.image->data.get()))) {
+        if (FAILED(wic->CreateBitmapFromMemory(
+                static_cast<UINT>(spec.image->width),
+                static_cast<UINT>(spec.image->height), GUID_WICPixelFormat32bppBGRA,
+                static_cast<UINT>(spec.image->stride),
+                static_cast<UINT>(spec.image->byteSize()), spec.image->data.get(),
+                &wicBitmap))) {
             return;
         }
         rt->CreateBitmapFromWicBitmap(wicBitmap.Get(), &baseBitmap);
