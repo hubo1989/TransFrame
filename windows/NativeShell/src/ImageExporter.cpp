@@ -297,9 +297,13 @@ PixelBuffer renderComposited(const PixelBuffer& base,
     if (!wic || !d2d) return out;
 
     ComPtr<IWICBitmap> wicBitmap;
+    // D2D WIC render targets only accept PREMULTIPLIED (PBGRA) source
+    // bitmaps — straight-alpha 32bppBGRA returns
+    // D2DERR_UNSUPPORTED_PIXEL_FORMAT (0x88982F80). Screenshots are opaque,
+    // so premultiplied == straight for the pixels we care about.
     if (FAILED(wic->CreateBitmap(static_cast<UINT>(base.width),
                                  static_cast<UINT>(base.height),
-                                 GUID_WICPixelFormat32bppBGRA, WICBitmapCacheOnLoad,
+                                 GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad,
                                  &wicBitmap))) {
         return out;
     }
@@ -319,7 +323,139 @@ PixelBuffer renderComposited(const PixelBuffer& base,
                                static_cast<FLOAT>(base.height)},
                    1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     drawAnnotations(*rt.Get(), document.annotations());
-    if (FAILED(rt->EndDraw())) return out;
+    if (FAILED(rt->EndDraw())) {
+        return out;
+    }
+
+    const std::int32_t stride = base.width * 4;
+    out.width = base.width;
+    out.height = base.height;
+    out.stride = stride;
+    out.dpiX = base.dpiX;
+    out.dpiY = base.dpiY;
+    out.data = std::shared_ptr<std::uint8_t[]>(
+        new std::uint8_t[static_cast<std::size_t>(stride) * base.height]);
+    WICRect rect{0, 0, base.width, base.height};
+    if (FAILED(wicBitmap->CopyPixels(&rect, static_cast<UINT>(stride),
+                                     static_cast<UINT>(out.byteSize()), out.data.get()))) {
+        return PixelBuffer{};
+    }
+    return out;
+}
+
+PixelBuffer renderTranslationOverlay(const PixelBuffer& base,
+                                     const std::vector<OverlaySegment>& segments,
+                                     OverlayTextMode mode) {
+    PixelBuffer out;
+    if (!base.valid() || segments.empty()) return out;
+    ComPtr<IWICImagingFactory> wic = wicFactory();
+    ComPtr<ID2D1Factory> d2d = d2dFactory();
+    IDWriteFactory* dwrite = sharedDWriteFactory();
+    if (!wic || !d2d || !dwrite) return out;
+
+    ComPtr<IWICBitmap> wicBitmap;
+    // D2D WIC render targets only accept PREMULTIPLIED (PBGRA) source
+    // bitmaps — straight-alpha 32bppBGRA returns
+    // D2DERR_UNSUPPORTED_PIXEL_FORMAT (0x88982F80). Screenshots are opaque,
+    // so premultiplied == straight for the pixels we care about.
+    if (FAILED(wic->CreateBitmap(static_cast<UINT>(base.width),
+                                 static_cast<UINT>(base.height),
+                                 GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad,
+                                 &wicBitmap))) {
+        return out;
+    }
+    const D2D1_PIXEL_FORMAT pixelFormat = D2D1::PixelFormat(
+        DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED);
+    const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_SOFTWARE, pixelFormat);
+    ComPtr<ID2D1RenderTarget> rt;
+    if (FAILED(d2d->CreateWicBitmapRenderTarget(wicBitmap.Get(), props, &rt))) {
+        return out;
+    }
+
+    // Base pixels uploaded directly as a D2D bitmap (no WIC round trip — the
+    // render target already IS the WIC bitmap, so drawing a bitmap created
+    // from that same surface would alias the target).
+    const D2D1_BITMAP_PROPERTIES bmpProps = D2D1::BitmapProperties(pixelFormat);
+    ComPtr<ID2D1Bitmap> baseBitmap;
+    if (FAILED(rt->CreateBitmap(
+            D2D1::SizeU(static_cast<UINT>(base.width), static_cast<UINT>(base.height)),
+            base.data.get(), static_cast<UINT>(base.stride), bmpProps,
+            &baseBitmap))) {
+        return out;
+    }
+
+    // Shared trimming sign for ellipsized overflow (needs any text format).
+    const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 1};
+    ComPtr<IDWriteTextFormat> probeFormat;
+    if (FAILED(dwrite->CreateTextFormat(
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, 14.f, L"", probeFormat.GetAddressOf()))) {
+        return out;
+    }
+    ComPtr<IDWriteInlineObject> ellipsis;
+    dwrite->CreateEllipsisTrimmingSign(probeFormat.Get(), ellipsis.GetAddressOf());
+
+    rt->BeginDraw();
+    rt->Clear(D2D1_COLOR_F{0, 0, 0, 0});
+    rt->DrawBitmap(baseBitmap.Get(),
+                   D2D1::RectF(0.f, 0.f, static_cast<FLOAT>(base.width),
+                               static_cast<FLOAT>(base.height)),
+                   1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+
+    for (const OverlaySegment& seg : segments) {
+        // Portable decision pass (tested): colors, geometry, font fit.
+        const OverlayDrawItem item =
+            planOverlayItem(seg, mode, base.width, base.height, OverlayStyle{},
+                            base.data.get(), base.stride);
+        if (item.fillAlpha <= 0.f || item.fillRect.empty()) continue;
+
+        const D2D1_RECT_F fill = D2D1::RectF(
+            static_cast<FLOAT>(item.fillRect.x), static_cast<FLOAT>(item.fillRect.y),
+            static_cast<FLOAT>(item.fillRect.right()),
+            static_cast<FLOAT>(item.fillRect.bottom()));
+        ComPtr<ID2D1SolidColorBrush> fillBrush;
+        if (SUCCEEDED(rt->CreateSolidColorBrush(
+                D2D1::ColorF(item.fillColor.r, item.fillColor.g, item.fillColor.b,
+                             item.fillAlpha),
+                fillBrush.GetAddressOf()))) {
+            rt->FillRectangle(&fill, fillBrush.Get());
+        }
+        if (seg.text.empty()) continue;
+
+        ComPtr<ID2D1SolidColorBrush> textBrush;
+        if (FAILED(rt->CreateSolidColorBrush(
+                D2D1::ColorF(item.textColor.r, item.textColor.g, item.textColor.b, 1.f),
+                textBrush.GetAddressOf()))) {
+            continue;
+        }
+        ComPtr<IDWriteTextFormat> format;
+        if (FAILED(dwrite->CreateTextFormat(
+                L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL, item.fontPx, L"", format.GetAddressOf()))) {
+            continue;
+        }
+        format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        format->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
+        ComPtr<IDWriteTextLayout> layout;
+        const std::wstring text = utf8ToWide(seg.text);
+        if (FAILED(dwrite->CreateTextLayout(
+                text.c_str(), static_cast<UINT32>(text.size()), format.Get(),
+                static_cast<FLOAT>(item.fillRect.width) - 6.f,
+                static_cast<FLOAT>(item.fillRect.height), layout.GetAddressOf()))) {
+            continue;
+        }
+        if (item.ellipsize) layout->SetTrimming(&trimming, ellipsis.Get());
+        // CLIP keeps glyph ascenders/descenders inside the band (the strategy
+        // layer's geometry is the contract; nothing may spill over the base).
+        rt->DrawTextLayout(
+            D2D1_POINT_2F{static_cast<FLOAT>(item.fillRect.x) + 3.f,
+                          static_cast<FLOAT>(item.fillRect.y)},
+            layout.Get(), textBrush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
+    if (FAILED(rt->EndDraw())) {
+        return out;
+    }
 
     const std::int32_t stride = base.width * 4;
     out.width = base.width;

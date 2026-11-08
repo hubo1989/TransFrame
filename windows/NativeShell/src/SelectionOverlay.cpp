@@ -11,11 +11,18 @@
 //   2. punch through the selection (composite destination-out or redraw
 //      un-dimmed content region) + 1px accent stroke
 //   3. window highlight (accent fill 25% + stroke)
-//   4. size badge, crosshair, toolbar skeleton
+//   4. size badge, crosshair
+//   5. FR-05 in-place toolbar (DWrite labels, hover + hit testing) and
+//      FR-06 results panel (source/translation rows, adaptive docking)
 // The D2D1Device is shared with the capture engine's D3D11 device.
 //
 // FR-02 (window click): a WindowDetectorService is attached by the App;
 // mouse-move hover hit-tests against its snapshot (refreshed at mouse-down).
+//
+// FR-05 session model: drag-release parks in Confirmed (toolbar visible);
+// toolbar clicks hide the window first (clean desktop for the App's
+// capture) and hand the action to the App. presentResults()/presentNotice()
+// bring the overlay back with the results panel; endSession() finishes it.
 #include "pch.h"
 
 #include "tf/SelectionOverlay.hpp"
@@ -26,7 +33,10 @@
 #include <d2d1_1.h>
 #include <dcomp.h>
 #include <d3d11.h>
+#include <dwrite.h>
 #include <wrl/client.h>
+
+#pragma comment(lib, "dwrite.lib")
 
 namespace tf {
 
@@ -55,6 +65,47 @@ void initLog(const char* step, long hr) {
 }
 }  // namespace
 
+namespace {
+
+/// FR-05/06 cross-thread requests (worker -> main thread hop).
+constexpr UINT kPresentResultsMsg = WM_APP + 0x210;
+constexpr UINT kPresentNoticeMsg = WM_APP + 0x211;
+constexpr UINT kEndSessionMsg = WM_APP + 0x212;
+
+struct ResultsBox {
+    std::vector<OverlayTextRow> rows;
+    std::string status;
+};
+
+struct NoticeBox {
+    std::string notice;
+};
+
+/// Toolbar labels for the six FR-05 actions (slots 6..7 reserved, undrawn).
+const wchar_t* toolbarActionLabel(OverlayToolbarAction action) {
+    switch (action) {
+        case OverlayToolbarAction::Copy: return L"复制";
+        case OverlayToolbarAction::Save: return L"保存";
+        case OverlayToolbarAction::Translate: return L"翻译";
+        case OverlayToolbarAction::Pin: return L"置顶";
+        case OverlayToolbarAction::ColorPick: return L"取色";
+        case OverlayToolbarAction::Cancel: return L"取消";
+    }
+    return L"?";
+}
+
+std::wstring utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) return {};
+    const int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    if (len <= 0) return {};
+    std::wstring wide(static_cast<std::size_t>(len), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, wide.data(), len);
+    wide.resize(static_cast<std::size_t>(len) - 1);
+    return wide;
+}
+
+}  // namespace
+
 struct SelectionOverlayController::Impl {
     HWND hwnd = nullptr;
     static constexpr wchar_t kClassName[] = L"TransFrameOverlayWnd";
@@ -63,6 +114,13 @@ struct SelectionOverlayController::Impl {
     OverlayCompletion completion;
     bool sessionActive = false;
     WindowDetectorService* windowDetector = nullptr;  // FR-02 hover (App-owned)
+
+    // FR-05: toolbar wiring + interaction state (main thread only).
+    OverlayActionHandler actionHandler;
+    std::optional<OverlayToolbarAction> autoAction;  // FR-04 auto path
+    bool actionInFlight = false;  // window hidden for an action; ignore KILLFOCUS
+    int hoverSlot = -1;
+    bool hoverClose = false;
 
     // D2D/DComp device stack.
     ComPtr<ID3D11Device> d3dDevice;
@@ -77,6 +135,14 @@ struct SelectionOverlayController::Impl {
     ComPtr<IDCompositionVisual> dcompVisual;
     ComPtr<ID2D1Bitmap1> d2dTargetBitmap;  // DComp surface-backed
     ComPtr<IDXGISwapChain1> swapChain;
+
+    // FR-05/06 text resources (created lazily on the render thread).
+    ComPtr<IDWriteFactory> dwrite;
+    ComPtr<IDWriteTextFormat> buttonFormat;
+    ComPtr<IDWriteTextFormat> panelStatusFormat;
+    ComPtr<IDWriteTextFormat> panelSourceFormat;
+    ComPtr<IDWriteTextFormat> panelTranslatedFormat;
+    ComPtr<IDWriteInlineObject> trimmingSign;
 
     static LRESULT CALLBACK wndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         Impl* self = nullptr;
@@ -93,6 +159,27 @@ struct SelectionOverlayController::Impl {
 
     LRESULT handleMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         switch (msg) {
+            case kPresentResultsMsg: {
+                // Worker thread finished the pipeline: panel up, window back.
+                auto* box = reinterpret_cast<ResultsBox*>(lp);
+                std::unique_ptr<ResultsBox> owned(box);
+                if (!sessionActive) break;  // session ended meanwhile: drop
+                state.showResults(std::move(box->rows), std::move(box->status));
+                reshowAfterAction();
+                return 0;
+            }
+            case kPresentNoticeMsg: {
+                auto* box = reinterpret_cast<NoticeBox*>(lp);
+                std::unique_ptr<NoticeBox> owned(box);
+                if (!sessionActive) break;
+                state.showNotice(std::move(box->notice));
+                reshowAfterAction();
+                return 0;
+            }
+            case kEndSessionMsg: {
+                if (sessionActive) endSessionInternal();
+                return 0;
+            }
             case WM_MOUSEMOVE: {
                 POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 // Mouse messages carry client coordinates; the overlay spans
@@ -110,12 +197,20 @@ struct SelectionOverlayController::Impl {
                         state.setHoverWindow(std::nullopt);
                     }
                 }
+                // FR-05: toolbar/close hover feedback while Confirmed.
+                if (state.mode() == OverlayMode::Confirmed) {
+                    updateHover(pt);
+                }
                 renderFrame();
                 return 0;
             }
             case WM_LBUTTONDOWN: {
                 POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 ::ClientToScreen(h, &pt);  // tracking + detector use screen coords
+                if (state.mode() == OverlayMode::Confirmed) {
+                    handleConfirmedClick(pt);
+                    return 0;
+                }
                 if (windowDetector) windowDetector->refreshSnapshot();  // cache at mouse-down
                 state.beginTracking({pt.x, pt.y});
                 renderFrame();
@@ -124,63 +219,162 @@ struct SelectionOverlayController::Impl {
             }
             case WM_LBUTTONUP: {
                 if (::GetCapture() == h) ::ReleaseCapture();
+                // Confirmed mouse-ups belong to toolbar clicks already handled
+                // in WM_LBUTTONDOWN; a fresh drag ends below this guard.
+                if (state.mode() == OverlayMode::Confirmed) return 0;
                 state.endTracking();
+                if (state.mode() == OverlayMode::Confirmed) {
+                    // FR-05: park on the in-place toolbar (window stays up so
+                    // the user keeps the region context).
+                    hoverSlot = -1;
+                    if (autoAction) {
+                        performAction(*autoAction);  // FR-04: no extra click
+                    } else {
+                        renderFrame();
+                    }
+                    return 0;
+                }
                 finishSession(h);
                 return 0;
             }
             case WM_KEYDOWN:
                 if (wp == VK_ESCAPE) {
-                    state.cancel();
-                    if (completion) completion({false, {}, false, 0});
-                    completion = nullptr;
-                    sessionActive = false;
-                    ::ShowWindow(h, SW_HIDE);
+                    if (sessionActive) endSessionInternal();
                     return 0;
                 }
                 break;
             case WM_KILLFOCUS:
-                // Static wndProc dispatches into Impl::handleMessage (a
-                // non-static member); the controller-level cancel is done by
-                // the session owner (HotkeyManager/App), not here.
-                state.cancel();
-                if (completion) {
-                    completion({false, {}, false, 0});
-                    completion = nullptr;
-                }
-                sessionActive = false;
-                ::ShowWindow(h, SW_HIDE);
+                // The window hides itself while an action captures the
+                // desktop — that focus loss must not end the session.
+                if (actionInFlight) return 0;
+                if (sessionActive) endSessionInternal();
                 return 0;
+            case WM_SETCURSOR: {
+                // Confirmed UI gets an arrow/hand; selection modes keep cross.
+                if (LOWORD(lp) == HTCLIENT &&
+                    (state.mode() == OverlayMode::Confirmed)) {
+                    ::SetCursor(::LoadCursorW(nullptr, (hoverSlot >= 0 || hoverClose)
+                                                        ? IDC_HAND : IDC_ARROW));
+                    return TRUE;
+                }
+                break;
+            }
             default:
                 break;
         }
         return ::DefWindowProcW(h, msg, wp, lp);
     }
 
-    void finishSession(HWND h) {
-        const bool drag = state.isDragEngaged();
-        const auto selection = state.selection();
-        const auto hover = state.hoverWindow();
-        ::ShowWindow(h, SW_HIDE);
-        if (!completion) { sessionActive = false; return; }
+    /// FR-05/06 click routing while Confirmed: panel first (it can overlap
+    /// the toolbar), then toolbar buttons, then dismiss.
+    void handleConfirmedClick(POINT pt) {
+        const PaintList pl = state.paintList();
+        const Point p{pt.x, pt.y};
+        if (pl.resultsPanel) {
+            const ResultsPanelLayout& panel = *pl.resultsPanel;
+            if (panel.closeButton.contains(p)) {
+                state.dismissResults();
+                renderFrame();
+                return;
+            }
+            if (panel.panel.contains(p)) return;  // inert panel surface
+        }
+        if (const auto action = hitTestToolbar(pl, p)) {
+            performAction(*action);
+            return;
+        }
+        endSessionInternal();  // click-away dismiss (macOS parity)
+    }
 
-        if (drag && selection && !selection->empty()) {
-            SelectionOverlayResult r;
-            r.confirmed = true;
-            r.regionPhysical = *selection;
-            r.wholeWindow = false;
-            completion(std::move(r));
-        } else if (!drag && hover) {
+    void updateHover(POINT pt) {
+        const PaintList pl = state.paintList();
+        const Point p{pt.x, pt.y};
+        hoverSlot = -1;
+        hoverClose = false;
+        if (pl.resultsPanel && pl.resultsPanel->closeButton.contains(p)) {
+            hoverClose = true;
+        }
+        const std::size_t n = std::min(pl.toolbarSlots.size(), pl.toolbarActions.size());
+        for (std::size_t i = 0; i < n; ++i) {
+            if (pl.toolbarActions[i] && pl.toolbarSlots[i].contains(p)) {
+                hoverSlot = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+
+    /// Hide for a clean desktop capture, then hand the action to the App.
+    void performAction(OverlayToolbarAction action) {
+        if (action == OverlayToolbarAction::Cancel) {
+            endSessionInternal();
+            return;
+        }
+        const auto selection = state.selection();
+        actionInFlight = true;
+        hoverSlot = -1;
+        ::ShowWindow(hwnd, SW_HIDE);
+        if (actionHandler && selection) {
+            actionHandler(action, *selection);
+            // Translate/Pin/ColorPick: presentResults/presentNotice re-shows.
+            // Copy/Save: the App calls endSession() when done.
+        } else {
+            // No handler (or no selection — should not happen): fall through
+            // to a plain cancel so the overlay never wedges.
+            actionInFlight = false;
+            endSessionInternal();
+        }
+    }
+
+    /// Bring the window back after an action hid it (main thread).
+    void reshowAfterAction() {
+        actionInFlight = false;
+        hoverSlot = -1;
+        hoverClose = false;
+        ::ShowWindow(hwnd, SW_SHOWNA);
+        ::SetFocus(hwnd);  // Esc must reach us while the panel is up
+        renderFrame();
+    }
+
+    /// Unified dismissal: drop panel + selection, hide, fire completion once.
+    /// State is cleared BEFORE ShowWindow: hiding a focused window delivers
+    /// WM_KILLFOCUS synchronously, and its handler re-enters here — the
+    /// early flags make that second visit a no-op instead of a double
+    /// completion.
+    void endSessionInternal() {
+        state.dismissResults();
+        state.cancel();
+        actionInFlight = false;
+        hoverSlot = -1;
+        hoverClose = false;
+        sessionActive = false;
+        const OverlayCompletion callback = std::move(completion);
+        completion = nullptr;
+        ::ShowWindow(hwnd, SW_HIDE);
+        if (callback) callback({false, {}, false, 0});
+    }
+
+    void finishSession(HWND h) {
+        // Only reached for click (no-drag) mouse-ups: drag releases return
+        // early from WM_LBUTTONUP in Confirmed mode. Note endTracking() has
+        // already reset dragEngaged_, so the mode check — not isDragEngaged —
+        // is the drag discriminator.
+        const auto hover = state.hoverWindow();
+        sessionActive = false;
+        const OverlayCompletion callback = std::move(completion);
+        completion = nullptr;
+        ::ShowWindow(h, SW_HIDE);
+        if (!callback) return;
+
+        if (!hover) {
+            callback({false, {}, false, 0});
+        } else {
             // FR-02: click (no drag) -> whole window under cursor.
             SelectionOverlayResult r;
             r.confirmed = true;
             r.regionPhysical = *hover;
             r.wholeWindow = true;
-            completion(std::move(r));
-        } else {
-            completion({false, {}, false, 0});
+            callback(std::move(r));
         }
-        completion = nullptr;
-        sessionActive = false;
     }
 
     bool createDeviceStack() {
@@ -377,8 +571,7 @@ struct SelectionOverlayController::Impl {
             d2dContext->DrawLine(v0, v1, white.Get(), 1.f);
         }
 
-        // 5) size badge + toolbar skeleton: rect outlines here; text via
-        //    DWrite lands with the FR-05 toolbar task (layout-only skeleton).
+        // 5) size badge: rect fill here; text via DWrite below.
         if (pl.badge) {
             ComPtr<ID2D1SolidColorBrush> bg;
             d2dContext->CreateSolidColorBrush(
@@ -386,18 +579,206 @@ struct SelectionOverlayController::Impl {
             const auto br = toD2D(pl.badge->anchor);
             d2dContext->FillRectangle(&br, bg.Get());
         }
-        for (const auto& slot : pl.toolbarSlots) {
-            const auto sr = toD2D(slot);
-            ComPtr<ID2D1SolidColorBrush> slotBrush;
-            d2dContext->CreateSolidColorBrush(
-                D2D1::ColorF(1.f, 1.f, 1.f, 0.08f), slotBrush.GetAddressOf());
-            d2dContext->FillRectangle(&sr, slotBrush.Get());
+
+        // 6) FR-05 toolbar buttons + FR-06 results panel (DWrite text).
+        if (!pl.toolbarSlots.empty()) {
+            drawToolbar(pl);
+        }
+        if (pl.resultsPanel) {
+            drawResultsPanel(pl);
         }
 
         if (FAILED(d2dContext->EndDraw())) return;
         DXGI_PRESENT_PARAMETERS pp{};
         swapChain->Present1(0, 0, &pp);
         dcompDevice->Commit();
+    }
+
+    // ---- FR-05/06 text resources (lazy, cached) --------------------------
+    bool ensureTextResources() {
+        if (buttonFormat && panelStatusFormat && panelSourceFormat &&
+            panelTranslatedFormat && trimmingSign) {
+            return true;
+        }
+        if (!dwrite) {
+            if (FAILED(::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+                                             __uuidof(IDWriteFactory),
+                                             reinterpret_cast<IUnknown**>(
+                                                 dwrite.GetAddressOf())))) {
+                return false;
+            }
+        }
+        auto makeFormat = [&](FLOAT size, DWRITE_FONT_WEIGHT weight,
+                              IDWriteTextFormat** out) {
+            return dwrite->CreateTextFormat(
+                L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL, size, L"", out);
+        };
+        if (!buttonFormat &&
+            FAILED(makeFormat(12.f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                              buttonFormat.GetAddressOf()))) {
+            return false;
+        }
+        if (buttonFormat) {
+            buttonFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            buttonFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+        if (!panelStatusFormat &&
+            FAILED(makeFormat(12.f, DWRITE_FONT_WEIGHT_NORMAL,
+                              panelStatusFormat.GetAddressOf()))) {
+            return false;
+        }
+        if (!panelSourceFormat &&
+            FAILED(makeFormat(12.5f, DWRITE_FONT_WEIGHT_NORMAL,
+                              panelSourceFormat.GetAddressOf()))) {
+            return false;
+        }
+        if (!panelTranslatedFormat &&
+            FAILED(makeFormat(15.f, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                              panelTranslatedFormat.GetAddressOf()))) {
+            return false;
+        }
+        if (!trimmingSign &&
+            FAILED(dwrite->CreateEllipsisTrimmingSign(panelSourceFormat.Get(),
+                                                      trimmingSign.GetAddressOf()))) {
+            return false;
+        }
+        return true;
+    }
+
+    /// One panel text line: layout with width-limited trimming, drawn at
+    /// (x, y), occupying at most maxWidth x lineHeight. Returns the consumed
+    /// height (lineHeight on success, 0 when text resources are unusable).
+    FLOAT drawPanelLine(const std::string& utf8, IDWriteTextFormat* format,
+                        FLOAT x, FLOAT y, FLOAT maxWidth, FLOAT lineHeight,
+                        const D2D1_COLOR_F& color) {
+        if (utf8.empty() || !format || !d2dContext) return lineHeight;
+        ComPtr<ID2D1SolidColorBrush> brush;
+        if (FAILED(d2dContext->CreateSolidColorBrush(color, brush.GetAddressOf()))) {
+            return 0.f;
+        }
+        ComPtr<IDWriteTextLayout> layout;
+        const std::wstring text = utf8ToWide(utf8);
+        if (FAILED(dwrite->CreateTextLayout(text.c_str(),
+                                            static_cast<UINT32>(text.size()), format,
+                                            maxWidth, lineHeight,
+                                            layout.GetAddressOf()))) {
+            return 0.f;
+        }
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 1};
+        layout->SetTrimming(&trimming, trimmingSign.Get());
+        // CLIP: a long row must never paint over the row below it.
+        d2dContext->DrawTextLayout(D2D1_POINT_2F{x, y}, layout.Get(), brush.Get(),
+                                   D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        return lineHeight;
+    }
+
+    void drawToolbar(const PaintList& pl) {
+        if (!ensureTextResources() || !d2dContext) return;
+        const std::size_t n = std::min(pl.toolbarSlots.size(), pl.toolbarActions.size());
+        for (std::size_t i = 0; i < n; ++i) {
+            const Rect& slot = pl.toolbarSlots[i];
+            const auto action = pl.toolbarActions[i];
+            const auto sr = toD2D(slot);
+            if (!action) {
+                // Reserved slot: keep the faint skeleton fill (FR-05 layout
+                // skeleton callers relied on; future OCR/upload buttons).
+                ComPtr<ID2D1SolidColorBrush> slotBrush;
+                d2dContext->CreateSolidColorBrush(
+                    D2D1::ColorF(1.f, 1.f, 1.f, 0.08f), slotBrush.GetAddressOf());
+                d2dContext->FillRectangle(&sr, slotBrush.Get());
+                continue;
+            }
+            const bool hovered = hoverSlot == static_cast<int>(i);
+            const bool isCancel = *action == OverlayToolbarAction::Cancel;
+            const wchar_t* label = toolbarActionLabel(*action);
+            ComPtr<ID2D1SolidColorBrush> fill;
+            d2dContext->CreateSolidColorBrush(
+                hovered ? D2D1::ColorF(0.16f, 0.27f, 0.45f, 0.96f)
+                        : D2D1::ColorF(0.11f, 0.12f, 0.14f, 0.92f),
+                fill.GetAddressOf());
+            ComPtr<ID2D1SolidColorBrush> stroke;
+            d2dContext->CreateSolidColorBrush(
+                hovered ? D2D1::ColorF(state.visuals().accentR, state.visuals().accentG,
+                                       state.visuals().accentB, 1.f)
+                        : D2D1::ColorF(1.f, 1.f, 1.f, 0.22f),
+                stroke.GetAddressOf());
+            const D2D1_ROUNDED_RECT card{sr, 6.f, 6.f};
+            d2dContext->FillRoundedRectangle(&card, fill.Get());
+            d2dContext->DrawRoundedRectangle(&card, stroke.Get(), 1.f);
+            ComPtr<ID2D1SolidColorBrush> text;
+            d2dContext->CreateSolidColorBrush(
+                isCancel ? D2D1::ColorF(0.75f, 0.78f, 0.84f, 1.f)
+                         : D2D1::ColorF(0.96f, 0.97f, 0.99f, 1.f),
+                text.GetAddressOf());
+            d2dContext->DrawTextW(label, static_cast<UINT32>(wcslen(label)),
+                                  buttonFormat.Get(), sr, text.Get());
+        }
+    }
+
+    void drawResultsPanel(const PaintList& pl) {
+        if (!ensureTextResources() || !d2dContext || !pl.resultsPanel) return;
+        const ResultsPanelLayout& layout = *pl.resultsPanel;
+        const auto pr = toD2D(layout.panel);
+
+        // Card.
+        ComPtr<ID2D1SolidColorBrush> card;
+        d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.075f, 0.082f, 0.10f, 0.95f),
+                                          card.GetAddressOf());
+        ComPtr<ID2D1SolidColorBrush> border;
+        d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f, 0.16f),
+                                          border.GetAddressOf());
+        const D2D1_ROUNDED_RECT cardRect{pr, 8.f, 8.f};
+        d2dContext->FillRoundedRectangle(&cardRect, card.Get());
+        d2dContext->DrawRoundedRectangle(&cardRect, border.Get(), 1.f);
+
+        // Close button (x) with hover feedback.
+        {
+            const auto cr = toD2D(layout.closeButton);
+            ComPtr<ID2D1SolidColorBrush> closeFill;
+            d2dContext->CreateSolidColorBrush(
+                hoverClose ? D2D1::ColorF(1.f, 1.f, 1.f, 0.18f)
+                           : D2D1::ColorF(1.f, 1.f, 1.f, 0.04f),
+                closeFill.GetAddressOf());
+            const D2D1_ROUNDED_RECT closeCard{cr, 5.f, 5.f};
+            d2dContext->FillRoundedRectangle(&closeCard, closeFill.Get());
+            ComPtr<ID2D1SolidColorBrush> closeText;
+            d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.85f, 0.87f, 0.92f, 1.f),
+                                              closeText.GetAddressOf());
+            d2dContext->DrawTextW(L"×", 1, buttonFormat.Get(), cr, closeText.Get());
+        }
+
+        // Header/status line.
+        if (!pl.panelStatus.empty()) {
+            drawPanelLine(pl.panelStatus, panelStatusFormat.Get(),
+                          static_cast<FLOAT>(layout.panel.x + 12),
+                          static_cast<FLOAT>(layout.panel.y + 8),
+                          static_cast<FLOAT>(layout.panel.width - 12 - 34), 20.f,
+                          D2D1::ColorF(0.59f, 0.61f, 0.66f, 1.f));
+        }
+
+        // Rows: source (gray) + translation (white); first rows that fit.
+        const FLOAT sourceLine = 18.f;
+        const FLOAT translatedLine = 22.f;
+        const FLOAT rowGap = 7.f;
+        const FLOAT rowHeight = sourceLine + translatedLine + rowGap;
+        FLOAT y = static_cast<FLOAT>(layout.contentRect.y);
+        const FLOAT maxY = static_cast<FLOAT>(layout.contentRect.bottom());
+        const FLOAT width = static_cast<FLOAT>(layout.contentRect.width);
+        for (const OverlayTextRow& row : pl.resultRows) {
+            if (y + rowHeight > maxY) break;
+            FLOAT used = drawPanelLine(row.source, panelSourceFormat.Get(),
+                                       static_cast<FLOAT>(layout.contentRect.x), y, width,
+                                       sourceLine,
+                                       D2D1::ColorF(0.62f, 0.64f, 0.70f, 1.f));
+            if (used <= 0.f) return;
+            y += used;
+            used = drawPanelLine(row.translated, panelTranslatedFormat.Get(),
+                                 static_cast<FLOAT>(layout.contentRect.x), y, width,
+                                 translatedLine, D2D1::ColorF(0.95f, 0.96f, 0.98f, 1.f));
+            if (used <= 0.f) return;
+            y += used + rowGap;
+        }
     }
 
     static D2D1_RECT_F toD2D(const Rect& r) {
@@ -460,6 +841,9 @@ bool SelectionOverlayController::beginSession(OverlayCompletion completion) {
 
     impl.completion = std::move(completion);
     impl.sessionActive = true;
+    impl.actionInFlight = false;
+    impl.hoverSlot = -1;
+    impl.hoverClose = false;
     impl.state.setMode(OverlayMode::Idle);
 
     impl.resizeToVirtualDesktop();  // picks up display changes since last session
@@ -477,20 +861,57 @@ bool SelectionOverlayController::beginSession(OverlayCompletion completion) {
 void SelectionOverlayController::cancelSession() {
     auto& impl = *impl_;
     if (!impl.sessionActive) return;
-    impl.state.cancel();
-    if (impl.completion) impl.completion({false, {}, false, 0});
-    impl.completion = nullptr;
-    impl.sessionActive = false;
-    ::ShowWindow(impl.hwnd, SW_HIDE);
+    impl.endSessionInternal();
 }
 
 bool SelectionOverlayController::isActive() const {
     return impl_->sessionActive;
 }
 
+bool SelectionOverlayController::awaitingAction() const {
+    return impl_->sessionActive && impl_->state.mode() == OverlayMode::Confirmed;
+}
+
 void SelectionOverlayController::setWindowDetector(WindowDetectorService* detector) {
     impl_->windowDetector = detector;
     if (detector) detector->refreshSnapshot();
+}
+
+void SelectionOverlayController::setToolbarActionHandler(OverlayActionHandler handler) {
+    impl_->actionHandler = std::move(handler);
+}
+
+void SelectionOverlayController::setAutoConfirmAction(
+    std::optional<OverlayToolbarAction> action) {
+    impl_->autoAction = action;
+}
+
+void SelectionOverlayController::presentResults(std::vector<OverlayTextRow> rows,
+                                                std::string statusUtf8) {
+    auto& impl = *impl_;
+    if (!impl.hwnd || !impl.sessionActive) return;
+    auto* box = new ResultsBox{std::move(rows), std::move(statusUtf8)};
+    if (!::PostMessageW(impl.hwnd, kPresentResultsMsg, 0,
+                        reinterpret_cast<LPARAM>(box))) {
+        delete box;
+    }
+}
+
+void SelectionOverlayController::presentNotice(std::string noticeUtf8) {
+    auto& impl = *impl_;
+    if (!impl.hwnd || !impl.sessionActive) return;
+    auto* box = new NoticeBox{std::move(noticeUtf8)};
+    if (!::PostMessageW(impl.hwnd, kPresentNoticeMsg, 0,
+                        reinterpret_cast<LPARAM>(box))) {
+        delete box;
+    }
+}
+
+void SelectionOverlayController::endSession() {
+    auto& impl = *impl_;
+    if (!impl.hwnd || !impl.sessionActive) return;
+    // May be called from any thread (App workers); hop to the window thread.
+    ::PostMessageW(impl.hwnd, kEndSessionMsg, 0, 0);
 }
 
 OverlayState& SelectionOverlayController::state() { return impl_->state; }

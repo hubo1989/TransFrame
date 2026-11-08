@@ -30,6 +30,17 @@ struct SelectionOverlayResult {
 
 using OverlayCompletion = std::function<void(SelectionOverlayResult result)>;
 
+/// FR-05: the overlay stays up after a drag selection (Confirmed mode) and
+/// fires this handler when a toolbar button is pressed. Invoked on the main
+/// thread with the overlay window ALREADY HIDDEN so the app can capture the
+/// clean desktop (a visible dim layer would end up in the capture).
+/// The controller does nothing afterwards except:
+///   Translate/Pin/ColorPick — wait for presentResults()/presentNotice();
+///   Copy/Save               — the app calls endSession() when done;
+///   Cancel                  — handled internally before the handler runs.
+using OverlayActionHandler =
+    std::function<void(OverlayToolbarAction action, Rect regionPhysical)>;
+
 /// D2D/DComp device plumbing (implemented in src/SelectionOverlay.cpp).
 class OverlayRendererDevice;
 
@@ -58,6 +69,32 @@ public:
     /// click-to-capture-window. Ownership stays with the caller; must outlive
     /// the controller (or be reset with setWindowDetector(nullptr)).
     void setWindowDetector(WindowDetectorService* detector);
+
+    /// FR-05: toolbar action callback for the Confirmed state. Set before
+    /// beginSession; kept for the controller's lifetime.
+    void setToolbarActionHandler(OverlayActionHandler handler);
+
+    /// FR-04 auto-path: with a Translate action set, drag-release fires the
+    /// action immediately instead of parking on the toolbar (hotkey
+    /// Ctrl+Alt+T must reach results with no extra click). nullopt = normal
+    /// toolbar flow (Ctrl+Alt+A).
+    void setAutoConfirmAction(std::optional<OverlayToolbarAction> action);
+
+    /// FR-06: show source/translation rows in the docked panel and bring the
+    /// (action-hidden) overlay back up. Safe from any thread (posts to the
+    /// window); no-op when no session is active.
+    void presentResults(std::vector<OverlayTextRow> rows, std::string statusUtf8);
+
+    /// FR-05/06: single notice line in the panel (placeholder actions);
+    /// same threading rules as presentResults.
+    void presentNotice(std::string noticeUtf8);
+
+    /// Hide the overlay and complete the session as cancelled. Safe from any
+    /// thread; no-op when no session is active.
+    void endSession();
+
+    /// True while the Confirmed UI (toolbar/panel) is on screen.
+    bool awaitingAction() const;
 
     /// Inject render state (tests). Production uses internal message pump.
     OverlayState& state();

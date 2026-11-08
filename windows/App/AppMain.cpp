@@ -43,6 +43,7 @@
 #include "tf/CoreTypes.hpp"
 #include "tf/DisplayMonitor.hpp"
 #include "tf/HotkeyManager.hpp"
+#include "tf/ImageExporter.hpp"
 #include "tf/NativeShellInit.hpp"
 #include "tf/OcrEngines.hpp"
 #include "tf/ResultWindow.hpp"
@@ -53,6 +54,7 @@
 
 // Core (translation services)
 #include "EngineBootstrap.hpp"
+#include "PerformanceRecorder.h"
 #include "tf/MTranServerProvider.hpp"
 #include "tf/CoreModels.hpp"
 #include "tf/CredManKeyStore.h"
@@ -82,6 +84,11 @@ const UINT kTaskbarCreated = ::RegisterWindowMessageW(L"TaskbarCreated");
 // Default target language (PRD default: auto → zh). Settings UI lands later;
 // env override: TRANSFRAME_TARGET_LANG=ja etc.
 std::wstring g_targetLang = L"zh";
+
+// FR-26 overlay render mode: replace (default) / append / off. Env override
+// TRANSFRAME_OVERLAY_MODE until the settings page wires a control.
+enum class OverlayRenderMode { Replace, Append, Off };
+OverlayRenderMode g_overlayRenderMode = OverlayRenderMode::Replace;
 
 struct AppState {
     HINSTANCE instance = nullptr;
@@ -299,7 +306,8 @@ std::wstring primaryEngineLabel(tf::TranslationScene scene) {
     return L"MTranServer";
 }
 
-std::string translateTexts(const std::vector<std::string>& texts, tf::TranslationScene scene) {
+std::string translateTexts(const std::vector<std::string>& texts, tf::TranslationScene scene,
+                           std::vector<std::string>* perSegmentOut = nullptr) {
     if (!g.scheduler) return std::string("所有引擎失败\n翻译服务未初始化");
     if (!g.engines) return std::string("所有引擎失败\n翻译服务未初始化");
 
@@ -327,6 +335,15 @@ std::string translateTexts(const std::vector<std::string>& texts, tf::Translatio
         out = g.scheduler->translateOrdered(req);
     }
     std::string joined = joinedFirstResult(out);
+    // FR-26/FR-06: per-segment translations pair 1:1 with the input texts
+    // (the scheduler's bundle preserves request order).
+    if (perSegmentOut && out.isSuccess() && out.bundle && !out.bundle->results.empty()) {
+        *perSegmentOut = std::vector<std::string>();
+        for (const auto& seg : out.bundle->results.front().segments) {
+            perSegmentOut->push_back(seg.translated);
+        }
+        if (perSegmentOut->size() != texts.size()) perSegmentOut->clear();  // defensive
+    }
     if (!joined.empty() && g.history) {
         // History insert (FR-30): best-effort; a store failure never
         // blocks the translation flow.
@@ -355,9 +372,26 @@ std::string translateTexts(const std::vector<std::string>& texts, tf::Translatio
     return failureSummary(out);
 }
 
-/// Screenshot flow: pixels -> OCR -> line merge -> translate -> result popup.
-/// Runs on a worker thread (OCR + HTTP block); the popup shows via PostMessage.
-void runScreenshotPipeline(const tf::CaptureResult& cap) {
+/// FR-40: drop the recorder's report as %LOCALAPPDATA%\TransFrame\perf\
+/// latest.json (atomic). The settings-page export entry (FR-35 高级) reads
+/// this later; failures are silent — instrumentation must never break the
+/// pipeline.
+void writePerfReport() {
+    if (g.localDir.empty()) return;
+    const std::wstring dir = g.localDir + L"\\perf";
+    ::CreateDirectoryW(dir.c_str(), nullptr);  // exists_ok
+    writeTextFileAtomic(dir + L"\\latest.json",
+                        tf::core::PerformanceRecorder::shared().reportJsonString());
+}
+
+/// Screenshot flow: pixels -> OCR -> line merge -> translate -> overlay
+/// composite -> result surface (popup or FR-06 in-place panel).
+/// Runs on a worker thread (OCR + HTTP block); `opId` links this run's FR-40
+/// stage metrics; `inPlace` routes results to the overlay panel instead of
+/// the popup (FR-05 toolbar Translate action). Pipeline ticket handling
+/// stays with the caller (finishPipeline on its own generation).
+void runScreenshotPipeline(const tf::CaptureResult& cap, const std::string& opId,
+                           bool inPlace) {
     // Worker threads have no COM apartment by default; Windows OCR (WinRT)
     // activation fails without one. Idempotent-safe: a mismatched apartment
     // is ignored (the call site owns the threading model).
@@ -393,42 +427,88 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
         }
     }
 
-    auto ocrOutcome = g.ocr->recognize(img);
-    const auto tOcr = std::chrono::steady_clock::now();
+    // OCR with the FR-40 stage scope wrapped tightly around the call; the
+    // pair carries the end timestamp out for the popup status line.
+    const auto ocr = [&] {
+        tf::core::PerfScope scope(tf::core::PerfStage::Ocr, opId);
+        auto out = g.ocr->recognize(img);
+        if (!out.isOk()) scope.fail("ocr");
+        return std::make_pair(std::move(out), std::chrono::steady_clock::now());
+    }();
+    const auto& ocrOutcome = ocr.first;
+    const auto tOcr = ocr.second;
 
     if (!ocrOutcome.isOk()) {
         tf::ResultWindowContent c;
         c.translatedText = L"OCR 失败: " + toWide(ocrOutcome.error.message);
         c.statusLine = L"OCR failed · engine=" + toWide(g.ocr->name());
         c.anchorPhysical = cap.screenshot.sourceDisplay.framePhysical;
-        showResultOnMain(c);
+        if (inPlace && g.overlay->isActive()) {
+            g.overlay->presentNotice(toUtf8(c.translatedText));
+        } else {
+            showResultOnMain(c);
+        }
         return;
     }
 
     // Merge visual lines before translation (Swift parity).
-    std::vector<tf::TextSegment> merged =
-        tf::VisualLineGrouping::mergeLines(ocrOutcome.value.observations);
+    std::vector<tf::TextSegment> merged;
+    {
+        tf::core::PerfScope groupingScope(tf::core::PerfStage::Grouping, opId);
+        merged = tf::VisualLineGrouping::mergeLines(ocrOutcome.value.observations);
+    }
     std::vector<std::string> texts;
     texts.reserve(merged.size());
     for (const auto& seg : merged) texts.push_back(seg.text);
 
     std::string translated;
     std::string errorNote;
+    std::vector<std::string> perSegment;
     if (!texts.empty()) {
-        translated = translateTexts(texts, tf::TranslationScene::Screenshot);
+        tf::core::PerfScope translationScope(tf::core::PerfStage::Translation, opId);
+        translated = translateTexts(texts, tf::TranslationScene::Screenshot, &perSegment);
         if (translated.rfind("所有引擎失败", 0) == 0) {
+            translationScope.fail("allEnginesFailed");
             errorNote = translated;
             translated.clear();
+            perSegment.clear();
         }
     } else {
         translated = "(未识别到文字)";
     }
     const auto tEnd = std::chrono::steady_clock::now();
 
+    // FR-26: composite the translations over the captured pixels (offscreen
+    // D2D pass). On failure the plain capture keeps flowing downstream.
+    tf::PixelBuffer composited;
+    if (g_overlayRenderMode != OverlayRenderMode::Off && perSegment.size() == merged.size() &&
+        !perSegment.empty()) {
+        tf::core::PerfScope renderScope(tf::core::PerfStage::Render, opId);
+        std::vector<tf::OverlaySegment> overlaySegments;
+        overlaySegments.reserve(merged.size());
+        for (std::size_t i = 0; i < merged.size(); ++i) {
+            const auto& bb = merged[i].boundingBox;  // normalized 0..1
+            overlaySegments.push_back(tf::OverlaySegment{
+                tf::Rect{static_cast<std::int64_t>(bb.x * img.width),
+                         static_cast<std::int64_t>(bb.y * img.height),
+                         static_cast<std::int64_t>(bb.width * img.width),
+                         static_cast<std::int64_t>(bb.height * img.height)},
+                perSegment[i]});
+        }
+        composited = tf::renderTranslationOverlay(
+            px, overlaySegments,
+            g_overlayRenderMode == OverlayRenderMode::Append
+                ? tf::OverlayTextMode::AppendBelow
+                : tf::OverlayTextMode::ReplaceOriginal);
+    }
+
     tf::ResultWindowContent c;
     // FR-07 preview entry: share the captured pixels with the result popup
-    // (shared_ptr; the box hands it to the main thread).
-    c.previewImage = std::make_shared<tf::PixelBuffer>(cap.screenshot.pixels);
+    // (shared_ptr; the box hands it to the main thread). With FR-26 the
+    // composited buffer replaces the base, so preview save/copy exports
+    // carry the overlay.
+    c.previewImage = std::make_shared<tf::PixelBuffer>(
+        composited.valid() ? std::move(composited) : px);
     std::string full;
     for (const auto& seg : ocrOutcome.value.observations) {
         if (!full.empty()) full += "\n";
@@ -440,23 +520,59 @@ void runScreenshotPipeline(const tf::CaptureResult& cap) {
     const auto ms = [](auto a, auto b) {
         return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
     };
-    c.statusLine = L"OCR " + std::to_wstring(ms(t0, tOcr)) + L"ms · 翻译 " +
-                   std::to_wstring(ms(tOcr, tEnd)) + L"ms · " + c.engineLabel;
+    const std::wstring timing = L"OCR " + std::to_wstring(ms(t0, tOcr)) + L"ms · 翻译 " +
+                                std::to_wstring(ms(tOcr, tEnd)) + L"ms";
+    c.statusLine = timing + L" · " + c.engineLabel;
     c.anchorPhysical = cap.screenshot.sourceDisplay.framePhysical;
-    showResultOnMain(c);
+
+    if (inPlace) {
+        // FR-06: source/translation rows into the overlay panel. The session
+        // may have been dismissed while this worker ran — fall back to the
+        // popup so the result is never lost.
+        if (g.overlay->isActive()) {
+            std::vector<tf::OverlayTextRow> rows;
+            const std::size_t n =
+                std::min(perSegment.size(), merged.size());
+            rows.reserve(n);
+            for (std::size_t i = 0; i < n; ++i) {
+                rows.push_back(tf::OverlayTextRow{merged[i].text, perSegment[i]});
+            }
+            if (rows.empty() && errorNote.empty()) {
+                g.overlay->presentNotice("(未识别到文字)");
+            } else if (!errorNote.empty()) {
+                g.overlay->presentNotice(errorNote);
+            } else {
+                g.overlay->presentResults(std::move(rows), toUtf8(timing + L" · " + c.engineLabel));
+            }
+        } else {
+            showResultOnMain(c);
+        }
+    } else {
+        showResultOnMain(c);
+    }
+    writePerfReport();  // FR-40: keep perf\latest.json fresh after each run
 }
 
 /// Region flow entry (overlay confirmed): capture region -> pipeline.
 /// Called on the main thread; capture is fast (GDI/WGC sync); the heavy
-/// OCR + translate stages run on a worker thread.
+/// OCR + translate stages run on a worker thread. Drag selections now park
+/// on the FR-05 in-place toolbar; this path handles the remaining completion
+/// cases — window-click capture (runs the popup pipeline) and dismissal
+/// (releases the pipeline ticket).
 void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t gen) {
     if (!result.confirmed) {
-        finishPipeline(gen);  // Esc / focus loss
+        finishPipeline(gen);  // Esc / focus loss / toolbar dismiss
         return;
     }
 
-    const std::optional<tf::DisplayInfo> display =
-        g.displays->displayAt(tf::Point{result.regionPhysical.x, result.regionPhysical.y});
+    const std::string opId = tf::core::Uuid::randomUuid().toString();
+    std::optional<tf::DisplayInfo> display;
+    {
+        tf::core::PerfScope displayScope(tf::core::PerfStage::DisplayLookup, opId);
+        display = g.displays->displayAt(
+            tf::Point{result.regionPhysical.x, result.regionPhysical.y});
+        if (!display) displayScope.fail("noDisplay");
+    }
     if (!display) {
         tf::ResultWindowContent c;
         c.translatedText = L"无法定位该区域所在的显示器";
@@ -465,10 +581,15 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t g
         return;
     }
 
-    tf::CaptureResult cap = g.capture->captureRegion(
-        result.regionPhysical, *display,
-        result.wholeWindow ? tf::CaptureTrigger::WindowClick
-                           : tf::CaptureTrigger::ManualRegion);
+    tf::CaptureResult cap;
+    {
+        tf::core::PerfScope captureScope(tf::core::PerfStage::Capture, opId);
+        cap = g.capture->captureRegion(
+            result.regionPhysical, *display,
+            result.wholeWindow ? tf::CaptureTrigger::WindowClick
+                               : tf::CaptureTrigger::ManualRegion);
+        if (!cap.ok) captureScope.fail(toUtf8(cap.error));
+    }
 
     if (cap.ok) {
         // Anchor the popup to the captured region (not the whole display).
@@ -476,10 +597,117 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t g
     }
     {
         std::lock_guard<std::mutex> lock(g.workersMutex);
-        g.workers.emplace_back([cap = std::move(cap), gen]() mutable {
-            runScreenshotPipeline(cap);
+        g.workers.emplace_back([cap = std::move(cap), gen, opId]() mutable {
+            runScreenshotPipeline(cap, opId, /*inPlace=*/false);
             finishPipeline(gen);
         });
+    }
+}
+
+/// FR-05 toolbar action handler (main thread; overlay window already hidden
+/// by the controller so captures see the clean desktop).
+void onOverlayToolbarAction(tf::OverlayToolbarAction action, tf::Rect region,
+                            std::uint64_t gen) {
+    switch (action) {
+        case tf::OverlayToolbarAction::Cancel:
+            return;  // handled inside the controller
+        case tf::OverlayToolbarAction::Pin:
+            // 置顶管理 lands with the pin-manager worktree; placeholder.
+            g.overlay->presentNotice("置顶管理将在后续版本提供");
+            return;
+        case tf::OverlayToolbarAction::ColorPick:
+            // FR-32 screen eyedropper; placeholder.
+            g.overlay->presentNotice("屏幕取色器将在后续版本提供");
+            return;
+        default:
+            break;
+    }
+
+    // Copy / Save / Translate all need the region captured now.
+    const std::string opId = tf::core::Uuid::randomUuid().toString();
+    const auto display = g.displays->displayAt(tf::Point{region.x, region.y});
+    if (!display) {
+        tf::ResultWindowContent c;
+        c.translatedText = L"无法定位该区域所在的显示器";
+        showResultOnMain(c);
+        g.overlay->endSession();
+        finishPipeline(gen);
+        return;
+    }
+    tf::CaptureResult cap;
+    {
+        tf::core::PerfScope captureScope(tf::core::PerfStage::Capture, opId);
+        cap = g.capture->captureRegion(region, *display,
+                                       tf::CaptureTrigger::ManualRegion);
+        if (!cap.ok) captureScope.fail(toUtf8(cap.error));
+    }
+    if (!cap.ok) {
+        tf::ResultWindowContent c;
+        c.translatedText = L"截图失败: " + cap.error;
+        c.statusLine = L"Capture: failed";
+        showResultOnMain(c);
+        g.overlay->endSession();
+        finishPipeline(gen);
+        return;
+    }
+
+    switch (action) {
+        case tf::OverlayToolbarAction::Copy: {
+            // FR-05 复制: region pixels to the clipboard as CF_DIB.
+            tf::copyBitmapToClipboard(g.hwnd, cap.screenshot.pixels);
+            g.overlay->endSession();
+            finishPipeline(gen);
+            return;
+        }
+        case tf::OverlayToolbarAction::Save: {
+            // FR-05 保存: PNG into the user's Pictures\TransFrame (PRD FR-12
+            // default location; the save dialog flow lives in the preview
+            // window).
+            PWSTR pictures = nullptr;
+            std::wstring dir = L"C:\\Users\\Public\\Pictures";
+            if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr,
+                                                 &pictures))) {
+                dir = std::wstring(pictures) + L"\\TransFrame";
+                ::CoTaskMemFree(pictures);
+            }
+            ::CreateDirectoryW(dir.c_str(), nullptr);
+            SYSTEMTIME st{};
+            ::GetLocalTime(&st);
+            wchar_t name[64]{};
+            swprintf_s(name, L"TransFrame_%04u%02u%02u_%02u%02u%02u.png",
+                       static_cast<unsigned>(st.wYear), static_cast<unsigned>(st.wMonth),
+                       static_cast<unsigned>(st.wDay), static_cast<unsigned>(st.wHour),
+                       static_cast<unsigned>(st.wMinute),
+                       static_cast<unsigned>(st.wSecond));
+            const std::wstring path = dir + L"\\" + name;
+            std::wstring error;
+            if (!tf::encodeToFile(cap.screenshot.pixels, path, tf::ExportFormat::Png,
+                                  100, error)) {
+                tf::ResultWindowContent c;
+                c.translatedText = L"保存失败: " + error;
+                showResultOnMain(c);
+            }
+            g.overlay->endSession();
+            finishPipeline(gen);
+            return;
+        }
+        case tf::OverlayToolbarAction::Translate: {
+            // FR-04/FR-06: full pipeline on a worker; results land in the
+            // overlay's docked panel (the session stays open until the user
+            // dismisses it, which fires the completion → finishPipeline).
+            cap.screenshot.sourceDisplay.framePhysical = region;
+            {
+                std::lock_guard<std::mutex> lock(g.workersMutex);
+                g.workers.emplace_back([cap = std::move(cap), opId]() mutable {
+                    runScreenshotPipeline(cap, opId, /*inPlace=*/true);
+                });
+            }
+            return;
+        }
+        default:
+            g.overlay->endSession();
+            finishPipeline(gen);
+            return;
     }
 }
 
@@ -495,12 +723,17 @@ void onFullScreen(std::uint64_t gen) {
         finishPipeline(gen);
         return;
     }
-    tf::CaptureResult cap =
-        g.capture->captureDisplay(*primary, tf::CaptureTrigger::HotkeyFullScreen);
+    const std::string opId = tf::core::Uuid::randomUuid().toString();
+    tf::CaptureResult cap;
+    {
+        tf::core::PerfScope captureScope(tf::core::PerfStage::Capture, opId);
+        cap = g.capture->captureDisplay(*primary, tf::CaptureTrigger::HotkeyFullScreen);
+        if (!cap.ok) captureScope.fail(toUtf8(cap.error));
+    }
     {
         std::lock_guard<std::mutex> lock(g.workersMutex);
-        g.workers.emplace_back([cap = std::move(cap), gen]() mutable {
-            runScreenshotPipeline(cap);
+        g.workers.emplace_back([cap = std::move(cap), gen, opId]() mutable {
+            runScreenshotPipeline(cap, opId, /*inPlace=*/false);
             finishPipeline(gen);
         });
     }
@@ -649,10 +882,22 @@ void finishPipeline(std::uint64_t gen) {
     if (g.pipelineGeneration.load() == gen) g.pipelineBusy = false;
 }
 
-void startRegionCapture() {
+void startRegionCapture(bool autoTranslate) {
     const auto gen = tryBeginPipeline();
     if (!gen) return;
     const std::uint64_t myGen = *gen;
+    // FR-05: toolbar actions run the region pipeline while the session stays
+    // open; the completion fires only when the user dismisses the UI.
+    g.overlay->setToolbarActionHandler([myGen](tf::OverlayToolbarAction action,
+                                               tf::Rect region) {
+        // Main thread (overlay pumps our message loop).
+        onOverlayToolbarAction(action, region, myGen);
+    });
+    // FR-04: Ctrl+Alt+T reaches results with no extra click; Ctrl+Alt+A
+    // parks on the in-place toolbar instead.
+    g.overlay->setAutoConfirmAction(
+        autoTranslate ? std::optional(tf::OverlayToolbarAction::Translate)
+                      : std::nullopt);
     const bool began = g.overlay->beginSession(
         [myGen](tf::SelectionOverlayResult result) {
             // Runs on the main thread (overlay pumps our message loop).
@@ -678,7 +923,7 @@ void dispatchAction(tf::HotkeyAction action) {
             break;
         case tf::HotkeyAction::Region:
         case tf::HotkeyAction::Translate:
-            startRegionCapture();
+            startRegionCapture(action == tf::HotkeyAction::Translate);
             break;
         case tf::HotkeyAction::TextSelection:
         case tf::HotkeyAction::TranslateInsert:
@@ -701,8 +946,7 @@ void onTrayCommand(tf::TrayCommand command, int /*recentIndex*/) {
     switch (command) {
         case tf::TrayCommand::FullScreen: dispatchAction(tf::HotkeyAction::FullScreen); break;
         case tf::TrayCommand::Region:     dispatchAction(tf::HotkeyAction::Region); break;
-        case tf::TrayCommand::Translate:  dispatchAction(tf::HotkeyAction::Translate); break;
-        case tf::TrayCommand::TextSelection: dispatchAction(tf::HotkeyAction::TextSelection); break;
+        case tf::TrayCommand::Translate:  dispatchAction(tf::HotkeyAction::Translate); break;        case tf::TrayCommand::TextSelection: dispatchAction(tf::HotkeyAction::TextSelection); break;
         case tf::TrayCommand::TranslateInsert: dispatchAction(tf::HotkeyAction::TranslateInsert); break;
         case tf::TrayCommand::CheckUpdates:
             tf::checkForAppUpdate(g.hwnd);
@@ -874,6 +1118,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     if (wchar_t buf[16]{}; ::GetEnvironmentVariableW(L"TRANSFRAME_TARGET_LANG", buf, 16)) {
         g_targetLang = buf;
+    }
+    // FR-26 overlay mode (replace default) until the settings page lands.
+    if (wchar_t mode[16]{}; ::GetEnvironmentVariableW(L"TRANSFRAME_OVERLAY_MODE", mode, 16)) {
+        if (_wcsicmp(mode, L"append") == 0) g_overlayRenderMode = OverlayRenderMode::Append;
+        else if (_wcsicmp(mode, L"off") == 0) g_overlayRenderMode = OverlayRenderMode::Off;
+        else g_overlayRenderMode = OverlayRenderMode::Replace;
     }
 
     // History store (FR-30): SQLite/WAL under %LOCALAPPDATA%\TransFrame.

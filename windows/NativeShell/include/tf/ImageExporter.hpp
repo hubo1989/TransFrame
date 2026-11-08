@@ -10,6 +10,7 @@
 #define TF_IMAGE_EXPORTER_HPP
 
 #include "tf/CoreTypes.hpp"
+#include "tf/OverlayRenderer.hpp"
 
 #include "AnnotationDocument.h"
 
@@ -26,6 +27,17 @@ namespace tf {
 /// what you save. Uses the rt's current antialias mode.
 void drawAnnotations(ID2D1RenderTarget& rt,
                      const std::vector<tf::core::Annotation>& annotations);
+
+/// FR-26: composite translation overlay segments onto the base pixels via an
+/// offscreen D2D (WIC-backed) render pass, producing a new BGRA buffer with
+/// identical dimensions — the strategy decisions (background sampling,
+/// adaptive colors, font fit, truncation) come from the portable, tested
+/// planOverlayItem(). ReplaceOriginal paints inside each bbox; AppendBelow
+/// adds a band under each line. Returns an invalid buffer on D2D/WIC failure
+/// (callers keep the un-composited base).
+PixelBuffer renderTranslationOverlay(const PixelBuffer& base,
+                                     const std::vector<OverlaySegment>& segments,
+                                     OverlayTextMode mode);
 
 /// True when the system WIC catalog exposes a HEIF container encoder.
 /// Probed per call (cheap COM scan); call sites may cache.
