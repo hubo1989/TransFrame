@@ -105,3 +105,9 @@ scripts/e2e/eventsynth
 windows/dist/
 __pycache__/
 hubert/
+
+# Manual smoke artifacts (built and run from the repo root)
+/smoke_*.exe
+/smoke_*.obj
+/smoke_*.png
+/Microsoft.WindowsAppRuntime.Bootstrap.dll
