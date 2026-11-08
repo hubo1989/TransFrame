@@ -21,6 +21,7 @@
 #include <wincodec.h>
 #include <d2d1helper.h>
 #include <dwrite.h>
+#include <objidl.h>  // IStream / CreateStreamOnHGlobal (encodePngToMemory)
 
 #include <algorithm>
 #include <cwchar>
@@ -30,6 +31,7 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
+#pragma comment(lib, "ole32.lib")  // CreateStreamOnHGlobal
 
 namespace tf {
 
@@ -612,6 +614,54 @@ bool copyBitmapToClipboard(HWND owner, const PixelBuffer& pixels) {
     }
     ::CloseClipboard();
     return ok;
+}
+
+std::vector<std::uint8_t> encodePngToMemory(const PixelBuffer& pixels) {
+    std::vector<std::uint8_t> out;
+    if (!pixels.valid()) return out;
+
+    ComPtr<IWICImagingFactory> wic = wicFactory();
+    if (!wic) return out;
+    ComPtr<IWICBitmapEncoder> encoder;
+    if (FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder))) {
+        return out;
+    }
+    // Encode onto a HGLOBAL-backed IStream, then snapshot the bytes.
+    ComPtr<IStream> stream;
+    if (FAILED(::CreateStreamOnHGlobal(nullptr, /*deleteOnRelease=*/TRUE,
+                                       &stream)) ||
+        FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache))) {
+        return out;
+    }
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IPropertyBag2> bag;
+    if (FAILED(encoder->CreateNewFrame(&frame, &bag))) return out;
+    if (FAILED(frame->Initialize(bag.Get()))) return out;
+    if (FAILED(frame->SetSize(pixels.width, pixels.height))) return out;
+    ComPtr<IWICBitmap> source;
+    const UINT stride = static_cast<UINT>(pixels.stride);
+    if (FAILED(wic->CreateBitmapFromMemory(pixels.width, pixels.height,
+                                           GUID_WICPixelFormat32bppBGRA, stride,
+                                           static_cast<UINT>(pixels.byteSize()),
+                                           pixels.data.get(), &source))) {
+        return out;
+    }
+    if (FAILED(frame->WriteSource(source.Get(), nullptr))) return out;
+    if (FAILED(frame->Commit()) || FAILED(encoder->Commit())) return out;
+
+    STATSTG stat{};
+    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME)) || stat.cbSize.QuadPart == 0) {
+        return out;
+    }
+    LARGE_INTEGER seek0{};
+    if (FAILED(stream->Seek(seek0, STREAM_SEEK_SET, nullptr))) return out;
+    out.resize(static_cast<std::size_t>(stat.cbSize.QuadPart));
+    ULONG read = 0;
+    if (FAILED(stream->Read(out.data(), static_cast<ULONG>(out.size()), &read)) ||
+        read != out.size()) {
+        out.clear();
+    }
+    return out;
 }
 
 }  // namespace tf
