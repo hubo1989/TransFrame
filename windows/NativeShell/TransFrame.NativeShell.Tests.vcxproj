@@ -39,14 +39,20 @@
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
     <IncludePath>$(ProjectDir)tests;$(ProjectDir)include;$(IncludePath)</IncludePath>
-    <LanguageStandard>stdcpp20</LanguageStandard>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
     <ClCompile>
+      <!-- LanguageStandard lives in ItemDefinitionGroup (a PropertyGroup
+           placement is silently ignored and the TU set falls back to C++14,
+           which Geo.hpp's defaulted comparisons reject). -->
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- Match the lib TU set: UTF-8 sources (headers carry Chinese
+           comments) — without it MSVC reads them as the ANSI code page. -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
 
