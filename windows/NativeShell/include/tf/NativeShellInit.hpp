@@ -15,8 +15,8 @@
 
 namespace tf {
 
-/// WGC -> GDI capture chain (PRD §3.2; DXGI engine lands with the shared
-/// D3D device singleton).
+/// WGC -> DXGI Desktop Duplication -> GDI capture chain (PRD §3.2). Engines
+/// share one process-wide D3D11 device cache (src/CaptureD3dDevice.h).
 std::unique_ptr<CaptureService> makeCaptureService();
 std::unique_ptr<DisplayMonitorService> makeDisplayMonitorService();
 std::unique_ptr<WindowDetectorService> makeWindowDetectorService(unsigned long excludePid);
