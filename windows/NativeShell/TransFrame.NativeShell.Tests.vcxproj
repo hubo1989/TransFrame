@@ -38,7 +38,7 @@
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IncludePath>$(ProjectDir)tests;$(ProjectDir)include;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)tests;$(ProjectDir)include;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor;$(IncludePath)</IncludePath>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -69,11 +69,17 @@
     <ClCompile Include="tests\OverlayRenderStrategyTests.cpp"/>
     <ClCompile Include="tests\TrayMenuTests.cpp"/>
     <ClCompile Include="tests\PinnedWindowManagerTests.cpp"/>
+    <!-- wt-uploads-picker: FR-32/FR-41 pure helpers -->
+    <ClCompile Include="tests\ColorPickerHistoryTests.cpp"/>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\NativeShell\TransFrame.NativeShell.vcxproj">
       <Project>{B0000000-0000-0000-0000-00000000000B}</Project>
+    </ProjectReference>
+    <!-- wt-uploads-picker: ColorHistoryWindow pulls core::HistoryStore -->
+    <ProjectReference Include="..\Core\TransFrame.Core.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000A}</Project>
     </ProjectReference>
   </ItemGroup>
 

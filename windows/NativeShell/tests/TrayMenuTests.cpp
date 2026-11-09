@@ -24,11 +24,21 @@ TEST_CASE("menu contains all ten commands plus recent shots", "[tray][menu]") {
     CHECK(has(TrayCommand::Translate));
     CHECK(has(TrayCommand::TextSelection));
     CHECK(has(TrayCommand::TranslateInsert));
+    CHECK(has(TrayCommand::PickColor));       // FR-32 eyedropper entry
+    CHECK(has(TrayCommand::ColorHistory));    // FR-41 after 历史记录
     CHECK(has(TrayCommand::PinnedManager));
     CHECK(has(TrayCommand::History));
     CHECK(has(TrayCommand::Settings));
     CHECK(has(TrayCommand::CheckUpdates));
     CHECK(has(TrayCommand::Exit));
+
+    // 取色历史 sits right after 历史记录 (spec §4.1 tray placement).
+    auto itHistory = std::find_if(items.begin(), items.end(), [](const TrayMenuItem& i) {
+        return i.command == TrayCommand::History;
+    });
+    REQUIRE(itHistory != items.end());
+    REQUIRE(itHistory + 1 != items.end());
+    CHECK((itHistory + 1)->command == TrayCommand::ColorHistory);
 }
 
 TEST_CASE("recent shots appear in order with correct indices", "[tray][recent]") {
@@ -69,7 +79,7 @@ TEST_CASE("no recent shots -> no RecentShot entries, menu still complete",
         return i.command == TrayCommand::RecentShot;
     });
     CHECK(count == 0);
-    CHECK(items.size() == 10);
+    CHECK(items.size() == 12);  // 6 actions + placeholder + history/color-history + 3 tail
 }
 
 TEST_CASE("capture commands are enabled; PinnedManager stays a disabled placeholder",
@@ -104,9 +114,9 @@ TEST_CASE("popup IDs dispatch first and last actions without offset", "[tray][me
     CHECK(trayMenuItemForId(items, 999) == nullptr);
     REQUIRE(trayMenuItemForId(items, 1));
     CHECK(trayMenuItemForId(items, 1)->command == TrayCommand::FullScreen);
-    REQUIRE(trayMenuItemForId(items, 10));
-    CHECK(trayMenuItemForId(items, 10)->command == TrayCommand::Exit);
-    CHECK(trayMenuItemForId(items, 6) == nullptr); // disabled placeholder
-    REQUIRE(trayMenuItemForId(items, 9));
-    CHECK(trayMenuItemForId(items, 9)->command == TrayCommand::CheckUpdates);
+    REQUIRE(trayMenuItemForId(items, 12));
+    CHECK(trayMenuItemForId(items, 12)->command == TrayCommand::Exit);
+    CHECK(trayMenuItemForId(items, 7) == nullptr);  // disabled placeholder (PinnedManager)
+    REQUIRE(trayMenuItemForId(items, 11));
+    CHECK(trayMenuItemForId(items, 11)->command == TrayCommand::CheckUpdates);
 }

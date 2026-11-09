@@ -79,6 +79,7 @@
     <ClCompile Include="EngineConfigStoreTests.cpp" />
     <ClCompile Include="HotkeySettingsStoreTests.cpp" />
     <ClCompile Include="HistoryStoreTests.cpp" />
+    <ClCompile Include="ImageUploadProviderTests.cpp" />
 
     <!-- FR-35 six-tab settings: page ViewModels (pure C++, WinRT-free) +
          their implementation TUs. UI headers live in ../UI/&lt;Page&gt;,

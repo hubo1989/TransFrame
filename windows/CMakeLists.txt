@@ -40,6 +40,7 @@ set(TEST_SRC
     Tests/HotkeySettingsStoreTests.cpp
     Tests/HistoryStoreTests.cpp
     Tests/PerformanceRecorderTests.cpp
+    Tests/ImageUploadProviderTests.cpp
     Tests/GeneralPageViewModelTests.cpp
     Tests/LanguagePageViewModelTests.cpp
     Tests/ShortcutsPageViewModelTests.cpp

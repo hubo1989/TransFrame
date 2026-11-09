@@ -69,6 +69,24 @@ public:
     /// Favorite row count (history window capacity line).
     std::int64_t favoriteCount() const;
 
+    // --- additive queries (FR-32/FR-41 color picker + color history) ---
+
+    /// Color-category entries for the color history window (spec §5.2 API
+    /// shape, macOS colorEntries(matching:favoritesOnly:) parity). `matching`
+    /// LIKE-matches the HEX (translated_text; ASCII case-insensitive, so hex
+    /// fragments work unchanged), favoritesOnly stacks on top. Newest first.
+    std::vector<TranslationHistory> colorEntries(const std::string& matching = "",
+                                                 bool favoritesOnly = false,
+                                                 int limit = 500) const;
+
+    /// Color-category row count (capacity display).
+    std::int64_t colorCount() const;
+
+    /// Delete every entry of one category (spec §4.3 清空全部: only the color
+    /// category is ever cleared; other history stays untouched). Returns the
+    /// number of removed rows; -1 with error set on failure.
+    std::int64_t removeCategory(HistoryCategory category, std::string* error = nullptr);
+
     /// Current schema version recorded in the migration table.
     static constexpr int kSchemaVersion = 1;
 

@@ -39,6 +39,10 @@ public:
     /// owns the PinnedWindowManager wiring; the preview stays decoupled.
     void setPinHandler(std::function<void()> handler);
 
+    /// FR-31 hook: fires with the composited (annotated) pixels when the
+    /// toolbar 上传 button is clicked. AppMain owns the upload provider.
+    void setUploadHandler(std::function<void(std::shared_ptr<PixelBuffer>)> handler);
+
     void close();
     bool isVisible() const;
 

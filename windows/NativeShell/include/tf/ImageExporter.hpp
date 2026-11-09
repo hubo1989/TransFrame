@@ -58,6 +58,11 @@ PixelBuffer renderComposited(const PixelBuffer& base,
 /// Opens/closes the clipboard around `owner`.
 bool copyBitmapToClipboard(HWND owner, const PixelBuffer& pixels);
 
+/// FR-31: in-memory PNG encode (image-host upload payload; same WIC pixel
+/// path as encodeToFile so an upload matches a save of the same buffer).
+/// Returns an empty vector on failure.
+std::vector<std::uint8_t> encodePngToMemory(const PixelBuffer& pixels);
+
 }  // namespace tf
 
 #endif  // TF_IMAGE_EXPORTER_HPP

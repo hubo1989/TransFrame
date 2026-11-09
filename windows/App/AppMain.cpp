@@ -71,6 +71,12 @@
 #include "tf/HotkeySettingsStore.hpp"
 #include "../UI/SettingsShell/SettingsWindowWinUI.hpp"
 
+// FR-31/32/41 (wt-uploads-picker): image upload + eyedropper + color history.
+#include "tf/ColorPicker.hpp"
+#include "tf/ColorHistoryWindow.hpp"
+#include "tf/ImageUploadProvider.hpp"
+#include "tf/ThumbnailCodec.hpp"
+
 #include <fstream>
 #include <shlobj.h>
 #include "tf/WinHttpTransport.h"
@@ -137,6 +143,7 @@ struct AppState {
     // mutex); the windows are main-thread-only like every other HWND.
     std::unique_ptr<tf::core::HistoryStore> history;
     std::unique_ptr<tf::HistoryWindowController> historyWindow;
+    std::unique_ptr<tf::ColorHistoryWindowController> colorHistoryWindow;
 
     // FR-14: last capture handed to the preview window (贴图 pins it in place).
     std::shared_ptr<tf::PixelBuffer> lastCapturePixels;
@@ -252,6 +259,16 @@ bool writeTextFileAtomic(const std::wstring& path, const std::string& content) {
 // ---------------------------------------------------------------------------
 
 constexpr UINT kShowResult = WM_APP + 0x101;
+constexpr UINT kUploadDone = WM_APP + 0x104;  // FR-31 worker finished an upload
+
+/// Worker -> main hop for a finished upload (clipboard + history + notice
+/// all run on the UI thread; the worker only talks HTTP).
+struct UploadDoneBox {
+    bool ok = false;
+    std::wstring message;  // user-facing notice
+    std::wstring clipboard;  // URL or markdown, written on success
+    tf::core::TranslationHistory entry{};  // upload history record (ok only)
+};
 
 /// Defined below (ResultBox plumbing); the tray helpers forward to it.
 void showResultOnMain(const tf::ResultWindowContent& c);
@@ -665,6 +682,183 @@ void onRegionConfirmed(const tf::SelectionOverlayResult& result, std::uint64_t g
     }
 }
 
+/// FR-32 eyedropper entry: one session shared by tray menu, overlay toolbar
+/// and (later) hotkey. Completion writes the HEX to the clipboard, records
+/// the color history entry (ColorPickFlow.swift parity), live-updates an open
+/// color history window, and toasts via the tray balloon — clicking the
+/// balloon opens the color history window (spec §4.1 entry #2).
+void startColorPickSession() {
+    if (!tf::ColorPickerController::instance().beginSession(
+            [](const tf::ColorPickResult& result) {
+                if (!result.picked) return;
+                // Clipboard: CF_UNICODETEXT "#RRGGBB" (main thread already).
+                const std::wstring hexW(result.hex.begin(), result.hex.end());
+                if (::OpenClipboard(g.hwnd)) {
+                    if (::EmptyClipboard()) {
+                        const std::size_t bytes = (hexW.size() + 1) * sizeof(wchar_t);
+                        if (HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+                            if (void* p = ::GlobalLock(mem)) {
+                                std::memcpy(p, hexW.c_str(), bytes);
+                                ::GlobalUnlock(mem);
+                                if (!::SetClipboardData(CF_UNICODETEXT, mem)) {
+                                    ::GlobalFree(mem);
+                                }
+                            } else {
+                                ::GlobalFree(mem);
+                            }
+                        }
+                    }
+                    ::CloseClipboard();
+                }
+                if (g.history) {
+                    auto entry = tf::core::TranslationHistory::colorPicked(result.hex);
+                    entry.timestamp = tf::core::now();
+                    std::string err;
+                    g.history->insert(entry, &err);
+                    if (!err.empty()) {
+                        ::OutputDebugStringA("TransFrame: color history insert failed: ");
+                        ::OutputDebugStringA(err.c_str());
+                        ::OutputDebugStringA("\n");
+                    }
+                }
+                if (g.colorHistoryWindow) g.colorHistoryWindow->notifyColorPicked();
+                if (g.tray) {
+                    g.tray->showBalloon(L"已复制颜色",
+                                        std::wstring(L"已复制 ") + hexW + L"（点击查看取色历史）");
+                }
+            })) {
+        // Session already active or the lens window is unavailable.
+        ::OutputDebugStringW(L"TransFrame: color picker unavailable or already active\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FR-31 image upload (worker thread; result hops back via kUploadDone)
+// ---------------------------------------------------------------------------
+
+/// Secrets: CredMan under "TransFrame/uploads/<channel>"; a legacy plaintext
+/// value in settings.json migrates into CredMan on first read (then stays
+/// out of the JSON, matching the sanitized save path).
+tf::ImageUploadSecrets loadUploadSecrets(const tf::ImageUploadConfig& config,
+                                         const tf::ImageUploadSecrets& legacy) {
+    tf::ImageUploadSecrets out;
+    tf::CredManKeyStore cred;
+    for (auto channel : {tf::ImageUploadChannel::AliyunOSS, tf::ImageUploadChannel::TencentCOS,
+                         tf::ImageUploadChannel::QiniuKodo}) {
+        const std::string account = tf::uploadCredentialAccount(channel);
+        std::string secret;
+        if (const auto stored = cred.load(account); stored && !stored->apiKey.empty()) {
+            secret = stored->apiKey;
+        } else if (!legacy.secretFor(channel).empty()) {
+            secret = legacy.secretFor(channel);
+            cred.save(account, tf::StoredCredentials{secret, "", {}});
+        }
+        (void)config;
+        switch (channel) {
+            case tf::ImageUploadChannel::AliyunOSS: out.ossAccessKeySecret = secret; break;
+            case tf::ImageUploadChannel::TencentCOS: out.cosSecretKey = secret; break;
+            case tf::ImageUploadChannel::QiniuKodo: out.kodoSecretKey = secret; break;
+            default: break;
+        }
+    }
+    return out;
+}
+
+void postUploadDone(bool ok, const std::wstring& message, const std::wstring& clipboard,
+                    tf::core::TranslationHistory entry = {}) {
+    auto* box = new UploadDoneBox{ok, message, clipboard, std::move(entry)};
+    ::PostMessageW(g.hwnd, kUploadDone, 0, reinterpret_cast<LPARAM>(box));
+}
+
+/// ProviderError -> readable zh text (category label + provider message).
+std::wstring describeUploadError(const tf::ProviderError& e) {
+    const wchar_t* cat = L"错误";
+    switch (e.category) {
+        case tf::ErrorCategory::Network: cat = L"网络错误"; break;
+        case tf::ErrorCategory::Quota: cat = L"配额/限流"; break;
+        case tf::ErrorCategory::Auth: cat = L"认证失败"; break;
+        case tf::ErrorCategory::Content: cat = L"响应异常"; break;
+        case tf::ErrorCategory::Configuration: cat = L"配置缺失"; break;
+    }
+    return std::wstring(cat) + L"：" + toWide(e.message);
+}
+
+void runImageUpload(std::shared_ptr<tf::PixelBuffer> pixels) {
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (...) {
+    }
+    if (!pixels || !pixels->valid()) {
+        postUploadDone(false, L"没有可上传的图像数据", L"");
+        return;
+    }
+    const std::vector<std::uint8_t> png = tf::encodePngToMemory(*pixels);
+    if (png.empty()) {
+        postUploadDone(false, L"PNG 编码失败（WIC）", L"");
+        return;
+    }
+    const std::string pngBytes(png.begin(), png.end());
+
+    // Config: settings.json section + CredMan secrets.
+    tf::ImageUploadConfig config;
+    tf::ImageUploadSecrets legacy;
+    if (const auto settings = readTextFile(g.roamingDir + L"\\settings.json")) {
+        config = tf::parseImageUploadConfig(*settings, &legacy);
+    }
+    const tf::ImageUploadSecrets secrets = loadUploadSecrets(config, legacy);
+
+    // Filename: TF_<epoch>_<6-char tag>.png (Swift uploadFilename parity).
+    const std::string uuid = tf::core::Uuid::randomUuid().toString();
+    std::string tag;
+    for (const char c : uuid) {
+        if (c != '-') tag += c;
+        if (tag.size() == 6) break;
+    }
+    const std::int64_t nowEpoch = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::string filename = tf::uploadFilename(nowEpoch, tag);
+
+    // PicGo needs a temp file; the writer/remover keep it out of the
+    // protocol layer. %TEMP%\TransFrameUpload\<filename>.
+    wchar_t tempRoot[MAX_PATH]{};
+    ::GetTempPathW(MAX_PATH, tempRoot);
+    std::filesystem::path tempDir = std::filesystem::path(tempRoot) / L"TransFrameUpload";
+    std::error_code ec;
+    std::filesystem::create_directories(tempDir, ec);
+    const std::filesystem::path tempFile = tempDir / std::filesystem::path(filename);
+
+    tf::WinHttpTransport transport;
+    tf::ImageUploadService service(
+        std::shared_ptr<tf::IHttpTransport>(&transport, [](tf::IHttpTransport*) {}),
+        [&](const std::string& name, std::string_view bytes) {
+            const auto path = tempDir / std::filesystem::path(name);
+            if (bytes.empty()) return std::string();  // not a write request
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            if (!out) return std::string();
+            const std::u8string u8path = path.u8string();
+            return std::string(u8path.begin(), u8path.end());
+        },
+        [](const std::string& pathUtf8) {
+            std::error_code del;
+            std::filesystem::remove(
+                std::filesystem::path(reinterpret_cast<const char8_t*>(pathUtf8.c_str())), del);
+        });
+
+    const auto outcome = service.upload(config, secrets, pngBytes, filename, nowEpoch);
+    if (outcome.error.has_value()) {
+        postUploadDone(false, L"上传失败：" + describeUploadError(*outcome.error), L"");
+        return;
+    }
+    const tf::ImageUploadResult& result = *outcome.result;
+    auto entry = tf::core::TranslationHistory::uploaded(
+        result.markdown, result.url, tf::imageUploadChannelDisplayName(result.provider));
+    entry.timestamp = tf::core::now();
+    const std::string clip = tf::ImageUploadService::clipboardText(config, result);
+    postUploadDone(true, L"上传成功，已复制到剪贴板：\n" + toWide(result.url),
+                   toWide(clip), entry);
+}
+
 /// FR-05 toolbar action handler (main thread; overlay window already hidden
 /// by the controller so captures see the clean desktop).
 void onOverlayToolbarAction(tf::OverlayToolbarAction action, tf::Rect region,
@@ -677,8 +871,7 @@ void onOverlayToolbarAction(tf::OverlayToolbarAction action, tf::Rect region,
             g.overlay->presentNotice("置顶管理将在后续版本提供");
             return;
         case tf::OverlayToolbarAction::ColorPick:
-            // FR-32 screen eyedropper; placeholder.
-            g.overlay->presentNotice("屏幕取色器将在后续版本提供");
+            startColorPickSession();  // FR-32
             return;
         default:
             break;
@@ -1016,6 +1209,13 @@ void onTrayCommand(tf::TrayCommand command, int payloadIndex) {
         case tf::TrayCommand::History:
             if (g.historyWindow) g.historyWindow->show();
             break;
+        case tf::TrayCommand::ColorHistory:  // FR-41
+            if (g.colorHistoryWindow) g.colorHistoryWindow->show();
+            else if (g.historyWindow) g.historyWindow->show();
+            break;
+        case tf::TrayCommand::PickColor:  // FR-32
+            startColorPickSession();
+            break;
         case tf::TrayCommand::Settings:
             tf::ui::OpenSettingsWindow(g.hwnd);
             break;
@@ -1063,7 +1263,47 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kRefreshTrayRecents:
             refreshTrayRecents();
             return 0;
+        case kUploadDone: {
+            // FR-31: clipboard + history + notice, all on the UI thread.
+            auto* box = reinterpret_cast<UploadDoneBox*>(lp);
+            if (box) {
+                if (box->ok) {
+                    if (::OpenClipboard(g.hwnd)) {
+                        if (::EmptyClipboard()) {
+                            const std::size_t bytes =
+                                (box->clipboard.size() + 1) * sizeof(wchar_t);
+                            if (HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+                                if (void* p = ::GlobalLock(mem)) {
+                                    std::memcpy(p, box->clipboard.c_str(), bytes);
+                                    ::GlobalUnlock(mem);
+                                    if (!::SetClipboardData(CF_UNICODETEXT, mem)) {
+                                        ::GlobalFree(mem);
+                                    }
+                                } else {
+                                    ::GlobalFree(mem);
+                                }
+                            }
+                        }
+                        ::CloseClipboard();
+                    }
+                    if (g.history) {
+                        std::string err;
+                        g.history->insert(box->entry, &err);
+                    }
+                }
+                ::MessageBoxW(g.hwnd, box->message.c_str(),
+                              box->ok ? L"图床上传" : L"图床上传失败",
+                              box->ok ? MB_ICONINFORMATION : MB_ICONERROR);
+                delete box;
+            }
+            return 0;
+        }
         case WM_APP + 0x5446:  // tray callback ('TF' — matches TrayIcon.cpp)
+            if (lp == NIN_BALLOONUSERCLICK) {
+                // Picker-completion toast jump entry (spec §4.1 entry #2).
+                if (g.colorHistoryWindow) g.colorHistoryWindow->show();
+                return 0;
+            }
             if (lp == WM_LBUTTONUP || lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
                 g.tray->showMenuAtCursor();
             }
@@ -1214,6 +1454,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         ::OutputDebugStringA("\n");
     }
 
+    // FR-41 color history window: same store as the history window (color
+    // entries only, spec §3). FR-32 eyedropper lens: precreate so the tray
+    // entry opens in one DWM frame (same contract as the selection overlay).
+    if (g.history) {
+        g.colorHistoryWindow =
+            std::make_unique<tf::ColorHistoryWindowController>(g.history.get());
+    }
+    tf::ColorPickerController::instance().precreate();
+
     // Tray icon (FR-34): callbacks route to the hidden message window.
     g.tray = std::make_unique<tf::TrayIconService>(onTrayCommand);
     g.tray->setCallbackWindow(g.hwnd);
@@ -1233,6 +1482,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     tf::PinnedWindowManager::instance().setOnChanged([] { refreshTrayPinned(); });
     refreshTrayPinned();
     refreshTrayRecents();
+
+    // FR-31 图床上传: preview 上传 button encodes + ships the composited
+    // pixels through the active provider (worker thread; result via kUploadDone).
+    tf::PreviewWindowController::instance().setUploadHandler(
+        [](std::shared_ptr<tf::PixelBuffer> pixels) {
+            {
+                std::lock_guard<std::mutex> lock(g.workersMutex);
+                g.workers.emplace_back(
+                    [px = std::move(pixels)]() mutable { runImageUpload(std::move(px)); });
+            }
+        });
 
     // Hotkeys (FR-33): persisted specs (settings.json) on top of the PRD
     // defaults; conflicts surface in the settings hotkey page.

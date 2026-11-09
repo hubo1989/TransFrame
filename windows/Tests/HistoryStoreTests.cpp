@@ -247,3 +247,59 @@ TEST_CASE("HistoryStore favoriteCount tracks toggles", "[history][sqlite]") {
     REQUIRE(store->setFavorite(b.id.toString(), false));
     CHECK(store->favoriteCount() == 1);
 }
+
+// ---------------------------------------------------------------------------
+// FR-32/FR-41 additive queries: colorEntries / colorCount / removeCategory.
+// ---------------------------------------------------------------------------
+TEST_CASE("HistoryStore colorEntries filters by HEX fragment and favorites",
+          "[history][sqlite][color]") {
+    TempDb db;
+    auto store = HistoryStore::open(db.path());
+    REQUIRE(store != nullptr);
+    const TranslationHistory red = makeEntry("Color Picked", "#FF3B30", HistoryCategory::Color);
+    const TranslationHistory navy = makeEntry("Color Picked", "#1A2B3C", HistoryCategory::Color, true);
+    const TranslationHistory sky = makeEntry("Color Picked", "#87CEEB", HistoryCategory::Color);
+    const TranslationHistory tr = makeEntry("hello", "#FF3B30", HistoryCategory::Translation);
+    REQUIRE(store->insert(red));
+    REQUIRE(store->insert(navy));
+    REQUIRE(store->insert(sky));
+    REQUIRE(store->insert(tr));  // same text, other category: must not leak in
+
+    CHECK(store->colorCount() == 3);
+    REQUIRE(store->colorEntries().size() == 3);
+    // HEX fragment, case-insensitive (spec §4.3: 如 `1A2`).
+    REQUIRE(store->colorEntries("1a2").size() == 1);
+    CHECK(store->colorEntries("1a2").front().translatedText == "#1A2B3C");
+    CHECK(store->colorEntries("#ff3").size() == 1);
+    // Favorites filter stacks.
+    auto favs = store->colorEntries("", true);
+    REQUIRE(favs.size() == 1);
+    CHECK(favs.front().translatedText == "#1A2B3C");
+    CHECK(store->colorEntries("87ce", true).empty());
+    CHECK(store->colorEntries("zz").empty());
+}
+
+TEST_CASE("HistoryStore removeCategory clears only the color category",
+          "[history][sqlite][color]") {
+    TempDb db;
+    auto store = HistoryStore::open(db.path());
+    REQUIRE(store != nullptr);
+    REQUIRE(store->insert(makeEntry("Color Picked", "#ABCDEF", HistoryCategory::Color)));
+    REQUIRE(store->insert(makeEntry("Color Picked", "#123456", HistoryCategory::Color)));
+    REQUIRE(store->insert(makeEntry("hello", "你好", HistoryCategory::Translation)));
+    REQUIRE(store->insert(makeEntry("shot", "C:/x.png", HistoryCategory::Screenshot)));
+
+    REQUIRE(store->colorCount() == 2);
+    CHECK(store->removeCategory(HistoryCategory::Color) == 2);
+    CHECK(store->colorCount() == 0);
+    CHECK(store->colorEntries().empty());
+    // Other categories untouched (spec §4.3: 仅清空 color 类目).
+    CHECK(store->totalEntries() == 2);
+    HistoryQuery all;
+    CHECK(store->query(all).size() == 2);
+    // Second clear is a no-op returning 0.
+    CHECK(store->removeCategory(HistoryCategory::Color) == 0);
+    std::string err;
+    CHECK(store->removeCategory(static_cast<HistoryCategory>(99), &err) == -1);
+    CHECK_FALSE(err.empty());
+}
