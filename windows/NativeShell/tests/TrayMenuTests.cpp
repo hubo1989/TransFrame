@@ -156,5 +156,4 @@ TEST_CASE("labels resolve through the localization tables (FR-37)", "[tray][loca
         [](const TrayMenuItem& i) { return i.command == TrayCommand::Exit; });
     REQUIRE(exitRestored != restored.end());
     CHECK(exitRestored->label == L"\x9000\x51FA");  // 退出 fallback restored
->>>>>>> lkl-hubo/wt-locale-onboard
 }
