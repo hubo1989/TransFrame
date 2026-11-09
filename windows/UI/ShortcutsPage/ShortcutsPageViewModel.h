@@ -19,6 +19,7 @@
 #define TF_SHORTCUTS_PAGE_VIEW_MODEL_HPP
 
 #include "tf/HotkeySettingsStore.hpp"   // tf::core::HotkeyBinding, kHotkeyActionNames
+#include "tf/Localization.hpp"          // FR-37 行标签/提示文案
 
 #include <cstdint>
 #include <cstdio>
@@ -86,15 +87,17 @@ inline std::string FormatCombo(std::uint32_t vk, std::uint32_t modifiers) {
     return s;
 }
 
-/// 行 → UI 动作名（中文文案；与 SettingsWindow.cpp 现有文案风格一致）。
-inline const wchar_t* ActionLabelForRow(int row) {
+/// 行 → UI 动作名（FR-37：Localization 表 → zh 回退；与 SettingsWindow.cpp
+/// 现有文案风格一致）。键沿用 macOS settings.shortcut.*。
+inline std::wstring ActionLabelForRow(int row) {
+    namespace loc = tf::core::loc;
     switch (static_cast<ShortcutRow>(row)) {
-        case ShortcutRow::FullScreen:      return L"全屏截图";
-        case ShortcutRow::Region:          return L"区域截图";
-        case ShortcutRow::TranslateMode:   return L"翻译模式";
-        case ShortcutRow::TextSelection:   return L"划词翻译";
-        case ShortcutRow::TranslateInsert: return L"翻译插入";
-        case ShortcutRow::PickColor:       return L"取色";
+        case ShortcutRow::FullScreen:      return loc::tw("settings.shortcut.fullscreen", L"全屏截图");
+        case ShortcutRow::Region:          return loc::tw("settings.shortcut.selection", L"区域截图");
+        case ShortcutRow::TranslateMode:   return loc::tw("settings.shortcut.translation.mode", L"翻译模式");
+        case ShortcutRow::TextSelection:   return loc::tw("settings.shortcut.text.selection.translation", L"划词翻译");
+        case ShortcutRow::TranslateInsert: return loc::tw("settings.shortcut.translate.and.insert", L"翻译插入");
+        case ShortcutRow::PickColor:       return loc::tw("settings.shortcut.pick.color", L"取色");
     }
     return L"";
 }
@@ -170,7 +173,9 @@ public:
         if ((modifiers & kModAll) == 0) {
             // [待确认] spec 仅说"行内提示"，当前保守选择：不退出录制，提示文案
             // 置于页脚 StatusText（与 SettingsWindow.cpp 通用提示行同位置）。
-            SetStatus(L"快捷键需包含至少一个修饰键（Ctrl/Alt/Shift/Win）");
+            SetStatus(tf::core::loc::tw("win.shortcuts.needModifier",
+                                        L"快捷键需包含至少一个修饰键（Ctrl/Alt/Shift/Win）")
+                          .c_str());
             return {false, false, true};
         }
         int row = recordingRow_;
@@ -205,10 +210,14 @@ public:
                 if (rows_[i].vk == rows_[j].vk &&
                     rows_[i].modifiers == rows_[j].modifiers) {
                     std::string combo = ComboTextForRow(i);
+                    const std::string pattern = tf::core::loc::t(
+                        "win.shortcuts.conflict", "与「%@」冲突（%@）");
                     conflicts_.push_back({i, rows_[i].vk, rows_[i].modifiers,
-                        "与「" + Narrow(ActionLabelForRow(j)) + "」冲突（" + combo + "）"});
+                        tf::core::loc::formatArgs(pattern,
+                            {Narrow(ActionLabelForRow(j)), combo})});
                     conflicts_.push_back({j, rows_[j].vk, rows_[j].modifiers,
-                        "与「" + Narrow(ActionLabelForRow(i)) + "」冲突（" + combo + "）"});
+                        tf::core::loc::formatArgs(pattern,
+                            {Narrow(ActionLabelForRow(i)), combo})});
                 }
             }
         }
@@ -277,10 +286,9 @@ private:
     }
     void SetStatus(const wchar_t* msg) { statusMessage_ = msg; }
     void ClearStatus() { statusMessage_.clear(); }
-    static std::string Narrow(const wchar_t* w) {  // 冲突文案拼接用（本地化字面量 ASCII 兼容降级）
-        std::string s;
-        for (; *w; ++w) s += static_cast<char>(*w < 0x80 ? *w : '?');
-        return s;
+    /// 冲突文案拼接用（FR-37：标签可能含 CJK，经 UTF-8 编码不再丢字）。
+    static std::string Narrow(std::wstring_view w) {
+        return tf::core::loc::wideToUtf8(w);
     }
 };
 

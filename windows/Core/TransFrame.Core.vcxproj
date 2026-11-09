@@ -93,6 +93,8 @@
     <ClInclude Include="include\tf\HotkeySettingsStore.hpp" />
     <ClInclude Include="include\tf\HistoryStore.hpp" />
     <ClInclude Include="include\tf\ImageUploadProvider.hpp" />
+    <ClInclude Include="include\tf\Localization.hpp" />
+    <ClInclude Include="include\tf\Onboarding.hpp" />
     <ClInclude Include="vendor\sqlite\sqlite3.h" />
   </ItemGroup>
   <ItemGroup>
@@ -119,6 +121,13 @@
     </ClCompile>
     <!-- wt-uploads-picker: FR-31 image-host upload protocol layer (portable). -->
     <ClCompile Include="src\ImageUploadProvider.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <!-- wt-locale-onboard: FR-37 string tables + FR-39 onboarding pure logic. -->
+    <ClCompile Include="src\Localization.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\Onboarding.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
     <!-- Vendored SQLite amalgamation (FR-30 history.db): public-domain C.

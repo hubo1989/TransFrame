@@ -1,13 +1,14 @@
-// tests/TrayMenuTests.cpp — tray menu model (FR-34).
+// tests/TrayMenuTests.cpp — tray menu model (FR-34; FR-37 labels).
 #include "catch_amalgamated.hpp"
 
+#include "tf/Localization.hpp"
 #include "tf/TrayIcon.hpp"
 
 #include <algorithm>
 
 using namespace tf;
 
-TEST_CASE("menu contains all ten commands plus recent shots", "[tray][menu]") {
+TEST_CASE("menu contains all eleven commands plus recent shots", "[tray][menu]") {
     const std::vector<RecentShot> recents{
         {1, L"a.png", L"14:32  1920x1080"},
         {2, L"b.png", L"14:30  800x600"},
@@ -30,6 +31,7 @@ TEST_CASE("menu contains all ten commands plus recent shots", "[tray][menu]") {
     CHECK(has(TrayCommand::History));
     CHECK(has(TrayCommand::Settings));
     CHECK(has(TrayCommand::CheckUpdates));
+    CHECK(has(TrayCommand::ReplayOnboarding));
     CHECK(has(TrayCommand::Exit));
 
     // 取色历史 sits right after 历史记录 (spec §4.1 tray placement).
@@ -79,7 +81,7 @@ TEST_CASE("no recent shots -> no RecentShot entries, menu still complete",
         return i.command == TrayCommand::RecentShot;
     });
     CHECK(count == 0);
-    CHECK(items.size() == 12);  // 6 actions + placeholder + history/color-history + 3 tail
+    CHECK(items.size() == 13);  // 6 actions + placeholder + history/color-history + settings/updates/onboarding/exit
 }
 
 TEST_CASE("capture commands are enabled; PinnedManager stays a disabled placeholder",
@@ -114,9 +116,45 @@ TEST_CASE("popup IDs dispatch first and last actions without offset", "[tray][me
     CHECK(trayMenuItemForId(items, 999) == nullptr);
     REQUIRE(trayMenuItemForId(items, 1));
     CHECK(trayMenuItemForId(items, 1)->command == TrayCommand::FullScreen);
-    REQUIRE(trayMenuItemForId(items, 12));
-    CHECK(trayMenuItemForId(items, 12)->command == TrayCommand::Exit);
+    REQUIRE(trayMenuItemForId(items, 13));
+    CHECK(trayMenuItemForId(items, 13)->command == TrayCommand::Exit);
     CHECK(trayMenuItemForId(items, 7) == nullptr);  // disabled placeholder (PinnedManager)
     REQUIRE(trayMenuItemForId(items, 11));
     CHECK(trayMenuItemForId(items, 11)->command == TrayCommand::CheckUpdates);
+    REQUIRE(trayMenuItemForId(items, 12));
+    CHECK(trayMenuItemForId(items, 12)->command == TrayCommand::ReplayOnboarding);
+}
+
+TEST_CASE("labels resolve through the localization tables (FR-37)", "[tray][locale]") {
+    auto& loc = core::loc::Localization::instance();
+    // Table with one translated key; everything else keeps the zh fallback.
+    core::loc::StringTable table =
+        core::loc::StringTable::fromJson(R"({"win.tray.exit": "Quitten"})");
+    loc.installTable("de", std::move(table));
+    // Save/restore state so other tests keep the fallback behavior.
+    const std::string previous = loc.currentLanguageRaw();
+    loc.setLanguage("de");
+    const auto items = buildTrayMenu({});
+    const auto exit = std::find_if(items.begin(), items.end(), [](const TrayMenuItem& i) {
+        return i.command == TrayCommand::Exit;
+    });
+    REQUIRE(exit != items.end());
+    CHECK(exit->label == L"Quitten");
+    const auto fullScreen = std::find_if(items.begin(), items.end(),
+                                         [](const TrayMenuItem& i) {
+                                             return i.command == TrayCommand::FullScreen;
+                                         });
+    REQUIRE(fullScreen != items.end());
+    CHECK(fullScreen->label == L"\x5168\x5C4F\x622A\x56FE");  // zh fallback 全屏截图
+
+    loc.setLanguage(previous);
+    core::loc::StringTable empty;
+    loc.installTable("de", std::move(empty));  // erase the test table
+    const auto restored = buildTrayMenu({});
+    const auto exitRestored = std::find_if(
+        restored.begin(), restored.end(),
+        [](const TrayMenuItem& i) { return i.command == TrayCommand::Exit; });
+    REQUIRE(exitRestored != restored.end());
+    CHECK(exitRestored->label == L"\x9000\x51FA");  // 退出 fallback restored
+>>>>>>> lkl-hubo/wt-locale-onboard
 }

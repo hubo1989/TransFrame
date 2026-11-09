@@ -13,6 +13,7 @@
 
 #include "tf/PreviewWindow.hpp"
 #include "tf/ImageExporter.hpp"
+#include "tf/Localization.hpp"  // FR-37：预览窗字符串走本地化表
 
 #include "AnnotationDocument.h"
 #include "Geometry.h"
@@ -45,6 +46,7 @@ using tf::core::Annotation;
 using tf::core::AnnotationDocument;
 using tf::core::AnnotationTool;
 using tf::core::Rect;
+namespace loc = tf::core::loc;  // FR-37
 
 constexpr wchar_t kPreviewWndClass[] = L"TransFramePreviewWnd";
 constexpr wchar_t kTextInputClass[] = L"TransFramePreviewTextInput";
@@ -161,12 +163,14 @@ TextInputResult showTextInput(HWND owner, const std::wstring& title,
                                   8, 8, w - 16, h - 56, popup,
                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(2001)),
                                   wc.hInstance, nullptr);
-    HWND ok = ::CreateWindowExW(0, L"BUTTON", L"确定",
+    HWND ok = ::CreateWindowExW(0, L"BUTTON",
+                                loc::tw("win.preview.ok", L"确定").c_str(),
                                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
                                 w - 176, h - 40, 80, 28, popup,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(2002)),
                                 wc.hInstance, nullptr);
-    HWND cancel = ::CreateWindowExW(0, L"BUTTON", L"取消",
+    HWND cancel = ::CreateWindowExW(0, L"BUTTON",
+                                    loc::tw("action.cancel", L"取消").c_str(),
                                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
                                     w - 88, h - 40, 80, 28, popup,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(2003)),
@@ -260,7 +264,8 @@ struct PreviewWindowController::Impl {
     D2D1_POINT_2F origin{};  // client px of image (0,0)
     FLOAT scale = 1.0f;
     FLOAT imageW = 0.f, imageH = 0.f;
-    std::wstring statusText = L"工具: 矩形（R/1）· 拖拽绘制 · Shift=正方形/45°";
+    std::wstring statusText =
+        loc::tw("win.preview.status.default", L"工具: 矩形（R/1）· 拖拽绘制 · Shift=正方形/45°");
 
     static Impl* selfFromHwnd(HWND h) {
         return reinterpret_cast<Impl*>(::GetWindowLongPtrW(h, GWLP_USERDATA));
@@ -432,23 +437,23 @@ struct PreviewWindowController::Impl {
     // ---- toolbar ----------------------------------------------------------
     void buildToolbar() {
         instance = ::GetModuleHandleW(nullptr);
-        struct Btn { ToolButton id; const wchar_t* label; };
+        struct Btn { ToolButton id; const char* key; const wchar_t* fallback; };
         const Btn defs[] = {
-            {ToolButton::Rectangle, L"矩形"},
-            {ToolButton::Text, L"文字"},
-            {ToolButton::Arrow, L"箭头"},
-            {ToolButton::Undo, L"撤销"},
-            {ToolButton::Redo, L"重做"},
-            {ToolButton::Save, L"保存"},
-            {ToolButton::Copy, L"复制"},
-            {ToolButton::Pin, L"贴图"},
-            {ToolButton::Upload, L"上传"},
-            {ToolButton::Close, L"关闭"},
+            {ToolButton::Rectangle, "tool.rectangle", L"矩形"},
+            {ToolButton::Text, "tool.text", L"文字"},
+            {ToolButton::Arrow, "tool.arrow", L"箭头"},
+            {ToolButton::Undo, "action.undo", L"撤销"},
+            {ToolButton::Redo, "action.redo", L"重做"},
+            {ToolButton::Save, "action.save", L"保存"},
+            {ToolButton::Copy, "action.copy", L"复制"},
+            {ToolButton::Pin, "win.preview.pin", L"贴图"},
+            {ToolButton::Upload, "win.preview.upload", L"上传"},
+            {ToolButton::Close, "action.close", L"关闭"},
         };
         int x = 8;
         for (const Btn& def : defs) {
             buttons[static_cast<int>(def.id) - 101] = ::CreateWindowExW(
-                0, L"BUTTON", def.label,
+                0, L"BUTTON", loc::tw(def.key, def.fallback).c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 x, 8, kBtnW, kBtnH, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(def.id)),
@@ -483,10 +488,18 @@ struct PreviewWindowController::Impl {
         activeTool = tool;
         selectedId.reset();  // tool switch drops the selection (drag vs. select)
         switch (tool) {
-            case AnnotationTool::Rectangle: setStatus(L"工具: 矩形（R/1）· Shift=正方形"); break;
-            case AnnotationTool::Text: setStatus(L"工具: 文字（T/4）· 点击画布输入"); break;
-            case AnnotationTool::Arrow: setStatus(L"工具: 箭头（A/3）· Shift=45°"); break;
-            case AnnotationTool::None: setStatus(L"工具: 选择/移动（点击标注，Del 删除）"); break;
+            case AnnotationTool::Rectangle:
+                setStatus(loc::tw("win.preview.status.rectangle", L"工具: 矩形（R/1）· Shift=正方形"));
+                break;
+            case AnnotationTool::Text:
+                setStatus(loc::tw("win.preview.status.text", L"工具: 文字（T/4）· 点击画布输入"));
+                break;
+            case AnnotationTool::Arrow:
+                setStatus(loc::tw("win.preview.status.arrow", L"工具: 箭头（A/3）· Shift=45°"));
+                break;
+            case AnnotationTool::None:
+                setStatus(loc::tw("win.preview.status.select", L"工具: 选择/移动（点击标注，Del 删除）"));
+                break;
         }
         ::InvalidateRect(hwnd, nullptr, FALSE);
     }
@@ -510,12 +523,14 @@ struct PreviewWindowController::Impl {
     }
 
     void notify(const std::wstring& message) {
-        ::MessageBoxW(hwnd, message.c_str(), L"TransFrame 预览", MB_OK | MB_ICONINFORMATION);
+        ::MessageBoxW(hwnd, message.c_str(),
+                      loc::tw("win.preview.msgTitle", L"TransFrame 预览").c_str(),
+                      MB_OK | MB_ICONINFORMATION);
     }
 
     void saveFlow() {
         if (!spec.image || !spec.image->valid()) {
-            notify(L"没有可保存的图像");
+            notify(loc::tw("win.preview.noImage", L"没有可保存的图像"));
             return;
         }
         // COM for the common dialog (safe to call when already initialized).
@@ -526,7 +541,7 @@ struct PreviewWindowController::Impl {
         } comGuard{com};
         constexpr HRESULT kRpcEAlreadyInitialized = 0x80010106;  // RPC_E_ALREADY_INITIALIZED
         if (FAILED(com) && com != kRpcEAlreadyInitialized) {
-            notify(L"COM 初始化失败，无法打开保存对话框");
+            notify(loc::tw("win.preview.comFailed", L"COM 初始化失败，无法打开保存对话框"));
             return;
         }
 
@@ -534,15 +549,15 @@ struct PreviewWindowController::Impl {
         ComPtr<IFileSaveDialog> dialog;
         if (FAILED(::CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL,
                                       IID_PPV_ARGS(&dialog)))) {
-            notify(L"无法打开保存对话框");
+            notify(loc::tw("win.preview.dialogFailed", L"无法打开保存对话框"));
             return;
         }
         // FR-12: HEIC only enters the filter list when the OS can encode it.
         std::vector<COMDLG_FILTERSPEC> filters{
-            {L"PNG 图片", L"*.png"},
-            {L"JPEG 图片", L"*.jpg"},
-            {L"HEIC 图片", L"*.heic"},
-            {L"所有文件", L"*.*"},
+            {loc::tw("win.preview.filter.png", L"PNG 图片").c_str(), L"*.png"},
+            {loc::tw("win.preview.filter.jpeg", L"JPEG 图片").c_str(), L"*.jpg"},
+            {loc::tw("win.preview.filter.heic", L"HEIC 图片").c_str(), L"*.heic"},
+            {loc::tw("win.preview.filter.all", L"所有文件").c_str(), L"*.*"},
         };
         if (!heicOk) filters.erase(filters.begin() + 2);
         dialog->SetFileTypes(static_cast<UINT>(filters.size()), filters.data());
@@ -551,11 +566,11 @@ struct PreviewWindowController::Impl {
         if (!spec.suggestedFileName.empty()) {
             dialog->SetFileName(spec.suggestedFileName.c_str());
         }
-        dialog->SetTitle(L"保存截图");
+        dialog->SetTitle(loc::tw("win.preview.dialogTitle", L"保存截图").c_str());
         const HRESULT chosen = dialog->Show(hwnd);
         if (chosen == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return;
         if (FAILED(chosen)) {
-            notify(L"保存对话框失败");
+            notify(loc::tw("win.preview.saveDialogFailed", L"保存对话框失败"));
             return;
         }
         ComPtr<IShellItem> item;
@@ -580,41 +595,53 @@ struct PreviewWindowController::Impl {
         PixelBuffer composed = composited();
         std::wstring error;
         if (encodeToFile(composed, path, format, 90, error)) {
-            setStatus(L"已保存: " + path);
+            setStatus(loc::formatArgsWide(
+                loc::tw("win.preview.saved", L"已保存: %@"), {path}));
             return;
         }
         // FR-12: no HEIC encoder -> say so, fall back to PNG on confirmation.
         if (format == ExportFormat::Heic) {
-            const int yes = ::MessageBoxW(hwnd,
-                                          (error + L"\n\n是否改存为 PNG？").c_str(),
-                                          L"TransFrame 预览", MB_YESNO | MB_ICONWARNING);
+            const int yes = ::MessageBoxW(
+                hwnd,
+                (error + L"\n\n" +
+                 loc::tw("win.preview.askPngFallback", L"是否改存为 PNG？"))
+                    .c_str(),
+                loc::tw("win.preview.msgTitle", L"TransFrame 预览").c_str(),
+                MB_YESNO | MB_ICONWARNING);
             if (yes == IDYES) {
                 std::wstring pngPath = path;
                 pngPath.replace(pngPath.size() - 5, 5, L".png");
                 std::wstring pngError;
                 if (encodeToFile(composed, pngPath, ExportFormat::Png, 0, pngError)) {
-                    setStatus(L"已保存 PNG 回退: " + pngPath);
+                    setStatus(loc::formatArgsWide(
+                        loc::tw("win.preview.savedPngFallback", L"已保存 PNG 回退: %@"),
+                        {pngPath}));
                     return;
                 }
-                notify(L"PNG 回退也失败: " + pngError);
+                notify(loc::formatArgsWide(
+                    loc::tw("win.preview.pngFallbackAlsoFailed", L"PNG 回退也失败: %@"),
+                    {pngError}));
                 return;
             }
             return;
         }
-        notify(L"保存失败: " + error);
+        notify(loc::formatArgsWide(
+            loc::tw("win.preview.saveFailed", L"保存失败: %@"), {error}));
     }
 
     void copyFlow(bool closeAfter) {
         PixelBuffer composed = composited();
         if (!composed.valid()) {
-            notify(L"合成图像失败");
+            notify(loc::tw("win.preview.composeFailed", L"合成图像失败"));
             return;
         }
         if (copyBitmapToClipboard(hwnd, composed)) {
-            setStatus(closeAfter ? L"已复制并关闭" : L"已复制到剪贴板");
+            setStatus(closeAfter
+                          ? loc::tw("win.preview.copiedClosed", L"已复制并关闭")
+                          : loc::tw("win.preview.copied", L"已复制到剪贴板"));
             if (closeAfter) ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
         } else {
-            notify(L"复制到剪贴板失败");
+            notify(loc::tw("win.preview.copyFailed", L"复制到剪贴板失败"));
         }
     }
 
@@ -727,7 +754,8 @@ struct PreviewWindowController::Impl {
                     POINT screen = pt;
                     ::ClientToScreen(h, &screen);
                     TextInputResult input = showTextInput(
-                        h, L"输入标注文字", POINT{screen.x + 16, screen.y + 16});
+                        h, loc::tw("win.preview.inputTextTitle", L"输入标注文字").c_str(),
+                        POINT{screen.x + 16, screen.y + 16});
                     if (input.confirmed) {
                         tf::core::TextAnnotation t;
                         t.id = tf::core::Uuid::randomUuid();
@@ -863,13 +891,14 @@ bool PreviewWindowController::show(const PreviewWindowSpec& specIn) {
                             kMinWindowH);
         impl.hwnd = ::CreateWindowExW(
             0, kPreviewWndClass,
-            (L"预览" + specIn.titleSuffix).c_str(),
+            (loc::tw("win.preview.title", L"预览") + specIn.titleSuffix).c_str(),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
             nullptr, nullptr, impl.instance, &impl);
         if (!impl.hwnd) return false;
     } else {
-        ::SetWindowTextW(impl.hwnd, (L"预览" + specIn.titleSuffix).c_str());
+        ::SetWindowTextW(impl.hwnd,
+                         (loc::tw("win.preview.title", L"预览") + specIn.titleSuffix).c_str());
     }
 
     impl.setTool(AnnotationTool::Rectangle);

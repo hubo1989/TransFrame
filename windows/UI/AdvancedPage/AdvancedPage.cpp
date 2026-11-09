@@ -66,12 +66,15 @@ void AdvancedPage::OnShown() {
 
 void AdvancedPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(L"高级"));
+    root.Children().Append(kit::MakeSectionHeader(
+        kit::Lx("win.settings.section.advanced", L"高级").c_str()));
 
     // ---------------- 卡片 1：标注默认样式（spec §6） ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"标注默认样式", L"新标注的描边颜色、宽度与文本大小"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("win.advanced.annotations.title", L"标注默认样式").c_str(),
+            kit::Lx("win.advanced.annotations.hint", L"新标注的描边颜色、宽度与文本大小").c_str()));
 
         Controls::StackPanel colors;
         colors.Orientation(Controls::Orientation::Horizontal);
@@ -80,7 +83,8 @@ void AdvancedPage::BuildUi() {
         card.panel.Children().Append(colors);
 
         strokeWidthSlider_ = Controls::Slider();
-        strokeWidthSlider_.Header(winrt::box_value(L"描边宽度"));
+        strokeWidthSlider_.Header(winrt::box_value(
+            kit::Lx("settings.stroke.width", L"描边宽度")));
         strokeWidthSlider_.Minimum(1.0);
         strokeWidthSlider_.Maximum(20.0);
         strokeWidthSlider_.StepFrequency(0.5);
@@ -103,7 +107,8 @@ void AdvancedPage::BuildUi() {
         strokeWidthSlider_.PointerCaptureLost([this](auto&&, auto&&) { Persist(); });
 
         textSizeSlider_ = Controls::Slider();
-        textSizeSlider_.Header(winrt::box_value(L"文本大小"));
+        textSizeSlider_.Header(winrt::box_value(
+            kit::Lx("settings.text.size", L"文本大小")));
         textSizeSlider_.Minimum(8.0);
         textSizeSlider_.Maximum(72.0);
         textSizeSlider_.StepFrequency(1.0);
@@ -131,7 +136,8 @@ void AdvancedPage::BuildUi() {
     // ---------------- 卡片 2：数据与日志（PRD FR-35 高级条目） ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(L"数据与日志"));
+        card.panel.Children().Append(kit::MakeLabelBlock(
+            kit::Lx("win.advanced.data.title", L"数据与日志").c_str()));
 
         Controls::StackPanel dataRow;
         dataRow.Orientation(Controls::Orientation::Horizontal);
@@ -144,7 +150,8 @@ void AdvancedPage::BuildUi() {
         dataPath.MaxWidth(320.0);
         dataPath.VerticalAlignment(VerticalAlignment::Center);
         Controls::Button openData;
-        openData.Content(winrt::box_value(L"打开数据目录"));
+        openData.Content(winrt::box_value(
+            kit::Lx("win.advanced.openDataDir", L"打开数据目录")));
         openData.Click([](auto&&, auto&&) { OpenInExplorer(store::RoamingDir()); });
         dataRow.Children().Append(dataPath);
         dataRow.Children().Append(openData);
@@ -156,7 +163,7 @@ void AdvancedPage::BuildUi() {
         Controls::TextBlock logText = kit::MakeText(L"%LOCALAPPDATA%\\TransFrame\\logs");
         logText.VerticalAlignment(VerticalAlignment::Center);
         Controls::Button openLogs;
-        openLogs.Content(winrt::box_value(L"打开日志"));
+        openLogs.Content(winrt::box_value(kit::Lx("win.advanced.openLogs", L"打开日志")));
         openLogs.Click([](auto&&, auto&&) {
             std::wstring dir = store::LocalDir() + L"\\logs";
             if (store::LocalDir().empty()) dir = L"%LOCALAPPDATA%\\TransFrame\\logs";
@@ -170,9 +177,11 @@ void AdvancedPage::BuildUi() {
         perfRow.Orientation(Controls::Orientation::Horizontal);
         perfRow.Spacing(8.0);
         Controls::Button exportPerf;
-        exportPerf.Content(winrt::box_value(L"导出性能报告"));
+        exportPerf.Content(winrt::box_value(
+            kit::Lx("win.advanced.exportPerf", L"导出性能报告")));
         exportPerf.Click([this](auto&&, auto&&) { ExportPerformanceReport(); });
-        Controls::TextBlock perfNote = kit::MakeCaption(L"环境快照（FR-40 埋点接入后为全链路数据）");
+        Controls::TextBlock perfNote = kit::MakeCaption(
+            kit::Lx("win.advanced.perfNote", L"环境快照（FR-40 埋点接入后为全链路数据）").c_str());
         perfNote.VerticalAlignment(VerticalAlignment::Center);
         perfRow.Children().Append(exportPerf);
         perfRow.Children().Append(perfNote);
@@ -185,9 +194,10 @@ void AdvancedPage::BuildUi() {
     {
         kit::Card card = kit::MakeCard();
         card.panel.Children().Append(kit::MakeLabelBlock(
-            L"重置", L"把描边颜色、描边宽度、文本大小恢复为默认值（不影响其它设置）"));
+            kit::Lx("win.advanced.reset.title", L"重置").c_str(),
+            kit::Lx("win.advanced.reset.hint", L"把描边颜色、描边宽度、文本大小恢复为默认值（不影响其它设置）").c_str()));
         Controls::Button reset;
-        reset.Content(winrt::box_value(L"全部重置"));
+        reset.Content(winrt::box_value(kit::Lx("win.advanced.resetAll", L"全部重置")));
         reset.Click([this](auto&&, auto&&) { ShowResetConfirmAsync(); });
         card.panel.Children().Append(reset);
         root.Children().Append(card.border);
@@ -268,19 +278,19 @@ void AdvancedPage::Persist() {
     const std::string merged =
         tf::core::serializeEngineConfigPatch(store::ReadEnginesJson(), vm_.persistencePatch());
     if (store::WriteEnginesJsonAtomic(merged)) {
-        statusText_.Text(L"已保存");
+        statusText_.Text(kit::Lx("win.common.saved", L"已保存"));
     } else {
-        statusText_.Text(L"保存失败（engines.json 不可写）");
+        statusText_.Text(kit::Lx("win.common.saveFailedEngines", L"保存失败（engines.json 不可写）"));
     }
 }
 
 winrt::Windows::Foundation::IAsyncAction AdvancedPage::ShowResetConfirmAsync() {
     Controls::ContentDialog dialog;
-    dialog.Title(winrt::box_value(L"全部重置"));
+    dialog.Title(winrt::box_value(kit::Lx("win.advanced.resetAll", L"全部重置")));
     dialog.Content(winrt::box_value(
-        L"将把描边颜色、描边宽度和文本大小恢复为默认值。此操作无法撤销。"));
-    dialog.PrimaryButtonText(L"重置");
-    dialog.CloseButtonText(L"取消");
+        kit::Lx("win.advanced.resetDialog.body", L"将把描边颜色、描边宽度和文本大小恢复为默认值。此操作无法撤销。")));
+    dialog.PrimaryButtonText(kit::Lx("win.advanced.reset.title", L"重置"));
+    dialog.CloseButtonText(kit::Lx("action.cancel", L"取消"));
     dialog.DefaultButton(Controls::ContentDialogButton::Close);
     dialog.XamlRoot(XamlRoot());
 
@@ -298,7 +308,7 @@ void AdvancedPage::ExportPerformanceReport() {
     // 报告目录与命名保留给全链路数据。
     const std::wstring dir = store::LocalDir() + L"\\reports";
     if (store::LocalDir().empty()) {
-        statusText_.Text(L"无法定位 %LOCALAPPDATA%");
+        statusText_.Text(kit::Lx("win.advanced.noLocalAppdata", L"无法定位 %LOCALAPPDATA%"));
         return;
     }
     std::error_code ec;
@@ -307,7 +317,7 @@ void AdvancedPage::ExportPerformanceReport() {
     const std::filesystem::path out = dir + L"\\" + TimestampedName(L"performance");
     FILE* f = nullptr;
     if (_wfopen_s(&f, out.c_str(), L"wb") != 0 || !f) {
-        statusText_.Text(L"性能报告导出失败");
+        statusText_.Text(kit::Lx("win.advanced.exportFailed", L"性能报告导出失败"));
         return;
     }
     std::fprintf(f,
@@ -321,7 +331,8 @@ void AdvancedPage::ExportPerformanceReport() {
                  static_cast<long long>(std::time(nullptr)), vm_.strokeWidth(),
                  vm_.textSize());
     std::fclose(f);
-    statusText_.Text((L"已导出 " + out.wstring()).c_str());
+    statusText_.Text(core::loc::formatArgsWide(
+        kit::Lx("win.advanced.exported", L"已导出 %@"), {out.wstring()}));
     OpenInExplorer(dir);
 }
 

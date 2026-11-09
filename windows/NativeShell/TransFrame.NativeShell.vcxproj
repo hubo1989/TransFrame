@@ -84,6 +84,16 @@
     <ClCompile Include="src\HistoryExport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- wt-locale-onboard: FR-37/39/50.7 — locale probe, notification seam,
+         first-run wizard (policy-free but Win32-comfortable; no pch needed
+         for the first two, OnboardingWindow uses pch.h). -->
+    <ClCompile Include="src\Win32Locale.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\AppNotifications.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\OnboardingWindow.cpp"/>
   </ItemGroup>
 
   <!-- Windows-only sources: use pch.h. -->
@@ -130,6 +140,9 @@
     <ClInclude Include="include\tf\OverlayRenderer.hpp"/>
     <ClInclude Include="include\tf\SelectionOverlay.hpp"/>
     <ClInclude Include="include\tf\TrayIcon.hpp"/>
+    <ClInclude Include="include\tf\Win32Locale.hpp"/>
+    <ClInclude Include="include\tf\AppNotifications.hpp"/>
+    <ClInclude Include="include\tf\OnboardingWindow.hpp"/>
     <ClInclude Include="include\tf\ResultWindow.hpp"/>
     <ClInclude Include="include\tf\PreviewWindow.hpp"/>
     <ClInclude Include="include\tf\ImageExporter.hpp"/>

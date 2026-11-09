@@ -149,6 +149,25 @@ void TrayIconService::showMenuAtCursor() {
 }
 
 
+bool TrayIconService::showBalloon(const std::wstring& title, const std::wstring& text,
+                                  BalloonIcon icon) {
+    if (!installed_) return false;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_INFO;
+    switch (icon) {
+        case BalloonIcon::Warning: nid.dwInfoFlags = NIIF_WARNING; break;
+        case BalloonIcon::Error:   nid.dwInfoFlags = NIIF_ERROR;   break;
+        default:                   nid.dwInfoFlags = NIIF_INFO;    break;
+    }
+    wcsncpy_s(nid.szInfoTitle, title.c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
+    return ::Shell_NotifyIconW(NIM_MODIFY, &nid) != FALSE;
+}
+
+
 void TrayIconService::dispatch(TrayCommand command, int payloadIndex) {
     if (handler_) handler_(command, payloadIndex);
 }

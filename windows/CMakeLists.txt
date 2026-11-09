@@ -41,6 +41,8 @@ set(TEST_SRC
     Tests/HistoryStoreTests.cpp
     Tests/PerformanceRecorderTests.cpp
     Tests/ImageUploadProviderTests.cpp
+    Tests/LocalizationTests.cpp
+    Tests/OnboardingTests.cpp
     Tests/GeneralPageViewModelTests.cpp
     Tests/LanguagePageViewModelTests.cpp
     Tests/ShortcutsPageViewModelTests.cpp

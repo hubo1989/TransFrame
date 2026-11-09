@@ -1,7 +1,12 @@
 // TrayMenu.cpp — portable tray menu model (buildTrayMenuModel).
 // Windows Shell_NotifyIcon plumbing stays in src/TrayIcon.cpp; this TU keeps
 // the menu model linkable on every platform so TrayMenuTests run everywhere.
+//
+// FR-37: labels resolve through the Localization tables (selected -> en ->
+// hardcoded zh fallback), so the menu follows the UI language without a
+// restart; tests that never load tables keep seeing the zh fallbacks.
 #include "tf/TrayIcon.hpp"
+#include "tf/Localization.hpp"
 
 #include <algorithm>
 
@@ -9,10 +14,12 @@ namespace tf {
 
 namespace {
 
-void pushAction(std::vector<TrayMenuItem>& items, const wchar_t* label,
+using core::loc::tw;
+
+void pushAction(std::vector<TrayMenuItem>& items, std::wstring label,
                 TrayCommand command, bool separatorAfter = false) {
     TrayMenuItem item;
-    item.label = label;
+    item.label = std::move(label);
     item.command = command;
     item.enabled = true;
     item.separatorAfter = separatorAfter;
@@ -23,12 +30,15 @@ std::vector<TrayMenuItem> baseItems() {
     // FR-34: full-screen / region / translate / text-selection / insert,
     // plus FR-32 eyedropper entry.
     std::vector<TrayMenuItem> items;
-    pushAction(items, L"全屏截图", TrayCommand::FullScreen);
-    pushAction(items, L"区域截图", TrayCommand::Region);
-    pushAction(items, L"翻译模式", TrayCommand::Translate);
-    pushAction(items, L"划词翻译", TrayCommand::TextSelection);
-    pushAction(items, L"翻译并插入", TrayCommand::TranslateInsert);
-    pushAction(items, L"取色器", TrayCommand::PickColor, /*separatorAfter=*/true);
+    pushAction(items, tw("menu.capture.full.screen", L"全屏截图"), TrayCommand::FullScreen);
+    pushAction(items, tw("menu.capture.selection", L"区域截图"), TrayCommand::Region);
+    pushAction(items, tw("win.tray.translateMode", L"翻译模式"), TrayCommand::Translate);
+    pushAction(items, tw("win.tray.textSelection", L"划词翻译"), TrayCommand::TextSelection);
+    pushAction(items, tw("win.tray.translateInsert", L"翻译并插入"), TrayCommand::TranslateInsert);
+    // FR-32 eyedropper entry (uploads-picker line; locale keys TBD - the
+    // tw() default keeps the label until the string tables carry it).
+    pushAction(items, tw("win.tray.pickColor", L"取色器"), TrayCommand::PickColor,
+               /*separatorAfter=*/true);
     return items;
 }
 
@@ -48,7 +58,8 @@ TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
     for (std::size_t i = 0; i < recentCount; ++i) {
         TrayMenuItem item;
         item.label = recentShots[i].label.empty()
-                         ? (L"截图 " + std::to_wstring(i + 1))
+                         ? core::loc::formatArgsWide(tw("win.tray.recentShot", L"截图 %@"),
+                                               {std::to_wstring(i + 1)})
                          : recentShots[i].label;
         item.command = TrayCommand::RecentShot;
         item.enabled = true;
@@ -62,18 +73,21 @@ TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
     // while a pin exists; the disabled placeholder keeps the layout stable.
     {
         TrayMenuItem item;
-        item.label = L"置顶管理";
+        item.label = tw("win.tray.pinnedManager", L"置顶管理");
         item.command = TrayCommand::PinnedManager;
         item.enabled = !pinned.empty();
         model.items.push_back(std::move(item));
     }
     model.pinnedItems = buildPinnedSubmenu(pinned);
 
-    pushAction(model.items, L"历史记录", TrayCommand::History);
-    pushAction(model.items, L"取色历史", TrayCommand::ColorHistory);
-    pushAction(model.items, L"设置", TrayCommand::Settings);
-    pushAction(model.items, L"检查更新", TrayCommand::CheckUpdates);
-    pushAction(model.items, L"退出", TrayCommand::Exit);
+    pushAction(model.items, tw("win.tray.history", L"历史记录"), TrayCommand::History);
+    // FR-41 color history entry (uploads-picker line; locale keys TBD).
+    pushAction(model.items, tw("win.tray.colorHistory", L"取色历史"), TrayCommand::ColorHistory);
+    pushAction(model.items, tw("win.tray.settings", L"设置"), TrayCommand::Settings);
+    pushAction(model.items, tw("win.tray.checkUpdates", L"检查更新"), TrayCommand::CheckUpdates);
+    pushAction(model.items, tw("win.tray.replayOnboarding", L"重新查看引导"),
+               TrayCommand::ReplayOnboarding);
+    pushAction(model.items, tw("win.tray.exit", L"退出"), TrayCommand::Exit);
     return model;
 }
 
@@ -83,10 +97,13 @@ std::vector<TrayMenuItem> buildPinnedSubmenu(const std::vector<PinnedSnapshot>& 
     // placeholder; the fleet actions are meaningless without a fleet).
     if (pinned.empty()) return items;
     for (std::size_t i = 0; i < pinned.size(); ++i) {
-        std::wstring label = L"贴图 " + std::to_wstring(i + 1) + L" · " +
-                             std::to_wstring(pinned[i].widthPx) + L"×" +
-                             std::to_wstring(pinned[i].heightPx);
-        if (!pinned[i].clickThrough) label += L" · 可交互";
+        std::wstring label = core::loc::formatArgsWide(tw("win.tray.pinnedItem", L"贴图 %@"),
+                                                 {std::to_wstring(i + 1)});
+        label += L" · " + std::to_wstring(pinned[i].widthPx) + L"×" +
+                 std::to_wstring(pinned[i].heightPx);
+        if (!pinned[i].clickThrough) {
+            label += L" · " + std::wstring(tw("win.tray.pinnedInteractive", L"可交互"));
+        }
         TrayMenuItem item;
         item.label = std::move(label);
         item.command = TrayCommand::PinnedSelect;
@@ -96,9 +113,10 @@ std::vector<TrayMenuItem> buildPinnedSubmenu(const std::vector<PinnedSnapshot>& 
         items.push_back(std::move(item));
     }
     if (!items.empty()) items.back().separatorAfter = true;
-    pushAction(items, L"切换穿透", TrayCommand::PinnedToggleThrough);
-    pushAction(items, L"聚拢到前台", TrayCommand::PinnedGather);
-    pushAction(items, L"全部关闭", TrayCommand::PinnedCloseAll);
+    pushAction(items, tw("win.tray.toggleThrough", L"切换穿透"),
+               TrayCommand::PinnedToggleThrough);
+    pushAction(items, tw("win.tray.gather", L"聚拢到前台"), TrayCommand::PinnedGather);
+    pushAction(items, tw("win.tray.closeAll", L"全部关闭"), TrayCommand::PinnedCloseAll);
     return items;
 }
 

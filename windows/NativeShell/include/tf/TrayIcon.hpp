@@ -29,6 +29,7 @@ enum class TrayCommand : std::uint8_t {
     ColorHistory,      // 取色历史 (FR-41)
     Settings,          // 设置
     CheckUpdates,      // 检查更新
+    ReplayOnboarding,  // 重新查看引导 (FR-39)
     Exit,              // 退出
     RecentShot,        // recent screenshot #n (index in payload)
     // FR-14 置顶管理 submenu actions (payload int = pinnedIndex where noted).
@@ -75,6 +76,9 @@ struct TrayMenuModel {
 /// Win32 popup menu IDs for the pinned submenu live above this base so they
 /// cannot collide with the flat item IDs (1..N).
 constexpr unsigned kPinnedMenuIdBase = 1000;
+
+/// Balloon severity for showBalloon (maps to NIIF_* flags).
+enum class BalloonIcon : std::uint8_t { Info, Warning, Error };
 
 using TrayCommandHandler = std::function<void(TrayCommand command, int payloadIndex)>;
 
@@ -128,6 +132,11 @@ public:
 
     /// Left-click and right-click both open the menu.
     void showMenuAtCursor();
+
+    /// FR-50.7: show a tray balloon (Shell_NotifyIcon NIF_INFO). Returns
+    /// false when the icon is not installed (caller falls back to a dialog).
+    bool showBalloon(const std::wstring& title, const std::wstring& text,
+                     BalloonIcon icon);
 
     bool isInstalled() const { return installed_; }
 

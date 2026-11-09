@@ -4,6 +4,7 @@
 // SelectionChanged 切换页内容；页签懒构建、单例缓存（STA-only）。
 // 页面全部代码构建（windows/UI/<Page>/），无 XAML 编译依赖。
 #include "SettingsWindowWinUI.hpp"
+#include "SettingsUiKit.hpp"
 
 #include "AdvancedPage.h"
 #include "EnginesPage.h"
@@ -11,6 +12,8 @@
 #include "LanguagePage.h"
 #include "PromptsPage.h"
 #include "ShortcutsPage.h"
+
+#include "tf/Localization.hpp"
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -144,9 +147,47 @@ UserControl BuildTab(int index) {
     throw winrt::hresult_error(E_FAIL, L"未知页签");
 }
 
+/// FR-37: the six tab labels (Localization keys; zh fallbacks keep the
+/// pre-localization wording when no tables are loaded).
+const char* const kTabKeys[kTabCount] = {
+    "settings.section.general", "settings.section.engines", "settings.section.prompts",
+    "settings.section.languages", "settings.section.shortcuts",
+    "win.settings.section.advanced",
+};
+const wchar_t* const kTabFallbacks[kTabCount] = {
+    L"通用", L"引擎", L"Prompt", L"语言", L"快捷键", L"高级",
+};
+
+int g_currentTab = 0;
+
+/// Refresh the chrome labels (nav items + window title) from the tables.
+void RefreshChrome(NavigationView const& nav) {
+    auto items = nav.MenuItems();
+    for (std::uint32_t i = 0; i < items.Size() && i < kTabCount; ++i) {
+        if (auto item = items.GetAt(i).try_as<NavigationViewItem>()) {
+            item.Content(winrt::box_value(
+                kit::Lx(kTabKeys[i], kTabFallbacks[i])));
+        }
+    }
+    if (g_window) {
+        g_window.Title(kit::Lx("settings.window.title", L"TransFrame 设置"));
+    }
+}
+
+/// Drop the lazily-cached pages so the next ShowTab rebuilds them with the
+/// new language. STA-only.
+void ResetPageCache() {
+    for (auto& page : g_pages) page = nullptr;
+    g_generalImpl = nullptr; g_generalPage = nullptr;
+    g_promptsImpl = nullptr; g_promptsPage = nullptr;
+    g_languageImpl = nullptr; g_languagePage = nullptr;
+    g_advancedImpl = nullptr; g_advancedPage = nullptr;
+}
+
 void ShowTab(NavigationView const& nav, int index) {
     if (!g_pages[index]) g_pages[index] = BuildTab(index);
     nav.Content(g_pages[index]);
+    g_currentTab = index;
     // 每次激活重载磁盘（其它页签可能改过 engines.json / 兼容实例表）。
     switch (index) {
         case 0:
@@ -188,9 +229,9 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
         nav.IsSettingsVisible(false);
         nav.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
         int index = 0;
-        for (const auto* label : {L"通用", L"引擎", L"Prompt", L"语言", L"快捷键", L"高级"}) {
+        for (const wchar_t* label : {L"通用", L"引擎", L"Prompt", L"语言", L"快捷键", L"高级"}) {
             NavigationViewItem item;
-            item.Content(winrt::box_value(label));
+            item.Content(winrt::box_value(label));  // replaced by RefreshChrome below
             item.Tag(winrt::box_value(index++));
             nav.MenuItems().Append(item);
         }
@@ -207,8 +248,36 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
         });
         nav.SelectedItem(nav.MenuItems().GetAt(0));
         ShowTab(nav, 0);  // 默认页签 = 通用（spec §0：每次打开默认 general）
+        RefreshChrome(nav);  // FR-37 labels from the Localization tables
         g_window = Window();
-        g_window.Title(L"TransFrame 设置");
+        g_window.Title(kit::Lx("settings.window.title", L"TransFrame 设置"));
+        // FR-37: language switches (any thread) rebuild the chrome + pages on
+        // this STA. TryEnqueue defers past the current event handler, so a
+        // switch fired inside a page's SelectionChanged never destroys the
+        // control whose callback is still running.
+        core::loc::Localization::instance().addListener([] {
+            DispatcherQueue queue{nullptr};
+            {
+                std::lock_guard lock(g_mutex);
+                queue = g_queue;
+            }
+            if (!queue) return;
+            queue.TryEnqueue([] {
+                try {
+                    if (!g_window) return;
+                    auto nav = g_window.Content().as<NavigationView>();
+                    ResetPageCache();
+                    RefreshChrome(nav);
+                    ShowTab(nav, g_currentTab);
+                    nav.SelectedItem(nav.MenuItems().GetAt(
+                        static_cast<std::uint32_t>(g_currentTab)));
+                } catch (const winrt::hresult_error& error) {
+                    reportFailure(nullptr, error);
+                } catch (...) {
+                    reportFailure(nullptr, winrt::hresult_error(E_FAIL, L"语言切换刷新失败"));
+                }
+            });
+        });
         g_window.Content(nav);
         g_window.SystemBackdrop(MicaBackdrop());
         // 初始尺寸 800×600（spec §0；AppWindow.Resize 是物理像素，按 DPI 换算）。

@@ -20,12 +20,21 @@
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
 
+#include "tf/Localization.hpp"
+
 #include <string>
 
 namespace tf::ui::kit {
 
 using namespace winrt;
 using namespace winrt::Microsoft::UI::Xaml;
+
+/// FR-37 localized text: Localization tables -> zh fallback, as hstring.
+/// Pages use Lx("key", L"中文默认") everywhere they used string literals.
+inline winrt::hstring Lx(const char* key, const wchar_t* fallback) {
+    return winrt::to_hstring(
+        core::loc::Localization::instance().t(key, core::loc::wideToUtf8(fallback).c_str()));
+}
 
 inline Controls::TextBlock MakeText(const std::wstring& text, bool bold = false,
                                     double size = 14.0) {
