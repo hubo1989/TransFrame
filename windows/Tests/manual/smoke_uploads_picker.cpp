@@ -449,6 +449,9 @@ void runColorHistorySmoke(const std::wstring& workDir) {
 }  // namespace
 
 int main() {
+    // Unbuffered stdout: a mid-run crash would otherwise swallow the log of
+    // which stage died (printf to a pipe is fully buffered).
+    ::setvbuf(stdout, nullptr, _IONBF, 0);
     std::printf("== TransFrame uploads + color picker smoke (FR-31/32/41) ==\n");
     ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 

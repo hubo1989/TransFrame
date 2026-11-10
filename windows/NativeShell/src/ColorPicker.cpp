@@ -14,6 +14,7 @@
 #include "pch.h"
 
 #include "tf/ColorPicker.hpp"
+#include "tf/Localization.hpp"
 
 #include <d2d1_1.h>
 #include <d2d1_1helper.h>
@@ -397,9 +398,10 @@ void renderFrame(WndState& s) {
     if (badgeBg && badgeFg && s.stack.hintFormat) {
         const D2D1_RECT_F hintRect{lx, badgeRect.bottom + 4.0f, lx + lens,
                                    badgeRect.bottom + 26.0f};
-        const wchar_t hint[] = L"单击取色 · Esc 取消";
+        const std::wstring hint = core::loc::tw("win.colorpicker.hint", L"单击取色 · Esc 取消");
         dc->FillRectangle(hintRect, badgeBg.Get());
-        dc->DrawTextW(hint, ARRAYSIZE(hint), s.stack.hintFormat.Get(), hintRect,
+        dc->DrawTextW(hint.c_str(), static_cast<UINT32>(hint.size()),
+                      s.stack.hintFormat.Get(), hintRect,
                       badgeFg.Get());
     }
 

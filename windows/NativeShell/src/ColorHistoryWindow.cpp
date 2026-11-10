@@ -9,6 +9,7 @@
 
 #include "tf/ColorHistoryWindow.hpp"
 #include "tf/ColorPicker.hpp"
+#include "tf/Localization.hpp"
 
 #include <windowsx.h>
 
@@ -237,12 +238,12 @@ void paintGrid(ColorHistoryWindowController::Impl* s,
 
     const int total = static_cast<int>(rows.size());
     if (total == 0) {
-        const wchar_t empty[] = L"还没有取色记录 · 从托盘菜单打开取色器开始";
+        const std::wstring empty = core::loc::tw("win.colorhistory.empty", L"还没有取色记录 · 从托盘菜单打开取色器开始");
         ::SetBkMode(mem, TRANSPARENT);
         ::SetTextColor(mem, RGB(110, 110, 120));
         RECT emptyRc = client;
         emptyRc.top += s->toolbarH();
-        ::DrawTextW(mem, empty, -1, &emptyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        ::DrawTextW(mem, empty.c_str(), -1, &emptyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     } else {
         HGDIOBJ oldFont = ::SelectObject(mem, s->uiFont);
         for (int i = s->scrollRow * s->layout.columns;
@@ -305,8 +306,8 @@ void paintGrid(ColorHistoryWindowController::Impl* s,
                 ::FillRect(mem, &badge, flash);
                 ::DeleteObject(flash);
                 ::SetTextColor(mem, RGB(255, 255, 255));
-                const wchar_t copied[] = L"已复制";
-                ::DrawTextW(mem, copied, -1, &badge, DT_CENTER | DT_SINGLELINE);
+                const std::wstring copied = core::loc::tw("win.colorhistory.copied", L"已复制");
+                ::DrawTextW(mem, copied.c_str(), -1, &badge, DT_CENTER | DT_SINGLELINE);
             }
         }
         ::SelectObject(mem, oldFont);
@@ -337,8 +338,9 @@ void doCopy(int index, bool rgb) {
 }
 
 void confirmClearAll(HWND hwnd, ColorHistoryWindowController* self) {
-    const wchar_t msg[] = L"清空全部取色记录？仅影响取色历史，翻译与截图记录保留。";
-    if (::MessageBoxW(hwnd, msg, L"取色历史", MB_YESNO | MB_ICONQUESTION) != IDYES) {
+    const std::wstring msg = core::loc::tw("win.colorhistory.clearConfirm", L"清空全部取色记录？仅影响取色历史，翻译与截图记录保留。");
+    if (::MessageBoxW(hwnd, msg.c_str(), core::loc::tw("win.colorhistory.title", L"取色历史").c_str(),
+                      MB_YESNO | MB_ICONQUESTION) != IDYES) {
         return;
     }
     self->clearAllForTest();
@@ -394,11 +396,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (index < 0 || index >= g_controller->rowCount()) break;
             s->focusIndex = index;
             const HMENU menu = ::CreatePopupMenu();
-            ::AppendMenuW(menu, MF_STRING, 1, L"复制 HEX");
-            ::AppendMenuW(menu, MF_STRING, 2, L"复制 RGB");
+            ::AppendMenuW(menu, MF_STRING, 1, core::loc::tw("win.colorhistory.copyHex", L"复制 HEX").c_str());
+            ::AppendMenuW(menu, MF_STRING, 2, core::loc::tw("win.colorhistory.copyRgb", L"复制 RGB").c_str());
             ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            ::AppendMenuW(menu, MF_STRING, 3, L"收藏 / 取消收藏");
-            ::AppendMenuW(menu, MF_STRING, 4, L"删除");
+            ::AppendMenuW(menu, MF_STRING, 3, core::loc::tw("win.colorhistory.toggleFavorite", L"收藏 / 取消收藏").c_str());
+            ::AppendMenuW(menu, MF_STRING, 4, core::loc::tw("win.colorhistory.delete", L"删除").c_str());
             POINT screen = pt;
             ::ClientToScreen(hwnd, &screen);
             const int cmd = ::TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -576,7 +578,7 @@ void ColorHistoryWindowController::show() {
             w = std::max(kMinW, static_cast<int>(g_lastPlacement.right - g_lastPlacement.left));
             h = std::max(kMinH, static_cast<int>(g_lastPlacement.bottom - g_lastPlacement.top));
         }
-        impl_->hwnd = ::CreateWindowExW(0, kWndClass, L"取色历史",
+        impl_->hwnd = ::CreateWindowExW(0, kWndClass, core::loc::tw("win.colorhistory.title", L"取色历史").c_str(),
                                         WS_OVERLAPPEDWINDOW, x, y, w, h, nullptr,
                                         nullptr, inst, nullptr);
 
@@ -586,17 +588,17 @@ void ColorHistoryWindowController::show() {
             ES_AUTOHSCROLL, pad, pad, impl_->scale(180), impl_->scale(22), impl_->hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSearchEdit)), inst, nullptr);
         impl_->favoritesCheck = ::CreateWindowExW(
-            0, L"BUTTON", L"仅收藏", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+            0, L"BUTTON", core::loc::tw("win.colorhistory.favoritesOnly", L"仅收藏").c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
             pad + impl_->scale(188), pad - impl_->scale(2), impl_->scale(74),
             impl_->scale(24), impl_->hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFavoritesCheck)), inst, nullptr);
         impl_->rgbCheck = ::CreateWindowExW(
-            0, L"BUTTON", L"复制 RGB", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+            0, L"BUTTON", core::loc::tw("win.colorhistory.copyRgb", L"复制 RGB").c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
             pad + impl_->scale(266), pad - impl_->scale(2), impl_->scale(84),
             impl_->scale(24), impl_->hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRgbCheck)), inst, nullptr);
         impl_->clearButton = ::CreateWindowExW(
-            0, L"BUTTON", L"清空全部", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            0, L"BUTTON", core::loc::tw("win.colorhistory.clearAll", L"清空全部").c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
             pad + impl_->scale(354), pad - impl_->scale(2), impl_->scale(68),
             impl_->scale(24), impl_->hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearButton)), inst, nullptr);
@@ -676,7 +678,9 @@ void ColorHistoryWindowController::applySearchForTest(const std::wstring& text) 
     impl_->scrollRow = 0;
     if (impl_->focusIndex >= static_cast<int>(rows_.size())) impl_->focusIndex = -1;
     if (impl_->hwnd) {
-        const std::wstring count = std::to_wstring(rows_.size()) + L" 色";
+        const std::wstring count = core::loc::formatArgsWide(
+            core::loc::tw("win.colorhistory.countFormat", L"%@ 色"),
+            {std::to_wstring(rows_.size())});
         ::SetWindowTextW(impl_->countLabel, count.c_str());
         ::InvalidateRect(impl_->hwnd, nullptr, FALSE);
     }
