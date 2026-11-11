@@ -65,33 +65,34 @@ inline Media::Brush ThemeBrush(const wchar_t* key, const Windows::UI::Color& fal
     return b;
 }
 
-/// 分组卡片：圆角 Border + 内部 StackPanel(Spacing 12, Padding 16)。
+/// 分组卡片（DesignSystem.macosGroupedCard）：圆角 12 + padding 16 +
+/// controlBackground 填充 + separator 半透明描边（0.5px 的 WinUI 等效取 1px
+/// 低对比）。回退色对齐 mac：dark #333333 / light #FFFFFF 卡片，
+/// 描边 dark #4A4A4A / light #D6D6D6。
 struct Card {
     Controls::Border border;
     Controls::StackPanel panel;
 };
 inline Card MakeCard() {
     Card c;
-    c.border.CornerRadius({8, 8, 8, 8});
+    c.border.CornerRadius({12, 12, 12, 12});
     c.border.Padding({16, 16, 16, 16});
     c.border.BorderThickness({1, 1, 1, 1});
     c.border.Background(ThemeBrush(L"CardBackgroundFillColorDefaultBrush",
-                                    Windows::UI::Color{0xFF, 0x40, 0x40, 0x40}));
+                                    Windows::UI::Color{0xFF, 0x33, 0x33, 0x33}));
     c.border.BorderBrush(ThemeBrush(L"CardStrokeColorDefaultBrush",
-                                     Windows::UI::Color{0xFF, 0x60, 0x60, 0x60}));
+                                     Windows::UI::Color{0xFF, 0x4A, 0x4A, 0x4A}));
     c.panel.Spacing(12.0);
     c.border.Child(c.panel);
     return c;
 }
 
-/// 页面骨架：ScrollViewer(24,24,24,36) > StackPanel(Spacing 20, MaxWidth 720)。
-/// 返回 StackPanel —— 页面把卡片依次 Append 进去。
-/// Stretch + 禁用水平滚动：内容按视口宽度换行/收缩，绝不会横向溢出被裁
-///（此前 Left 对齐 + 可滚动量测会按最宽子元素布局，窄窗口下右缘截断）。
+/// 页面骨架：ScrollViewer(24,24,24,36) > StackPanel(Spacing 20)。
+/// mac 对齐：`.frame(maxWidth: .infinity, alignment: .leading)` —— 不设上限，
+/// 内容随视口伸展；Stretch + 禁用水平滚动保证按视口换行，不横向溢出。
 inline Controls::StackPanel MakePageRoot(Controls::UserControl const& page) {
     Controls::StackPanel stack;
     stack.Spacing(20.0);
-    stack.MaxWidth(720.0);
     stack.HorizontalAlignment(HorizontalAlignment::Stretch);
     Controls::ScrollViewer scroller;
     scroller.Padding({24, 24, 24, 36});
@@ -101,16 +102,6 @@ inline Controls::StackPanel MakePageRoot(Controls::UserControl const& page) {
     scroller.Content(stack);
     page.Content(scroller);
     return stack;
-}
-
-/// 小节标题（卡片区隔）。
-inline Controls::TextBlock MakeSectionHeader(const wchar_t* text) {
-    Controls::TextBlock t;
-    t.Text(text);
-    t.FontSize(16.0);
-    t.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
-    t.Margin({0, 4, 0, 0});
-    return t;
 }
 
 /// 行标题 + 说明的两行文本（卡片内一行控件的标签部分）。
@@ -124,6 +115,34 @@ inline Controls::StackPanel MakeLabelBlock(const wchar_t* title, const wchar_t* 
         s.Children().Append(h);
     }
     return s;
+}
+
+/// mac System-Settings 行：左标签右控件（LabeledContent 形态）。
+/// 列宽 * + Auto：标签占余宽，控件右对齐；垂直居中。
+inline Controls::Grid MakeSettingRow(FrameworkElement label, FrameworkElement control) {
+    Controls::Grid row;
+    Controls::ColumnDefinition labelCol;
+    labelCol.Width(GridLength{1.0, GridUnitType::Star});
+    Controls::ColumnDefinition controlCol;
+    controlCol.Width(GridLength{1.0, GridUnitType::Auto});
+    row.ColumnDefinitions().Append(labelCol);
+    row.ColumnDefinitions().Append(controlCol);
+    Controls::Grid::SetColumn(label, 0);
+    Controls::Grid::SetColumn(control, 1);
+    label.VerticalAlignment(VerticalAlignment::Center);
+    control.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(label);
+    row.Children().Append(control);
+    return row;
+}
+
+/// 卡片内行间分隔线（mac Divider：separatorColor，弱对比）。
+inline Controls::Border MakeDivider() {
+    Controls::Border d;
+    d.Height(1.0);
+    d.Background(ThemeBrush(L"CardStrokeColorDefaultBrush",
+                             Windows::UI::Color{0x66, 0x4A, 0x4A, 0x4A}));
+    return d;
 }
 
 /// 四态健康点（#RRGGBB → 10px 圆点）。

@@ -146,8 +146,6 @@ void GeneralPage::BuildUi() {
         buttons.Children().Append(reveal);
         card.panel.Children().Append(buttons);
 
-        root.Children().Append(
-            kit::MakeSectionHeader(kit::Lx("settings.section.general", L"通用").c_str()));
         root.Children().Append(card.border);
     }
 

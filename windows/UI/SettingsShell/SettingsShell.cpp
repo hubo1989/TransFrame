@@ -45,6 +45,9 @@ std::mutex g_mutex;
 bool g_starting = false;
 DispatcherQueue g_queue{nullptr};
 Window g_window{nullptr}; // Accessed only on the settings STA.
+NavigationView g_nav{nullptr};        // STA-only（语言切换重建 chrome 用）
+Controls::TextBlock g_titleText{nullptr};  // 定制标题栏的页签名（mac navigationTitle 对齐）
+Controls::Grid g_titleStrip{nullptr};
 
 // ---- 页签宿主（以下全部 STA-only）----
 constexpr int kTabCount = 6;
@@ -162,7 +165,17 @@ const wchar_t* const kTabFallbacks[kTabCount] = {
 
 int g_currentTab = 0;
 
-/// Refresh the chrome labels (nav items + window title) from the tables.
+/// 定制标题栏文本 = 当前页签名（mac: navigationTitle(selectedTab.displayName)）。
+void UpdateWindowTitle() {
+    if (g_titleText) {
+        const int i = g_currentTab;
+        if (i >= 0 && i < kTabCount) {
+            g_titleText.Text(kit::Lx(kTabKeys[i], kTabFallbacks[i]));
+        }
+    }
+}
+
+/// Refresh the chrome labels (nav items + title bar) from the tables.
 void RefreshChrome(NavigationView const& nav) {
     auto items = nav.MenuItems();
     for (std::uint32_t i = 0; i < items.Size() && i < kTabCount; ++i) {
@@ -174,6 +187,7 @@ void RefreshChrome(NavigationView const& nav) {
     if (g_window) {
         g_window.Title(kit::Lx("settings.window.title", L"TransFrame 设置"));
     }
+    UpdateWindowTitle();
 }
 
 /// Drop the lazily-cached pages so the next ShowTab rebuilds them with the
@@ -190,6 +204,7 @@ void ShowTab(NavigationView const& nav, int index) {
     if (!g_pages[index]) g_pages[index] = BuildTab(index);
     nav.Content(g_pages[index]);
     g_currentTab = index;
+    UpdateWindowTitle();
     // 每次激活重载磁盘（其它页签可能改过 engines.json / 兼容实例表）。
     switch (index) {
         case 0:
@@ -227,18 +242,37 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
         // WinUI controls require both Application and their theme resources.
         Resources().MergedDictionaries().Append(XamlControlsResources());
         NavigationView nav;
+        // mac 对齐（SettingsView.swift）：NavigationSplitView 固定 200pt 侧栏、
+        // List(.sidebar) 带 SF Symbol 图标、无折叠开关。
         nav.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
-        // macOS parity: sidebar ≈200pt. WinUI 默认 OpenPaneLength 320 会把
-        // 800×600 窗口的内容视口挤到 ~430px，页面按 ~500px 布局时右缘被裁。
-        nav.OpenPaneLength(232.0);
+        nav.OpenPaneLength(200.0);
+        nav.IsPaneToggleButtonVisible(false);
         nav.IsSettingsVisible(false);
         nav.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
+        // 不允许收起（mac NavigationSplitViewColumnWidth min=ideal=max=200）。
+        nav.PaneClosing([](NavigationView const&, NavigationViewPaneClosingEventArgs const& args) {
+            args.Cancel(true);
+        });
+        // SF Symbol → Segoe Fluent 图标映射（SettingsTab.swift icon）。
+        static const wchar_t* kTabGlyphs[kTabCount] = {
+            L"",  // gearshape → Settings
+            L"",  // engine.combustion → Repair（Fluent 无引擎字形）
+            L"",  // text.bubble → Message
+            L"",  // globe → Globe
+            L"",  // keyboard → Keyboard
+            L"",  // pencil.tip → Edit
+        };
         int index = 0;
         for (const wchar_t* label : {L"通用", L"引擎", L"Prompt", L"语言", L"快捷键", L"高级"}) {
             NavigationViewItem item;
+            FontIcon icon;
+            icon.FontFamily(FontFamily(L"Segoe Fluent Icons"));
+            icon.Glyph(kTabGlyphs[index]);
+            item.Icon(icon);
             item.Content(winrt::box_value(label));  // replaced by RefreshChrome below
-            item.Tag(winrt::box_value(index++));
+            item.Tag(winrt::box_value(index));
             nav.MenuItems().Append(item);
+            ++index;
         }
         nav.SelectionChanged([](NavigationView const& sender,
                                 NavigationViewSelectionChangedEventArgs const& args) {
@@ -269,8 +303,8 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
             if (!queue) return;
             queue.TryEnqueue([] {
                 try {
-                    if (!g_window) return;
-                    auto nav = g_window.Content().as<NavigationView>();
+                    if (!g_window || !g_nav) return;
+                    auto nav = g_nav;
                     ResetPageCache();
                     RefreshChrome(nav);
                     ShowTab(nav, g_currentTab);
@@ -283,7 +317,34 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
                 }
             });
         });
-        g_window.Content(nav);
+        // mac 对齐：标题跟随主题、内容延伸进标题栏、显示当前页名
+        // （NSWindow.title + navigationTitle）。原生亮色标题栏在暗色主题下
+        // 形成突兀的白色条带 —— ExtendsContentIntoTitleBar + 自绘条修复。
+        g_titleStrip = Controls::Grid();
+        g_titleStrip.Height(40.0);
+        g_titleText = Controls::TextBlock();
+        g_titleText.FontSize(12.0);
+        g_titleText.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+        g_titleText.HorizontalAlignment(HorizontalAlignment::Center);
+        g_titleText.VerticalAlignment(VerticalAlignment::Center);
+        g_titleStrip.Children().Append(g_titleText);
+
+        Controls::Grid root;
+        {
+            Controls::RowDefinition stripRow;
+            stripRow.Height(GridLength{40.0, GridUnitType::Pixel});
+            Controls::RowDefinition navRow;
+            navRow.Height(GridLength{1.0, GridUnitType::Star});
+            root.RowDefinitions().Append(stripRow);
+            root.RowDefinitions().Append(navRow);
+        }
+        Controls::Grid::SetRow(g_titleStrip, 0);
+        Controls::Grid::SetRow(nav, 1);
+        root.Children().Append(g_titleStrip);
+        root.Children().Append(nav);
+        g_nav = nav;
+        g_window.ExtendsContentIntoTitleBar(true);
+        g_window.Content(root);
         // PRD §6.13: Win10 uses an opaque theme-aware background. Keep
         // this fallback for unsupported controllers and activation failures.
         bool micaApplied = false;
@@ -296,17 +357,58 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
             } catch (...) { /* Cosmetic: retain the solid-color fallback. */ }
         }
         if (!micaApplied) {
+            // mac windowBackgroundColor: dark #282828 / light #ECECEC（不透明）。
             const auto applySolidBackground = [](NavigationView const& view) {
                 const bool dark = view.ActualTheme() == ElementTheme::Dark;
-                const auto shade = static_cast<uint8_t>(dark ? 32 : 243);
-                view.Background(SolidColorBrush(winrt::Windows::UI::Color{255, shade, shade, shade}));
+                const auto shade = static_cast<uint8_t>(dark ? 40 : 236);
+                SolidColorBrush brush(
+                    winrt::Windows::UI::Color{255, shade, shade, shade});
+                view.Background(brush);
+                if (g_titleStrip) g_titleStrip.Background(brush);
             };
             applySolidBackground(nav);
             nav.ActualThemeChanged([applySolidBackground](FrameworkElement const& sender, auto const&) {
                 applySolidBackground(sender.as<NavigationView>());
             });
+        } else {
+            // Mica 材质下标题条保持透明，仅调标题文本色。
+            const auto applyTitleForeground = [](NavigationView const& view) {
+                const bool dark = view.ActualTheme() == ElementTheme::Dark;
+                const auto c = dark ? winrt::Windows::UI::Color{255, 234, 234, 234}
+                                    : winrt::Windows::UI::Color{255, 26, 26, 26};
+                if (g_titleText) g_titleText.Foreground(SolidColorBrush(c));
+            };
+            applyTitleForeground(nav);
+            nav.ActualThemeChanged([applyTitleForeground](FrameworkElement const& sender, auto const&) {
+                applyTitleForeground(sender.as<NavigationView>());
+            });
         }
+        // 标题栏按钮配色跟随主题（ExtendsContentIntoTitleBar 后系统默认仍是
+        // 亮色系）。AppWindow.TitleBar 是非主题资源，需随 ActualTheme 重刷。
+        const auto applyCaptionTheme = [](NavigationView const& view) {
+            try {
+                const bool dark = view.ActualTheme() == ElementTheme::Dark;
+                auto tb = g_window.AppWindow().TitleBar();
+                const auto fg = dark ? winrt::Windows::UI::Color{255, 234, 234, 234}
+                                     : winrt::Windows::UI::Color{255, 26, 26, 26};
+                tb.ButtonForegroundColor(fg);
+                tb.ButtonHoverForegroundColor(fg);
+                tb.ButtonPressedForegroundColor(fg);
+                const auto base = static_cast<uint8_t>(dark ? 255 : 0);
+                tb.ButtonHoverBackgroundColor(
+                    winrt::Windows::UI::Color{0x33, base, base, base});
+                tb.ButtonPressedBackgroundColor(
+                    winrt::Windows::UI::Color{0x66, base, base, base});
+            } catch (...) {
+                // Cosmetic: caption colors unavailable on this controller.
+            }
+        };
+        applyCaptionTheme(nav);
+        nav.ActualThemeChanged([applyCaptionTheme](FrameworkElement const& sender, auto const&) {
+            applyCaptionTheme(sender.as<NavigationView>());
+        });
         // 初始尺寸 800×600（spec §0；AppWindow.Resize 是物理像素，按 DPI 换算）。
+        // mac styleMask 不含 .resizable：窗口定尺寸，去最大化。
         try {
             HWND hwnd{};
             winrt::check_hresult(g_window.as<IWindowNative>()->get_WindowHandle(&hwnd));
@@ -314,6 +416,13 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
             const double scale = dpi > 0 ? dpi / 96.0 : 1.0;
             g_window.AppWindow().Resize({static_cast<std::int32_t>(800 * scale),
                                          static_cast<std::int32_t>(600 * scale)});
+            if (auto presenter = g_window.AppWindow().Presenter()
+                    .as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>()) {
+                presenter.IsResizable(false);
+                // mac styleMask 无 .resizable：窗口固定 800×600；最大化随之禁用
+                //（1.6 无 HasMaximizeButton，按钮呈禁用态）。
+                presenter.IsMaximizable(false);
+            }
         } catch (...) {
             // 尺寸非关键路径：失败保持默认窗口大小。
         }
@@ -437,7 +546,7 @@ bool RunSettingsTabsSmoke(int timeoutMs, SettingsTabsSmokeReport* out) {
         enqueued = queue.TryEnqueue([sharedReport, done]() {
             SettingsTabsSmokeReport& report = *sharedReport;
             try {
-                auto nav = g_window.Content().as<NavigationView>();
+                auto nav = g_nav;  // Content() 现为 Grid(titleStrip+nav)，nav 直取
                 auto items = nav.MenuItems();
                 if (items.Size() != static_cast<std::uint32_t>(kTabCount)) {
                     _snwprintf_s(report.detail, _countof(report.detail), _TRUNCATE,
@@ -513,7 +622,7 @@ bool SwitchSettingsTab(int index, int timeoutMs) {
     try {
         ok = queue.TryEnqueue([index, done]() {
             try {
-                auto nav = g_window.Content().as<NavigationView>();
+                auto nav = g_nav;  // Content() 现为 Grid(titleStrip+nav)，nav 直取
                 auto items = nav.MenuItems();
                 if (static_cast<std::uint32_t>(index) < items.Size()) {
                     nav.SelectedItem(items.GetAt(static_cast<std::uint32_t>(index)));

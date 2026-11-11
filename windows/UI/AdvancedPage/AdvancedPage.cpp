@@ -66,9 +66,6 @@ void AdvancedPage::OnShown() {
 
 void AdvancedPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(
-        kit::Lx("win.settings.section.advanced", L"高级").c_str()));
-
     // ---------------- 卡片 1：标注默认样式（spec §6） ----------------
     {
         kit::Card card = kit::MakeCard();

@@ -47,9 +47,6 @@ PromptsPage::PromptsPage() {
 // ---------------------------------------------------------------------------
 void PromptsPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(
-        kit::Lx("settings.section.prompts", L"Prompt").c_str()));
-
     // 卡片 1：引擎 Prompt（spec §3.1）
     {
         kit::Card card = kit::MakeCard();

@@ -84,8 +84,6 @@ void LanguagePage::OnShown() {
 
 void LanguagePage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(kit::Lx("settings.section.languages", L"语言").c_str()));
-
     // 界面语言卡在通用页（mac 对齐：AppLanguagePicker 只在
     // GeneralSettingsTab.swift:21）；本页只保留翻译语言对。
     kit::Card card = kit::MakeCard();

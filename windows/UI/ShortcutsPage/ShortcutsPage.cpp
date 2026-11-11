@@ -56,9 +56,6 @@ void ShortcutsPage::LoadFromDisk() {
 
 void ShortcutsPage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
-    root.Children().Append(kit::MakeSectionHeader(
-        kit::Lx("settings.section.shortcuts", L"快捷键").c_str()));
-
     kit::Card card = kit::MakeCard();
     card.panel.Children().Append(kit::MakeLabelBlock(
         kit::Lx("win.shortcuts.title", L"全局快捷键").c_str(),

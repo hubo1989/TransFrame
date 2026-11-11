@@ -72,9 +72,6 @@ std::wstring HealthStateLabel(const std::string& state) {
 EnginesPage::EnginesPage() {
     BindPersistence();
     rootStack_ = kit::MakePageRoot(*this);
-    rootStack_.Children().Append(kit::MakeSectionHeader(
-        kit::Lx("settings.section.engines", L"引擎").c_str()));
-
     BuildVlmCard();
     BuildPaddleCard();
     BuildMultiEngineCard();
