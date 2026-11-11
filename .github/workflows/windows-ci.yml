@@ -190,7 +190,9 @@ jobs:
     env:
       PUBLISHER: CN=TransFrame CI Test
       BASE_URL: https://transframe.example/downloads/windows
-      VCLIBS_VERSION: 14.0.33728.0
+      # Fixed dependency build; the application manifest's lower bound is
+      # 14.0.30704.0. Pin both the Microsoft Download Center URL and hashes.
+      VCLIBS_VERSION: 14.0.33321.0
     steps:
       - uses: actions/checkout@v4
 
@@ -201,26 +203,74 @@ jobs:
         working-directory: windows
         run: msbuild TransFrame.sln /m /restore /p:Configuration=Release /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
 
-      - name: Download VCLibs Desktop runtime (fixed version)
+      - name: Add Windows SDK tools to PATH
         shell: pwsh
         run: |
+          $binRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $sdkBin = Get-ChildItem $binRoot -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+          if (-not $sdkBin) { throw "No Windows 10/11 SDK found under $binRoot" }
+          $x64 = Join-Path $sdkBin.FullName 'x64'
+          foreach ($tool in 'makeappx.exe', 'signtool.exe') {
+            if (-not (Test-Path (Join-Path $x64 $tool))) { throw "$tool missing in $x64" }
+          }
+          Add-Content $env:GITHUB_PATH $x64
+          Write-Host "SDK tools on PATH: $x64"
+
+      - name: Download VCLibs Desktop runtime (fixed version)
+        # Official Download Center resource, pinned to 14.0.33321.0 by
+        # SHA-256 and manifest identity. Do not use the mutable aka.ms alias.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
           $arch = '${{ matrix.platform }}'.ToLower()
-          $url = "https://www.nuget.org/api/v2/package/Microsoft.VCLibs.Desktop/$env:VCLIBS_VERSION"
-          $out = "vclibs-$arch.appx"
+          $url = "https://download.microsoft.com/download/4/7/c/47c6134b-d61f-4024-83bd-b9c9ea951c25/Microsoft.VCLibs.$arch.14.00.Desktop.appx"
+          $hashes = @{
+            x64 = 'b56a9101f706f9d95f815f5b7fa6efbac972e86573d378b96a07cff5540c5961'
+            arm64 = '9a7f6d69ea6cf042ea8680b7cd0bfaa9c04f0f6cc89055d43f7f6cd0250508d3'
+          }
+          $dir = New-Item -ItemType Directory -Path "downloads/vclibs-$arch"
+          $out = Join-Path $dir.FullName "Microsoft.VCLibs.$arch.14.00.Desktop.appx"
           try {
             Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 120
           } catch {
-            Write-Error "Failed to download VCLibs Desktop $env:VCLIBS_VERSION from $url : $_"
-            exit 1
+            throw "VCLibs $env:VCLIBS_VERSION ($arch) download failed from ${url}: $_"
           }
-          if ((Get-Item $out).Length -eq 0) { Write-Error "Downloaded $out is empty"; exit 1 }
-          $zip = "$out.zip"
-          Rename-Item $out $zip
-          Expand-Archive $zip -DestinationPath "vclibs-$arch" -Force
-          $appx = Get-ChildItem "vclibs-$arch/tools/AppX" -Filter "*$arch.appx" | Select-Object -First 1
-          if (-not $appx) { Write-Error "No $arch appx inside the VCLibs nupkg"; exit 1 }
-          Copy-Item $appx.FullName "vclibs-$arch-extracted.appx"
-          Write-Host "VCLibs: $($appx.Name)"
+          if ((Get-Item $out).Length -eq 0) { throw "Downloaded $out is empty" }
+          if ((Get-FileHash $out -Algorithm SHA256).Hash -ne $hashes[$arch]) {
+            throw "VCLibs $arch SHA-256 differs from pinned $env:VCLIBS_VERSION"
+          }
+
+          # Validate the downloaded appx manifest: fail loudly on any drift.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $out))
+          try {
+            $entry = $zip.GetEntry('AppxManifest.xml')
+            if (-not $entry) { Write-Error "$out has no AppxManifest.xml"; exit 1 }
+            $reader = New-Object System.IO.StreamReader($entry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          } finally {
+            $zip.Dispose()
+          }
+          $id = $manifest.Package.Identity
+          if ($id.Name -ne 'Microsoft.VCLibs.140.00.UWPDesktop') {
+            Write-Error "Unexpected package name '$($id.Name)' (want Microsoft.VCLibs.140.00.UWPDesktop)"; exit 1
+          }
+          if ($id.ProcessorArchitecture -ne $arch) {
+            Write-Error "Unexpected architecture '$($id.ProcessorArchitecture)' (want $arch)"; exit 1
+          }
+          if ($id.Publisher -ne 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US') {
+            Write-Error "Unexpected publisher '$($id.Publisher)'"; exit 1
+          }
+          if ($id.Version -ne $env:VCLIBS_VERSION) {
+            Write-Error "Unexpected version '$($id.Version)' (want $env:VCLIBS_VERSION)"; exit 1
+          }
+          signtool verify /pa $out
+          if ($LASTEXITCODE -ne 0) { throw "VCLibs signature verification failed: $out" }
+          Write-Host "VCLibs: $($id.Name) $($id.Version) $arch"
 
       - name: Package + sign MSIX (self-signed test cert)
         shell: pwsh
@@ -230,10 +280,12 @@ jobs:
           $bootstrap = Join-Path (Split-Path $exe) "Microsoft.WindowsAppRuntime.Bootstrap.dll"
           if (-not (Test-Path $bootstrap)) { Write-Error "Bootstrap DLL missing next to EXE: $bootstrap"; exit 1 }
           $arch = '${{ matrix.platform }}'.ToLower()
+          $vclibs = "downloads/vclibs-$arch/Microsoft.VCLibs.$arch.14.00.Desktop.appx"
+          if (-not (Test-Path $vclibs)) { Write-Error "VCLibs appx not found: $vclibs (download step must run first)"; exit 1 }
           python3 windows/scripts/build_msix.py `
             --exe $exe `
             --output "dist/${{ matrix.platform }}" `
-            --vclibs "vclibs-$arch-extracted.appx" `
+            --vclibs $vclibs `
             --version 1.0.4.0 --arch $arch `
             --publisher $env:PUBLISHER `
             --base-url $env:BASE_URL `
@@ -249,9 +301,11 @@ jobs:
       - name: Upload MSIX artifacts
         uses: actions/upload-artifact@v4
         with:
+          # Architecture is explicit in the artifact name: msix-x64 / msix-ARM64.
           name: msix-${{ matrix.platform }}
           path: |
             dist/${{ matrix.platform }}/*.msix
             dist/${{ matrix.platform }}/*.appinstaller
             dist/${{ matrix.platform }}/*.appx
           if-no-files-found: error
+          retention-days: 14
