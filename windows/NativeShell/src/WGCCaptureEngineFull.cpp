@@ -20,7 +20,7 @@
 //     sets a flag (never takes the engine mutex — captures would otherwise
 //     stall behind a busy compositor). The pool is ring-buffered: unconsumed
 //     frames are silently overwritten, so it never stalls.
-//   * IsBorderRequired(false): contract 15+ (see wgcSupportsBorderless) and
+//   * IsBorderRequired(false): Win11 policy + property presence (contract 12) and
 //     additionally gated by an IsPropertyPresent check plus try/catch —
 //     non-packaged processes can be denied at runtime. Degrade to keeping
 //     the system yellow border (documented, PRD §6.13) instead of failing.
@@ -29,6 +29,7 @@
 #include "pch.h"
 
 #include "tf/CaptureService.hpp"
+#include "tf/PlatformFeatures.hpp"
 #include "CaptureD3dDevice.h"
 
 #include <windows.graphics.capture.interop.h>
@@ -103,7 +104,7 @@ winrt::com_ptr<ID3D11Texture2D> textureFromSurface(const wdx3d::IDirect3DSurface
 /// identity). Refusal keeps the yellow border — never fails the capture.
 void tryDisableBorder(const wgc::GraphicsCaptureSession& session) {
     try {
-        if (wf::Metadata::ApiInformation::IsPropertyPresent(
+        if (tf::supportsBorderlessCapture() && wf::Metadata::ApiInformation::IsPropertyPresent(
                 L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsBorderRequired")) {
             session.IsBorderRequired(false);
         }
@@ -143,11 +144,10 @@ public:
     bool isAvailable() override {
         ensureWinrtApartment();
         try {
-            // Direct3D11CaptureFramePool rides UniversalApiContract 12
-            // (Win10 1803+); GraphicsCaptureSession::IsSupported() covers
-            // policy/SKU removals.
-            if (!wf::Metadata::ApiInformation::IsApiContractPresent(
-                    L"Windows.Foundation.UniversalApiContract", 12)) {
+            // CreateFreeThreaded is available since Win10 1809 (contract 7).
+            // Do not gate WGC itself on the newer borderless-capture API.
+            if (!wf::Metadata::ApiInformation::IsMethodPresent(
+                    L"Windows.Graphics.Capture.Direct3D11CaptureFramePool", L"CreateFreeThreaded")) {
                 return false;
             }
             return wgc::GraphicsCaptureSession::IsSupported();

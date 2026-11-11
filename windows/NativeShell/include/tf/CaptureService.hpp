@@ -96,8 +96,8 @@ private:
 };
 
 /// Detect WGC borderless support: GraphicsCaptureSession.IsBorderRequired
-/// requires API contract 15 (Windows 11 21H2 / SDK 10.0.22000). Exported for
-/// tests via injection; production reads Windows.Foundation.UniversalApiContract.
+/// requires API contract 12 (SDK 10.0.20348). Product policy additionally
+/// requires Win11 (build 22000); actual setters retain their presence guard.
 bool wgcSupportsBorderless(std::uint32_t universalApiContractVersion);
 
 /// Row-crop helper shared by the engine TUs (WGC/DXGI staging RowPitch is

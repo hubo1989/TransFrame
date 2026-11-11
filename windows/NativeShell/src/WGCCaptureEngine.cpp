@@ -7,7 +7,7 @@
 // swizzle into the Core PixelBuffer (BGRA stays BGRA; WGC premultiplies
 // alpha, screens are opaque so alpha=255 after premultiply of 255).
 //
-// IsBorderRequired=false on UniversalApiContract >= 15 (Win11): borderless.
+// IsBorderRequired (contract 12) is optional; product policy enables it on Win11.
 // Below that the property is absent -> keep default (yellow border shows,
 // documented degradation, PRD §6.13).
 #include "pch.h"
@@ -35,19 +35,12 @@ namespace {
 // ---------------------------------------------------------------------------
 
 bool probeWgcAvailability() {
-    // WGC exists from Windows 10 1803; contract gate for our usage is the
-    // Direct3D11CaptureFramePool API. A probe activation failure means WGC is
-    // off (policy / SKUs) -> fall to DXGI.
-    // PRD §6.13: borderless capture needs contract 15 (Win11 21H2); on Win10
-    // the yellow border stays (documented degradation).
+    // The free-threaded pool exists on Win10 1809 (contract 7). Borderless
+    // capture is optional and must not disable WGC on Win10 (PRD §6.13).
     try {
-        return winrt::Windows::Foundation::Metadata::ApiInformation::IsApiContractPresent(
-                   L"Windows.Foundation.UniversalApiContract", 12) &&
-               tf::wgcSupportsBorderless(
-                   winrt::Windows::Foundation::Metadata::ApiInformation::IsApiContractPresent(
-                       L"Windows.Foundation.UniversalApiContract", 15)
-                       ? 15u
-                       : 14u);
+        return winrt::Windows::Foundation::Metadata::ApiInformation::IsMethodPresent(
+                   L"Windows.Graphics.Capture.Direct3D11CaptureFramePool", L"CreateFreeThreaded") &&
+               Capture::GraphicsCaptureSession::IsSupported();
     } catch (...) {
         return false;
     }

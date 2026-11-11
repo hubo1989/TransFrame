@@ -21,6 +21,7 @@
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
+#include <winrt/Microsoft.UI.Composition.SystemBackdrops.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 #include <winrt/Microsoft.UI.Windowing.h>
@@ -280,25 +281,27 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
             });
         });
         g_window.Content(nav);
-        // PRD §6.13: Mica needs Win11 21H2 (build 22000, contract 15).
-        // WinUI 1.6 SystemBackdrop silently no-ops on Win10, leaving a
-        // blank/white chrome — degrade to a plain solid background there.
-        // The policy probe also backstops the runtime ApiInformation check.
+        // PRD §6.13: Win10 uses an opaque theme-aware background. Keep
+        // this fallback for unsupported controllers and activation failures.
+        bool micaApplied = false;
         if (tf::supportsMicaBackdrop()) {
             try {
-                g_window.SystemBackdrop(MicaBackdrop());
-            } catch (...) {
-                // Backdrop is cosmetic: any activation failure keeps the
-                // solid-color fallback below.
-            }
-        } else {
-            // Win10 21H2 降级（PRD §6.13）：SystemBackdrop 在 Win10 上静默
-            // 无效，显式铺纯色防白框；未匹配资源键时 XAML 走默认画刷。
-            try {
-                g_window.Content().as<FrameworkElement>().RequestedTheme(ElementTheme::Default);
-            } catch (...) {
-                // 主题兜底同样非关键路径。
-            }
+                if (winrt::Microsoft::UI::Composition::SystemBackdrops::MicaController::IsSupported()) {
+                    g_window.SystemBackdrop(MicaBackdrop());
+                    micaApplied = true;
+                }
+            } catch (...) { /* Cosmetic: retain the solid-color fallback. */ }
+        }
+        if (!micaApplied) {
+            const auto applySolidBackground = [](NavigationView const& view) {
+                const bool dark = view.ActualTheme() == ElementTheme::Dark;
+                const auto shade = static_cast<uint8_t>(dark ? 32 : 243);
+                view.Background(SolidColorBrush(winrt::Windows::UI::Color{255, shade, shade, shade}));
+            };
+            applySolidBackground(nav);
+            nav.ActualThemeChanged([applySolidBackground](FrameworkElement const& sender, auto const&) {
+                applySolidBackground(sender.as<NavigationView>());
+            });
         }
         // 初始尺寸 800×600（spec §0；AppWindow.Resize 是物理像素，按 DPI 换算）。
         try {

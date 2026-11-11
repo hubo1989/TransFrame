@@ -2,35 +2,17 @@
 // Engine implementations: WGCCaptureEngine.cpp / DxgiDuplicationEngine.cpp /
 // GdiCaptureEngine.cpp (Windows-only TUs).
 #include "tf/CaptureService.hpp"
-#ifdef _WIN32
 #include "tf/PlatformFeatures.hpp"
-#endif
 
 #include <algorithm>
 #include <cstring>
 
 namespace tf {
 
-/// Belt-and-braces: the OS build probe (PRD §6.13 policy layer) must agree
-/// with the contract version — a downlevel OS must never claim borderless
-/// even if a shim reports a higher contract. Only meaningful on Windows;
-/// the portable leg (GCC) has no OS to ask, so the pure contract gate stands
-/// alone there.
-static bool borderlessOsGate() {
-#ifdef _WIN32
-    return tf::supportsBorderlessCapture();
-#else
-    return true;
-#endif
-}
-
-
 bool wgcSupportsBorderless(std::uint32_t universalApiContractVersion) {
-    // GraphicsCaptureSession.IsBorderRequired is introduced in
-    // Windows.Foundation.UniversalApiContract version 15 (Windows 11 21H2,
-    // SDK 10.0.22000). Below that the property simply does not exist and the
-    // yellow border stays (Win10 degradation path, PRD §6.13).
-    return universalApiContractVersion >= 15 && borderlessOsGate();
+    // IsBorderRequired was introduced in contract 12 (SDK 20348). Product
+    // policy keeps borders on Win10 even if a future shim exposes the API.
+    return universalApiContractVersion >= 12 && tf::supportsBorderlessCapture();
 }
 
 std::shared_ptr<std::uint8_t[]> copyBgraCrop(const std::uint8_t* src,
