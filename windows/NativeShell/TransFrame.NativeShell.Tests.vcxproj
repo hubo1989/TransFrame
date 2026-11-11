@@ -65,6 +65,7 @@
     <ClCompile Include="tests\WindowDetectorTests.cpp"/>
     <ClCompile Include="tests\HotkeyManagerTests.cpp"/>
     <ClCompile Include="tests\CaptureServiceTests.cpp"/>
+    <ClCompile Include="tests\PlatformFeaturesTests.cpp"/>
     <ClCompile Include="tests\OverlayRendererTests.cpp"/>
     <ClCompile Include="tests\OverlayRenderStrategyTests.cpp"/>
     <ClCompile Include="tests\TrayMenuTests.cpp"/>

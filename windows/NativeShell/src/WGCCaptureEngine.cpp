@@ -38,9 +38,16 @@ bool probeWgcAvailability() {
     // WGC exists from Windows 10 1803; contract gate for our usage is the
     // Direct3D11CaptureFramePool API. A probe activation failure means WGC is
     // off (policy / SKUs) -> fall to DXGI.
+    // PRD §6.13: borderless capture needs contract 15 (Win11 21H2); on Win10
+    // the yellow border stays (documented degradation).
     try {
         return winrt::Windows::Foundation::Metadata::ApiInformation::IsApiContractPresent(
-            L"Windows.Foundation.UniversalApiContract", 12);
+                   L"Windows.Foundation.UniversalApiContract", 12) &&
+               tf::wgcSupportsBorderless(
+                   winrt::Windows::Foundation::Metadata::ApiInformation::IsApiContractPresent(
+                       L"Windows.Foundation.UniversalApiContract", 15)
+                       ? 15u
+                       : 14u);
     } catch (...) {
         return false;
     }

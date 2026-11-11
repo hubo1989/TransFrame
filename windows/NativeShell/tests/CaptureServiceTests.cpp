@@ -3,6 +3,9 @@
 #include "catch_amalgamated.hpp"
 
 #include "tf/CaptureService.hpp"
+#ifdef _WIN32
+#include "tf/PlatformFeatures.hpp"
+#endif
 
 using namespace tf;
 
@@ -82,9 +85,18 @@ TEST_CASE("WGC contract gate: borderless needs UniversalApiContract 15",
     // Win10 21H2 (contract 12/14): yellow border stays (documented degradation).
     CHECK_FALSE(wgcSupportsBorderless(12));
     CHECK_FALSE(wgcSupportsBorderless(14));
-    // Win11 21H2+ (contract 15+): IsBorderRequired=false applies.
+    // Win11 21H2+ (contract 15+): IsBorderRequired=false applies — gated by
+    // the OS build probe as well, so on Windows runners this only holds on a
+    // real Win11 machine (the CI runners are).
+#ifdef _WIN32
+    if (tf::platformBuildNumber() >= 22000) {
+        CHECK(wgcSupportsBorderless(15));
+        CHECK(wgcSupportsBorderless(16));
+    }
+#else
     CHECK(wgcSupportsBorderless(15));
     CHECK(wgcSupportsBorderless(16));
+#endif
 }
 
 TEST_CASE("chain prefers WGC when available", "[capture][chain]") {

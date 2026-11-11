@@ -31,6 +31,7 @@ set(PORTABLE_SOURCES
     src/OverlayRenderer.cpp
     src/TrayMenu.cpp
     src/HistoryExport.cpp
+    src/PlatformFeatures.cpp
 )
 
 set(PORTABLE_HEADERS
@@ -46,6 +47,7 @@ set(PORTABLE_HEADERS
     include/tf/ResultWindow.hpp
     include/tf/SettingsWindow.hpp
     include/tf/HistoryWindow.hpp
+    include/tf/PlatformFeatures.hpp
 )
 
 # ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ add_executable(native_shell_tests
     tests/TrayMenuTests.cpp
     tests/PinnedWindowManagerTests.cpp
     tests/ColorPickerHistoryTests.cpp
+    tests/PlatformFeaturesTests.cpp
 )
 target_include_directories(native_shell_tests PRIVATE tests)
 target_link_libraries(native_shell_tests PRIVATE native_shell)

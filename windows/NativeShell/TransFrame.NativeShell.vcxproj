@@ -93,6 +93,10 @@
     <ClCompile Include="src\AppNotifications.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- PRD §6.13 OS feature policy (version probes); no pch needed. -->
+    <ClCompile Include="src\PlatformFeatures.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="src\OnboardingWindow.cpp"/>
   </ItemGroup>
 
@@ -142,6 +146,7 @@
     <ClInclude Include="include\tf\TrayIcon.hpp"/>
     <ClInclude Include="include\tf\Win32Locale.hpp"/>
     <ClInclude Include="include\tf\AppNotifications.hpp"/>
+    <ClInclude Include="include\tf\PlatformFeatures.hpp"/>
     <ClInclude Include="include\tf\OnboardingWindow.hpp"/>
     <ClInclude Include="include\tf\ResultWindow.hpp"/>
     <ClInclude Include="include\tf\PreviewWindow.hpp"/>

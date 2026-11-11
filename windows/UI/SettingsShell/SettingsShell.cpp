@@ -14,6 +14,7 @@
 #include "ShortcutsPage.h"
 
 #include "tf/Localization.hpp"
+#include "tf/PlatformFeatures.hpp"  // PRD §6.13: Mica/Win11 policy probe
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -279,7 +280,26 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
             });
         });
         g_window.Content(nav);
-        g_window.SystemBackdrop(MicaBackdrop());
+        // PRD §6.13: Mica needs Win11 21H2 (build 22000, contract 15).
+        // WinUI 1.6 SystemBackdrop silently no-ops on Win10, leaving a
+        // blank/white chrome — degrade to a plain solid background there.
+        // The policy probe also backstops the runtime ApiInformation check.
+        if (tf::supportsMicaBackdrop()) {
+            try {
+                g_window.SystemBackdrop(MicaBackdrop());
+            } catch (...) {
+                // Backdrop is cosmetic: any activation failure keeps the
+                // solid-color fallback below.
+            }
+        } else {
+            // Win10 21H2 降级（PRD §6.13）：SystemBackdrop 在 Win10 上静默
+            // 无效，显式铺纯色防白框；未匹配资源键时 XAML 走默认画刷。
+            try {
+                g_window.Content().as<FrameworkElement>().RequestedTheme(ElementTheme::Default);
+            } catch (...) {
+                // 主题兜底同样非关键路径。
+            }
+        }
         // 初始尺寸 800×600（spec §0；AppWindow.Resize 是物理像素，按 DPI 换算）。
         try {
             HWND hwnd{};
