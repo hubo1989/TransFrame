@@ -89,6 +89,7 @@ enum class ToolButton : int {
     Status = 109,  // static text
     Pin = 110,     // 贴图置顶 (FR-14 hook; AppMain injects the handler)
     Upload = 111,  // 图床上传 (FR-31 hook; AppMain injects the handler)
+    SmartRedact = 112,  // 智能打码 (FR-10 hook; AppMain injects the VLM worker)
 };
 
 // ------------------------------------------------- text input mini dialog —
@@ -253,6 +254,7 @@ struct PreviewWindowController::Impl {
     std::function<void()> onPinRequested;
     // FR-31 上传 handler: receives the composited pixels (worker does the rest).
     std::function<void(std::shared_ptr<PixelBuffer>)> onUploadRequested;
+    std::function<void(std::shared_ptr<PixelBuffer>)> onSmartRedactRequested;  // FR-10
 
     // D2D device stack (created lazily per window; no DComp needed here).
     ComPtr<ID2D1Factory> d2d;
@@ -448,6 +450,7 @@ struct PreviewWindowController::Impl {
             {ToolButton::Copy, "action.copy", L"复制"},
             {ToolButton::Pin, "win.preview.pin", L"贴图"},
             {ToolButton::Upload, "win.preview.upload", L"上传"},
+            {ToolButton::SmartRedact, "win.preview.smartRedact", L"智能打码"},
             {ToolButton::Close, "action.close", L"关闭"},
         };
         int x = 8;
@@ -698,6 +701,7 @@ struct PreviewWindowController::Impl {
                 else if (id == static_cast<int>(ToolButton::Copy)) copyFlow(false);
                 else if (id == static_cast<int>(ToolButton::Pin)) { if (onPinRequested) onPinRequested(); }
                 else if (id == static_cast<int>(ToolButton::Upload)) { if (onUploadRequested) onUploadRequested(std::make_shared<PixelBuffer>(composited())); }
+                else if (id == static_cast<int>(ToolButton::SmartRedact)) { if (onSmartRedactRequested) onSmartRedactRequested(spec.image); }
                 else if (id == static_cast<int>(ToolButton::Close)) ::PostMessageW(h, WM_CLOSE, 0, 0);
                 if (id <= static_cast<int>(ToolButton::Pin)) {
                     ::SetFocus(h);  // keep FR-07 shortcuts on the preview window
@@ -920,6 +924,18 @@ void PreviewWindowController::setPinHandler(std::function<void()> handler) {
 void PreviewWindowController::setUploadHandler(
     std::function<void(std::shared_ptr<PixelBuffer>)> handler) {
     if (impl_) impl_->onUploadRequested = std::move(handler);
+}
+
+void PreviewWindowController::setSmartRedactHandler(
+    std::function<void(std::shared_ptr<PixelBuffer>)> handler) {
+    if (impl_) impl_->onSmartRedactRequested = std::move(handler);
+}
+
+void PreviewWindowController::applySmartRedaction(std::vector<core::Annotation> batch) {
+    if (!impl_ || !impl_->hwnd) return;
+    impl_->document.addAll(std::move(batch));  // one undo step covers the batch (FR-10)
+    impl_->syncHistoryButtons();
+    ::InvalidateRect(impl_->hwnd, nullptr, FALSE);
 }
 
 bool PreviewWindowController::isVisible() const {
