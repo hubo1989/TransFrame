@@ -118,3 +118,4 @@ hubert/
 # Release/MSIX local artifacts
 downloads/
 dist-test/
+/dist/

@@ -153,12 +153,19 @@ python windows/scripts/build_msix.py `
 - 证书需已存在于 CurrentUser/My，Publisher 必须与证书 Subject 完全相符。
   签名验证失败会停止；脚本不会上传文件。
 - **测试自签（仅本地/CI 验证，禁止分发）**：加 `--self-signed-test-cert` 时脚本会
-  生成一次性自签证书（Subject = `--publisher`）、信任到 CurrentUser/Root 并用它签名，
-  使 `signtool verify /pa` 在本机通过。**该证书私钥不出本机存储，任何其它机器都会
-  签名验证失败**——产物只能用来在本机/CI 验证打包链路，发布必须换回真实证书 +
+  每次生成有效期一天的自签证书（Subject = `--publisher`，私钥不可导出），信任并签名，
+  使 `signtool verify /pa` 在本机通过。普通会话信任到 CurrentUser/Root；已提升权限的
+  CI runner 使用 LocalMachine/Root，脚本不会请求提权。桌面会话可能出现证书信任框，
+  核对脚本打印的指纹后接受；90 秒未完成即报错，不再无限等待。测试签名不请求网络
+  时间戳，生产证书路径仍保留时间戳。**其它机器默认不信任该测试证书**；私钥留在
+  CurrentUser/My，公钥信任留在对应 Root 存储中，可按打印的指纹删除。发布必须换回真实证书 +
   `--certificate-thumbprint`。打包前自检强制 EXE、对应架构的
   `Microsoft.WindowsAppRuntime.Bootstrap.dll`、图标与 `Assets\Strings\*.json`
   全部入包，缺失直接报错而非打出坏包。
+- CI 的 `msix-package` 矩阵覆盖 x64 / ARM64：Release 构建 → SDK 工具入 PATH →
+  微软 Download Center 固定 URL 下载 VCLibs 14.0.33321.0 → SHA-256 / 包身份 /
+  版本 / 架构 / 签名校验 → 自签打包 → 清单打印 → `msix-x64` / `msix-ARM64` 上传。
+  下载或校验失败即终止，更新运行库时必须同时修改版本及两个架构的 SHA-256。
 - ARM64 使用 `/p:Platform=ARM64`、对应 EXE 和 `--arch arm64`，输出独立更新源。
 - 每次发布递增四段版本号，保持包 Name、Publisher、架构及更新源 URL 稳定。
 - 先上传版本化 `.msix` 和生成目录中的 VCLibs `.appx`，再替换同架构的 `TransFrame-x64.appinstaller`

@@ -1,10 +1,14 @@
 import tempfile
 import unittest
 import zipfile
+import struct
+import shutil
+from unittest.mock import patch, Mock
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from build_msix import (write_descriptors, validate, read_vclibs,
-                        check_stage_content, NS, FEED_NS, VCLIBS_NAME,
+                        check_stage_content, check_appinstaller, check_package_content,
+                        create_self_signed_test_cert, APP, NS, FEED_NS, VCLIBS_NAME,
                         VCLIBS_PUBLISHER)
 
 
@@ -15,14 +19,18 @@ class StageContentTests(unittest.TestCase):
         stage = root / 'stage'
         (stage / 'Assets' / 'Strings').mkdir(parents=True)
         exe = stage / 'TransFrame.App.exe'
-        exe.write_bytes(b'MZ' + bytes(62))  # minimal PE stub
+        pe = bytearray(88)
+        pe[:2] = b'MZ'
+        struct.pack_into('<I', pe, 60, 64)
+        pe[64:68] = b'PE\0\0'
+        struct.pack_into('<H', pe, 68, 0x8664)
+        exe.write_bytes(pe)
         if with_bootstrap:
-            (stage / 'Microsoft.WindowsAppRuntime.Bootstrap.dll').write_bytes(b'MZfake')
+            (stage / 'Microsoft.WindowsAppRuntime.Bootstrap.dll').write_bytes(pe)
         for name in ('Square150x150Logo.png', 'Square44x44Logo.png', 'StoreLogo.png'):
             (stage / 'Assets' / name).write_bytes(b'png')
         if with_strings:
-            for lang in ('en.json', 'zh-Hans.json'):
-                (stage / 'Assets' / 'Strings' / lang).write_text('{}')
+            shutil.copytree(APP / 'Assets' / 'Strings', stage / 'Assets' / 'Strings', dirs_exist_ok=True)
         manifest = (Path(__file__).resolve().parents[1] / 'App' / 'Package.appxmanifest'
                     ).read_text(encoding='utf-8')
         (stage / 'AppxManifest.xml').write_text(manifest, encoding='utf-8')
@@ -49,12 +57,35 @@ class StageContentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             stage = self._stage(Path(directory))
             (stage / 'Assets' / 'StoreLogo.png').unlink()
-            # StoreLogo is the Package/Properties/Logo; the visual
-            # elements keep their own files, so remove one of those
-            # too to hit the declared-logo check.
-            (stage / 'Assets' / 'Square44x44Logo.png').unlink()
             with self.assertRaises(ValueError):
                 check_stage_content(stage, 'x64')
+
+
+    def test_wrong_architecture_rejected_for_each_binary(self):
+        for name in ('TransFrame.App.exe', 'Microsoft.WindowsAppRuntime.Bootstrap.dll'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                stage = self._stage(Path(directory))
+                data = bytearray((stage / name).read_bytes())
+                struct.pack_into('<H', data, 68, 0xAA64)
+                (stage / name).write_bytes(data)
+                with self.assertRaisesRegex(ValueError, 'not a x64 PE'):
+                    check_stage_content(stage, 'x64')
+
+    def test_partial_locale_loss_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory))
+            next((stage / 'Assets' / 'Strings').glob('*.json')).unlink()
+            with self.assertRaisesRegex(ValueError, 'localization'):
+                check_stage_content(stage, 'x64')
+
+    def test_packed_archive_must_contain_staged_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory))
+            package = Path(directory) / 'test.msix'
+            with zipfile.ZipFile(package, 'w') as archive:
+                archive.writestr('AppxManifest.xml', (stage / 'AppxManifest.xml').read_bytes())
+            with self.assertRaisesRegex(ValueError, 'missing or truncated'):
+                check_package_content(package, stage)
 
 
 class InstallerTests(unittest.TestCase):
@@ -63,6 +94,8 @@ class InstallerTests(unittest.TestCase):
             with self.subTest(arch=arch), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory)
                 stage, msix = write_descriptors(output, '1.2.3.0', arch, 'CN=Test & Company', 'https://example.org/windows/', ('14.0.33728.0', f'vclibs-{arch}.appx'))
+                check_appinstaller(output, stage, msix, arch, '1.2.3.0', 'CN=Test & Company',
+                                   'https://example.org/windows/', ('14.0.33728.0', f'vclibs-{arch}.appx'))
                 namespaces = dict(pair for _, pair in ET.iterparse(stage / 'AppxManifest.xml', events=['start-ns']))
                 for prefix in ET.parse(stage / 'AppxManifest.xml').getroot().get('IgnorableNamespaces').split():
                     self.assertIn(prefix, namespaces)
@@ -83,6 +116,34 @@ class InstallerTests(unittest.TestCase):
                         if key in ('Logo', 'Square150x150Logo', 'Square44x44Logo'):
                             self.assertTrue((stage / value.replace('\\', '/')).is_file())
                 self.assertTrue((stage / 'Assets/TransFrame.ico').is_file())
+
+    def test_feed_self_check_rejects_broken_structure(self):
+        mutations = (
+            lambda root: root.set('Version', '9.0.0.0'),
+            lambda root: root.find(f'{{{FEED_NS}}}MainPackage').set('ProcessorArchitecture', 'arm64'),
+            lambda root: root.find(f'{{{FEED_NS}}}Dependencies/{{{FEED_NS}}}Package').set('Uri', 'http://wrong'),
+            lambda root: root.remove(root.find(f'{{{FEED_NS}}}UpdateSettings')),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+                dep = ('14.0.33728.0', 'vclibs-x64.appx')
+                stage, msix = write_descriptors(output, '1.2.3.0', 'x64', 'CN=Test', 'https://example.org', dep)
+                path = output / 'TransFrame-x64.appinstaller'
+                tree = ET.parse(path)
+                mutation(tree.getroot())
+                tree.write(path, encoding='utf-8', xml_declaration=True)
+                with self.assertRaises(ValueError):
+                    check_appinstaller(output, stage, msix, 'x64', '1.2.3.0', 'CN=Test', 'https://example.org', dep)
+
+    def test_certificate_subject_is_a_powershell_literal(self):
+        with patch('build_msix.shutil.which', return_value='pwsh.exe'), \
+                patch('build_msix.subprocess.run', return_value=Mock(stdout='A' * 40)) as run:
+            create_self_signed_test_cert("CN=O'Brien; Write-Output evil")
+            script = run.call_args.args[0][-1]
+            self.assertIn("-Subject 'CN=O''Brien; Write-Output evil'", script)
+            self.assertIn('-KeyExportPolicy NonExportable', script)
+            self.assertNotIn('Where-Object', script)
 
     def test_vclibs_reads_exact_version_and_rejects_wrong_architecture(self):
         with tempfile.TemporaryDirectory() as directory:

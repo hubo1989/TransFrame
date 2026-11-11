@@ -10,8 +10,8 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
-import tempfile
+import struct
+import json
 import zipfile
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
@@ -101,33 +101,74 @@ def write_descriptors(output, version, arch, publisher, base_url, dependency):
     return stage, output / package_name
 
 
-def check_stage_content(stage, arch, exe=None):
-    """Fail before makeappx when the staged package is incomplete.
+def check_appinstaller(output, stage, package, arch, version, publisher, base_url, dependency):
+    """Check the emitted feed against the staged manifest and runtime identity."""
+    tag = lambda name: f'{{{FEED_NS}}}{name}'
+    feed = ET.parse(output / f'TransFrame-{arch}.appinstaller').getroot()
+    base_url = base_url.rstrip('/')
+    if feed.tag != tag('AppInstaller') or feed.attrib != {
+            'Version': version, 'Uri': f'{base_url}/TransFrame-{arch}.appinstaller'}:
+        raise ValueError('Invalid AppInstaller root or feed URL/version')
+    identity = ET.parse(stage / 'AppxManifest.xml').find(f'{{{NS}}}Identity')
+    expected = {'Name': 'TransFrame', 'Publisher': publisher,
+                'Version': version, 'ProcessorArchitecture': arch}
+    if identity is None or any(identity.get(k) != v for k, v in expected.items()):
+        raise ValueError('Manifest identity differs from the requested package')
+    main = feed.findall(tag('MainPackage'))
+    if len(main) != 1 or main[0].attrib != {**expected, 'Uri': f'{base_url}/{package.name}'}:
+        raise ValueError('AppInstaller MainPackage differs from the manifest')
+    runtimes = feed.findall(f"{tag('Dependencies')}/{tag('Package')}")
+    if len(runtimes) != 1 or runtimes[0].attrib != {
+            'Name': VCLIBS_NAME, 'Publisher': VCLIBS_PUBLISHER,
+            'Version': dependency[0], 'ProcessorArchitecture': arch,
+            'Uri': f'{base_url}/{dependency[1]}'}:
+        raise ValueError('AppInstaller dependency differs from the VCLibs package')
+    on_launch = feed.find(f"{tag('UpdateSettings')}/{tag('OnLaunch')}")
+    background = feed.find(f"{tag('UpdateSettings')}/{tag('AutomaticBackgroundTask')}")
+    if (on_launch is None or on_launch.attrib != {
+            'HoursBetweenUpdateChecks': '0', 'ShowPrompt': 'true', 'UpdateBlocksActivation': 'false'}
+            or background is None):
+        raise ValueError('AppInstaller update settings are missing or inconsistent')
 
-    PRD §11: the package must carry the EXE, the matching-architecture
-    Windows App SDK bootstrap DLL, the declared logo assets and the
-    localization tables (Assets\Strings\*.json) — a silent gap turns
-    into a runtime crash or untranslated UI, not a packaging error.
-    """
-    exe = stage / 'TransFrame.App.exe'
-    if exe is not None and not exe.is_file():
-        raise ValueError(f'EXE does not exist: {exe}')
-    if exe is not None and exe.stat().st_size == 0:
-        raise ValueError('TransFrame.App.exe is empty; did the build fail?')
-    bootstrap = stage / 'Microsoft.WindowsAppRuntime.Bootstrap.dll'
-    if not bootstrap.is_file():
-        raise ValueError(
-            'Staged package is missing Microsoft.WindowsAppRuntime.Bootstrap.dll; '
-            'copy the win-' + arch + ' runtime DLL next to the EXE before packaging')
-    if bootstrap.stat().st_size == 0:
-        raise ValueError('Staged bootstrap DLL is empty; restore the Windows App SDK package')
-    if exe is not None:
-        import struct
-        with exe.open('rb') as fh:
-            if fh.read(2) != b'MZ':
-                raise ValueError(f'{exe.name} is not a PE binary (missing MZ header)')
+
+def check_package_content(package, stage):
+    with zipfile.ZipFile(package) as archive:
+        entries = {item.filename.replace('\\', '/'): item.file_size for item in archive.infolist()}
+        for path in stage.rglob('*'):
+            if path.is_file():
+                name = path.relative_to(stage).as_posix()
+                if entries.get(name) != path.stat().st_size:
+                    raise ValueError(f'Packed MSIX is missing or truncated: {name}')
+        print('MSIX content manifest:')
+        for name, size in sorted(entries.items()):
+            print(f'  {name} ({size} bytes)')
+
+
+def check_pe_architecture(path, arch):
+    if not path.is_file():
+        raise ValueError(f'Required binary is missing: {path}')
+    with path.open('rb') as binary:
+        dos = binary.read(64)
+        if len(dos) != 64 or dos[:2] != b'MZ':
+            raise ValueError(f'{path.name} has no valid DOS header')
+        offset = struct.unpack_from('<I', dos, 60)[0]
+        if offset < 64 or offset > path.stat().st_size - 24:
+            raise ValueError(f'{path.name} has an invalid PE header offset')
+        binary.seek(offset)
+        header = binary.read(24)
+        machine = struct.unpack_from('<H', header, 4)[0]
+        if header[:4] != b'PE\0\0' or machine != {'x64': 0x8664, 'arm64': 0xAA64}[arch]:
+            raise ValueError(f'{path.name} is not a {arch} PE binary')
+
+
+def check_stage_content(stage, arch):
+    """Fail before makeappx on missing assets or mismatched PE architectures."""
+    for name in ('TransFrame.App.exe', 'Microsoft.WindowsAppRuntime.Bootstrap.dll'):
+        check_pe_architecture(stage / name, arch)
     manifest_root = ET.parse(stage / 'AppxManifest.xml').getroot()
-    logos = set()
+    logos = {node.text.strip().replace('\\', '/')
+             for node in manifest_root.findall(f'{{{NS}}}Properties/{{{NS}}}Logo')
+             if node.text and node.text.strip()}
     for element in manifest_root.iter():
         for key in ('Logo', 'Square150x150Logo', 'Square44x44Logo'):
             value = element.get(key)
@@ -138,9 +179,13 @@ def check_stage_content(stage, arch, exe=None):
     for logo in logos:
         if not (stage / logo).is_file():
             raise ValueError(f'Manifest declares {logo} but it is missing from the package')
-    strings = sorted(p.name for p in (stage / 'Assets' / 'Strings').glob('*.json'))
-    if not strings:
-        raise ValueError('Staged package is missing localization tables (Assets\\Strings\\*.json)')
+    strings = list((stage / 'Assets' / 'Strings').glob('*.json'))
+    expected = {p.name for p in (APP / 'Assets' / 'Strings').glob('*.json')}
+    if not strings or not expected.issubset({p.name for p in strings}):
+        raise ValueError('Staged package is missing localization tables (Assets/Strings/*.json)')
+    for path in strings:
+        if not isinstance(json.loads(path.read_text(encoding='utf-8')), dict):
+            raise ValueError(f'Localization table must be a JSON object: {path.name}')
     declared = set()
     for dep in manifest_root.findall(f'{{{NS}}}Dependencies/{{{NS}}}PackageDependency'):
         declared.add((dep.get('Name'), dep.get('MinVersion')))
@@ -149,38 +194,21 @@ def check_stage_content(stage, arch, exe=None):
 
 
 def create_self_signed_test_cert(publisher):
-    """Create a disposable code-signing cert and trust it (TEST ONLY).
+    """Create a fresh one-day, non-exportable code-signing cert (TEST ONLY).
 
-    The cert lives in CurrentUser\\My with a marker friendly name; the public
-    portion is pushed into CurrentUser\\Root so `signtool verify /pa` passes
-    on this machine. Nothing is exported — the private key never leaves the
-    OS store, so the MSIX fails signature validation everywhere else.
+    The private key stays in CurrentUser/My. Trust is a separate step, and
+    other machines will not trust the certificate unless explicitly imported.
     """
-    name = 'TransFrameMSIXTestCert'
-    # Built with concatenation — not an f-string — because the PowerShell
-    # Where-Object script blocks contain literal braces.
+    subject = publisher.replace("'", "''")  # PowerShell single-quoted literal
     script = (
         "$ErrorActionPreference='Stop';"
-        + "$name='" + name + "';"
-        + "$existing=Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq '"
-        + publisher
-        + "' -and $_.FriendlyName -eq $name };"
-        + "if (-not $existing) {"
-        + "$cert=New-SelfSignedCertificate -Subject '"
-        + publisher
-        + "' -Type Custom -KeyUsage DigitalSignature"
-        + " -FriendlyName $name -CertStoreLocation Cert:\CurrentUser\My"
-        + " -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3');"
-        + "if (-not $cert) { throw 'New-SelfSignedCertificate returned no certificate' }"
-        + "} else { $cert=$existing[0] };"
-        + "$root=Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint };"
-        + "if (-not $root) {"
-        + "$store=New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser');"
-        + "$store.Open('ReadWrite');"
-        + "$store.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cert)));"
-        + "$store.Close();"
-        + "};"
-        + "Write-Output $cert.Thumbprint"
+        "$cert=New-SelfSignedCertificate -Subject '" + subject + "'"
+        " -Type CodeSigningCert -KeyExportPolicy NonExportable"
+        " -FriendlyName 'TransFrameMSIXTestCert'"
+        " -CertStoreLocation Cert:\\CurrentUser\\My"
+        " -NotAfter (Get-Date).AddDays(1);"
+        "if (-not $cert) { throw 'New-SelfSignedCertificate returned no certificate' };"
+        "Write-Output $cert.Thumbprint"
     )
     # Prefer pwsh (PowerShell 7): on machines where the Certificate PSDrive
     # fails to load under Windows PowerShell 5.1 (observed in some MSYS2/
@@ -190,7 +218,7 @@ def create_self_signed_test_cert(publisher):
     for shell in ('pwsh.exe', 'powershell.exe'):
         if shutil.which(shell):
             result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', script],
-                                    capture_output=True, text=True, check=True)
+                                    capture_output=True, text=True, check=True, timeout=60)
             break
     else:
         raise RuntimeError('Neither pwsh.exe nor powershell.exe is available')
@@ -201,43 +229,43 @@ def create_self_signed_test_cert(publisher):
 
 
 def trust_test_cert_in_root(thumbprint):
-    """Trust the test cert in CurrentUser\Root so signtool /pa passes.
+    """Trust only this test certificate. Desktop users may see a trust dialog.
 
-    CI runners accept this non-interactively; interactive desktop sessions
-    may block on the Windows trust warning dialog — that is why the helper
-    exists in the script (CI is the primary caller)."""
+    Elevated CI runners use LocalMachine/Root; ordinary local runs use
+    CurrentUser/Root. Neither path requests elevation or changes policy.
+    """
+    if not re.fullmatch(r'[0-9a-fA-F]{40}', thumbprint):
+        raise ValueError('Invalid test certificate thumbprint')
+    print(f'Trusting TEST certificate {thumbprint}; accept the matching Windows '
+          'certificate dialog if shown (90 second timeout).', flush=True)
     script = (
         "$ErrorActionPreference='Stop';"
-        + "$cert=Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq '"
-        + thumbprint + "' };"
-        + "$store=New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser');"
-        + "$store.Open('ReadWrite');"
-        + "$store.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cert)));"
-        + "$store.Close();"
-        + "Write-Output 'trusted'"
+        "$cert=Get-Item 'Cert:\\CurrentUser\\My\\" + thumbprint + "';"
+        "$principal=[Security.Principal.WindowsPrincipal]::new("
+        "[Security.Principal.WindowsIdentity]::GetCurrent());"
+        "$location=if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) "
+        "{ 'LocalMachine' } else { 'CurrentUser' };"
+        "$store=[System.Security.Cryptography.X509Certificates.X509Store]::new('Root',$location);"
+        "$store.Open('ReadWrite');"
+        "try { $store.Add([System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)) }"
+        "finally { $store.Close() };"
+        "Write-Output ('Trusted test certificate in ' + $location + '/Root')"
     )
     for shell in ('pwsh.exe', 'powershell.exe'):
         if shutil.which(shell):
             subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', script],
-                           capture_output=True, text=True, check=True)
+                           check=True, timeout=90)
             return
+    raise RuntimeError('Neither pwsh.exe nor powershell.exe is available')
 
 
 def sign_with_test_cert(package, publisher):
     thumbprint = create_self_signed_test_cert(publisher)
     trust_test_cert_in_root(thumbprint)
-    try:
-        subprocess.run(['signtool.exe', 'sign', '/sha1', thumbprint,
-                        '/fd', 'SHA256', '/td', 'SHA256', '/tr', 'http://timestamp.digicert.com',
-                        str(package)], check=True)
-        subprocess.run(['signtool.exe', 'verify', '/pa', str(package)], check=True)
-    except subprocess.CalledProcessError:
-        print('NOTE: timestamping with the test cert can fail when the TSA is '
-              'unreachable; retrying without a timestamp (test packages only).',
-              file=sys.stderr)
-        subprocess.run(['signtool.exe', 'sign', '/sha1', thumbprint,
-                        '/fd', 'SHA256', str(package)], check=True)
-        subprocess.run(['signtool.exe', 'verify', '/pa', str(package)], check=True)
+    # A one-day disposable certificate needs no network timestamp. Production
+    # signing retains its timestamp server and never uses this test-only path.
+    subprocess.run(['signtool.exe', 'sign', '/sha1', thumbprint,
+                    '/fd', 'SHA256', str(package)], check=True, timeout=60)
 
 
 def main():
@@ -251,9 +279,8 @@ def main():
     parser.add_argument('--base-url', required=True)
     parser.add_argument('--certificate-thumbprint', help='Existing certificate in CurrentUser/My (production signing)')
     parser.add_argument('--self-signed-test-cert', action='store_true',
-                        help='Generate a disposable self-signed cert, trust it in CurrentUser/Root and sign. '
-                             'TEST PACKAGES ONLY: the cert never leaves this machine, so the MSIX fails '
-                             'signature validation everywhere else.')
+                        help='Generate a one-day test cert, trust in Root (CurrentUser, or LocalMachine '
+                             'when elevated), and sign. TEST PACKAGES ONLY; not trusted on other machines.')
     args = parser.parse_args()
     validate(args.version, args.arch, args.publisher, args.base_url)
     if not args.exe.is_file():
@@ -280,6 +307,8 @@ def main():
     shutil.copy2(args.exe, stage / 'TransFrame.App.exe')
     shutil.copy2(bootstrap, stage / bootstrap.name)
     check_stage_content(stage, args.arch)
+    check_appinstaller(args.output, stage, package, args.arch, args.version,
+                       args.publisher, args.base_url, dependency)
     subprocess.run(['makeappx.exe', 'pack', '/d', str(stage), '/p', str(package)], check=True)
     if args.self_signed_test_cert:
         sign_with_test_cert(package, args.publisher)
@@ -288,6 +317,7 @@ def main():
                         '/fd', 'SHA256', '/tr', 'http://timestamp.digicert.com', '/td', 'SHA256', str(package)],
                        check=True)
     subprocess.run(['signtool.exe', 'verify', '/pa', str(package)], check=True)
+    check_package_content(package, stage)
     print(f'Created and verified {package}. Upload MSIX and VCLibs APPX first, then the .appinstaller feed.')
 
 
