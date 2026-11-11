@@ -80,20 +80,21 @@ void AdvancedPage::BuildUi() {
         card.panel.Children().Append(colors);
 
         strokeWidthSlider_ = Controls::Slider();
-        strokeWidthSlider_.Header(winrt::box_value(
-            kit::Lx("settings.stroke.width", L"描边宽度")));
         strokeWidthSlider_.Minimum(1.0);
         strokeWidthSlider_.Maximum(20.0);
         strokeWidthSlider_.StepFrequency(0.5);
-        strokeWidthSlider_.Width(280.0);
+        strokeWidthSlider_.Width(200.0);
         strokeWidthValueText_ = Controls::TextBlock();
         strokeWidthValueText_.VerticalAlignment(VerticalAlignment::Center);
         strokeWidthValueText_.MinWidth(40.0);
-        Controls::StackPanel widthRow;
-        widthRow.Spacing(12.0);
-        widthRow.Children().Append(strokeWidthSlider_);
-        widthRow.Children().Append(strokeWidthValueText_);
-        card.panel.Children().Append(widthRow);
+        Controls::StackPanel widthCtl;
+        widthCtl.Spacing(12.0);
+        widthCtl.Children().Append(strokeWidthSlider_);
+        widthCtl.Children().Append(strokeWidthValueText_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(kit::Lx("settings.stroke.width", L"描边宽度").c_str()),
+            widthCtl));
+        card.panel.Children().Append(kit::MakeDivider());
         strokeWidthSlider_.ValueChanged([this](auto&&, auto&& args) {
             if (updating_) return;
             vm_.setStrokeWidth(args.NewValue());
@@ -104,20 +105,20 @@ void AdvancedPage::BuildUi() {
         strokeWidthSlider_.PointerCaptureLost([this](auto&&, auto&&) { Persist(); });
 
         textSizeSlider_ = Controls::Slider();
-        textSizeSlider_.Header(winrt::box_value(
-            kit::Lx("settings.text.size", L"文本大小")));
         textSizeSlider_.Minimum(8.0);
         textSizeSlider_.Maximum(72.0);
         textSizeSlider_.StepFrequency(1.0);
-        textSizeSlider_.Width(280.0);
+        textSizeSlider_.Width(200.0);
         textSizeValueText_ = Controls::TextBlock();
         textSizeValueText_.VerticalAlignment(VerticalAlignment::Center);
         textSizeValueText_.MinWidth(40.0);
-        Controls::StackPanel sizeRow;
-        sizeRow.Spacing(12.0);
-        sizeRow.Children().Append(textSizeSlider_);
-        sizeRow.Children().Append(textSizeValueText_);
-        card.panel.Children().Append(sizeRow);
+        Controls::StackPanel sizeCtl;
+        sizeCtl.Spacing(12.0);
+        sizeCtl.Children().Append(textSizeSlider_);
+        sizeCtl.Children().Append(textSizeValueText_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(kit::Lx("settings.text.size", L"文本大小").c_str()),
+            sizeCtl));
         textSizeSlider_.ValueChanged([this](auto&&, auto&& args) {
             if (updating_) return;
             vm_.setTextSize(args.NewValue());

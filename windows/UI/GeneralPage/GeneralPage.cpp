@@ -156,7 +156,6 @@ void GeneralPage::BuildUi() {
             kit::Lx("win.settings.export.title", L"导出格式与质量").c_str()));
 
         formatCombo_ = Controls::ComboBox();
-        formatCombo_.Header(winrt::box_value(kit::Lx("settings.format", L"默认格式")));
         formatCombo_.MinWidth(200.0);
         for (const auto& [raw, key, fallback] :
              {std::tuple{"png", "settings.format.png", L"PNG"},
@@ -173,22 +172,24 @@ void GeneralPage::BuildUi() {
             SyncFromViewModel();  // 质量行可见性/取值随格式变化
             PersistWithStatus();
         });
-        card.panel.Children().Append(formatCombo_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(kit::Lx("settings.format", L"默认格式").c_str()),
+            formatCombo_));
+        card.panel.Children().Append(kit::MakeDivider());
 
-        Controls::StackPanel qualityRow;
-        qualityRow.Orientation(Controls::Orientation::Horizontal);
-        qualityRow.Spacing(12.0);
+        Controls::StackPanel qualityCtl;
+        qualityCtl.Orientation(Controls::Orientation::Horizontal);
+        qualityCtl.Spacing(12.0);
         qualitySlider_ = Controls::Slider();
-        qualitySlider_.Header(winrt::box_value(kit::Lx("win.settings.export.quality", L"导出质量")));
         qualitySlider_.Minimum(10.0);
         qualitySlider_.Maximum(100.0);
         qualitySlider_.StepFrequency(5.0);
-        qualitySlider_.Width(260.0);
+        qualitySlider_.Width(200.0);
         qualityValueText_ = Controls::TextBlock();
         qualityValueText_.VerticalAlignment(VerticalAlignment::Center);
         qualityValueText_.MinWidth(48.0);
-        qualityRow.Children().Append(qualitySlider_);
-        qualityRow.Children().Append(qualityValueText_);
+        qualityCtl.Children().Append(qualitySlider_);
+        qualityCtl.Children().Append(qualityValueText_);
         qualitySlider_.ValueChanged([this](auto&&, auto&& args) {
             if (updating_) return;
             vm_.SetActiveQuality(args.NewValue() / 100.0);
@@ -199,7 +200,10 @@ void GeneralPage::BuildUi() {
         // 拖动结束才落盘（Slider 拖动中捕获指针，释放即 PointerCaptureLost；
         // 避免每 tick 一次文件写——mac UserDefaults 写内存无此顾虑）。
         qualitySlider_.PointerCaptureLost([this](auto&&, auto&&) { PersistWithStatus(); });
-        card.panel.Children().Append(qualityRow);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(
+                kit::Lx("win.settings.export.quality", L"导出质量").c_str()),
+            qualityCtl));
 
         root.Children().Append(card.border);
     }
@@ -207,9 +211,6 @@ void GeneralPage::BuildUi() {
     // ---------------- 卡片 3：界面语言（spec §1.2；FR-37 即时生效） ----------------
     {
         kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(
-            kit::Lx("settings.language", L"界面语言").c_str(),
-            kit::Lx("win.settings.language.hint", L"设置窗口与托盘菜单的显示语言").c_str()));
         languageCombo_ = Controls::ComboBox();
         languageCombo_.MinWidth(200.0);
         for (const auto& opt : GeneralPageViewModel::AppLanguageOptions()) {
@@ -229,7 +230,11 @@ void GeneralPage::BuildUi() {
             // FR-37 即时生效（与语言页共用 engines.json appLanguage 键）。
             core::loc::Localization::instance().setLanguage(vm_.AppLanguage());
         });
-        card.panel.Children().Append(languageCombo_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(
+                kit::Lx("settings.language", L"界面语言").c_str(),
+                kit::Lx("win.settings.language.hint", L"设置窗口与托盘菜单的显示语言").c_str()),
+            languageCombo_));
         root.Children().Append(card.border);
     }
 
@@ -240,10 +245,9 @@ void GeneralPage::BuildUi() {
             kit::Lx("win.settings.startupUpdates.title", L"启动与更新").c_str()));
 
         launchAtLoginToggle_ = Controls::ToggleSwitch();
-        launchAtLoginToggle_.Header(
-            winrt::box_value(kit::Lx("win.settings.autostart", L"开机自启")));
-        launchAtLoginToggle_.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
-        launchAtLoginToggle_.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
+        // mac ToggleSwitch is a bare switch: clear the WinUI default On/Off text.
+        launchAtLoginToggle_.OnContent(winrt::box_value(L""));
+        launchAtLoginToggle_.OffContent(winrt::box_value(L""));
         launchAtLoginToggle_.Toggled([this](auto&&, auto&&) {
             if (updating_) return;
             const bool on = launchAtLoginToggle_.IsOn();
@@ -253,19 +257,26 @@ void GeneralPage::BuildUi() {
                                  ? kit::Lx("win.settings.autostart.added", L"已写入开机自启（HKCU Run）")
                                  : kit::Lx("win.settings.autostart.removed", L"已移除开机自启"));
         });
-        card.panel.Children().Append(launchAtLoginToggle_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(
+                kit::Lx("win.settings.autostart", L"开机自启").c_str(),
+                kit::Lx("win.settings.autostart.hint", L"登录后自动驻留托盘").c_str()),
+            launchAtLoginToggle_));
+        card.panel.Children().Append(kit::MakeDivider());
 
         checkUpdatesToggle_ = Controls::ToggleSwitch();
-        checkUpdatesToggle_.Header(
-            winrt::box_value(kit::Lx("win.settings.checkUpdates", L"更新检查")));
-        checkUpdatesToggle_.OnContent(winrt::box_value(kit::Lx("win.common.on", L"开")));
-        checkUpdatesToggle_.OffContent(winrt::box_value(kit::Lx("win.common.off", L"关")));
+        checkUpdatesToggle_.OnContent(winrt::box_value(L""));
+        checkUpdatesToggle_.OffContent(winrt::box_value(L""));
         checkUpdatesToggle_.Toggled([this](auto&&, auto&&) {
             if (updating_) return;
             WriteCheckForUpdates(checkUpdatesToggle_.IsOn());
             statusText_.Text(kit::Lx("win.common.saved", L"已保存"));
         });
-        card.panel.Children().Append(checkUpdatesToggle_);
+        card.panel.Children().Append(kit::MakeSettingRow(
+            kit::MakeLabelBlock(
+                kit::Lx("win.settings.checkUpdates", L"更新检查").c_str(),
+                kit::Lx("win.settings.checkUpdates.hint", L"启动时检查新版本").c_str()),
+            checkUpdatesToggle_));
 
         root.Children().Append(card.border);
     }
