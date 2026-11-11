@@ -160,7 +160,14 @@ void AdvancedPage::BuildUi() {
         Controls::StackPanel logRow;
         logRow.Orientation(Controls::Orientation::Horizontal);
         logRow.Spacing(8.0);
-        Controls::TextBlock logText = kit::MakeText(L"%LOCALAPPDATA%\\TransFrame\\logs");
+        // 显示展开后的真实路径（与数据目录行一致）；定位失败才退回字面量。
+        const std::wstring logDir =
+            store::LocalDir().empty() ? std::wstring(L"%LOCALAPPDATA%\\TransFrame\\logs")
+                                      : store::LocalDir() + L"\\logs";
+        Controls::TextBlock logText = kit::MakeText(logDir);
+        logText.TextTrimming(TextTrimming::CharacterEllipsis);
+        logText.TextWrapping(TextWrapping::NoWrap);
+        logText.MaxWidth(320.0);
         logText.VerticalAlignment(VerticalAlignment::Center);
         Controls::Button openLogs;
         openLogs.Content(winrt::box_value(kit::Lx("win.advanced.openLogs", L"打开日志")));

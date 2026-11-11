@@ -86,14 +86,18 @@ inline Card MakeCard() {
 
 /// 页面骨架：ScrollViewer(24,24,24,36) > StackPanel(Spacing 20, MaxWidth 720)。
 /// 返回 StackPanel —— 页面把卡片依次 Append 进去。
+/// Stretch + 禁用水平滚动：内容按视口宽度换行/收缩，绝不会横向溢出被裁
+///（此前 Left 对齐 + 可滚动量测会按最宽子元素布局，窄窗口下右缘截断）。
 inline Controls::StackPanel MakePageRoot(Controls::UserControl const& page) {
     Controls::StackPanel stack;
     stack.Spacing(20.0);
     stack.MaxWidth(720.0);
-    stack.HorizontalAlignment(HorizontalAlignment::Left);
+    stack.HorizontalAlignment(HorizontalAlignment::Stretch);
     Controls::ScrollViewer scroller;
     scroller.Padding({24, 24, 24, 36});
     scroller.VerticalScrollBarVisibility(Controls::ScrollBarVisibility::Auto);
+    scroller.HorizontalScrollBarVisibility(Controls::ScrollBarVisibility::Disabled);
+    scroller.HorizontalScrollMode(Controls::ScrollMode::Disabled);
     scroller.Content(stack);
     page.Content(scroller);
     return stack;

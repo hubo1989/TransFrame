@@ -228,6 +228,9 @@ struct SettingsApplication : ApplicationT<SettingsApplication, winrt::Microsoft:
         Resources().MergedDictionaries().Append(XamlControlsResources());
         NavigationView nav;
         nav.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
+        // macOS parity: sidebar ≈200pt. WinUI 默认 OpenPaneLength 320 会把
+        // 800×600 窗口的内容视口挤到 ~430px，页面按 ~500px 布局时右缘被裁。
+        nav.OpenPaneLength(232.0);
         nav.IsSettingsVisible(false);
         nav.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
         int index = 0;
@@ -486,6 +489,47 @@ bool RunSettingsTabsSmoke(int timeoutMs, SettingsTabsSmokeReport* out) {
     }
     *out = *sharedReport;
     return sharedReport->ok;
+}
+
+bool SwitchSettingsTab(int index, int timeoutMs) {
+    if (index < 0 || index >= kTabCount) return false;
+    DispatcherQueue queue{nullptr};
+    for (int waited = 0; waited < timeoutMs && !queue; waited += 50) {
+        {
+            std::lock_guard lock(g_mutex);
+            queue = g_queue;
+        }
+        if (!queue) ::Sleep(50);
+    }
+    if (!queue) return false;
+
+    // Same dispatch pattern as RunSettingsTabsSmoke, but one tab per call so
+    // the CALLER owns the inter-tab pacing (settle -> capture -> next switch).
+    // The STA lambda never blocks: DispatcherQueue is FIFO, so the caller's
+    // next SwitchSettingsTab is guaranteed to run after this one.
+    HANDLE done = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!done) return false;
+    bool ok = false;
+    try {
+        ok = queue.TryEnqueue([index, done]() {
+            try {
+                auto nav = g_window.Content().as<NavigationView>();
+                auto items = nav.MenuItems();
+                if (static_cast<std::uint32_t>(index) < items.Size()) {
+                    nav.SelectedItem(items.GetAt(static_cast<std::uint32_t>(index)));
+                }
+            } catch (...) {
+            }
+            ::SetEvent(done);
+        });
+    } catch (...) {
+        ok = false;
+    }
+    if (ok) {
+        ok = ::WaitForSingleObject(done, static_cast<DWORD>(timeoutMs)) == WAIT_OBJECT_0;
+    }
+    ::CloseHandle(done);
+    return ok;
 }
 
 }  // namespace tf::ui

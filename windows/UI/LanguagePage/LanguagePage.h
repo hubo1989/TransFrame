@@ -7,8 +7,8 @@
 // 源语言（auto+全集）/ 目标语言（跟随系统+非 auto）两个下拉。
 // VM（LanguagePageViewModel.h）Attach 到本页持有的 EngineConfig；
 // 选择变化即写回 VM 并整份 patch 合并落盘（EngineConfigStore）。
-// FR-37：界面语言卡片移入本页（engines.json appLanguage 键，通用页
-// 的同名下拉共用该键）；切换即时生效。
+// 界面语言卡只在通用页（mac 对齐：AppLanguagePicker 在
+// GeneralSettingsTab；本页不重复）。
 #pragma once
 
 #include "LanguagePageViewModel.h"
@@ -36,7 +36,6 @@ private:
 
     enum class PickerRole { GlobalSource = 0, GlobalTarget, InsertSource, InsertTarget };
 
-    winrt::Microsoft::UI::Xaml::Controls::ComboBox uiLanguagePicker_;  // FR-37
     winrt::Microsoft::UI::Xaml::Controls::ComboBox globalSourcePicker_;
     winrt::Microsoft::UI::Xaml::Controls::ComboBox globalTargetPicker_;
     winrt::Microsoft::UI::Xaml::Controls::ComboBox insertSourcePicker_;

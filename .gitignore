@@ -119,3 +119,7 @@ hubert/
 downloads/
 dist-test/
 /dist/
+
+# settings screenshot audit artifacts (smoke_settings_shots)
+/shots_*/
+/Assets/

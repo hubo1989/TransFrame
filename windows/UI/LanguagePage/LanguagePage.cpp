@@ -1,13 +1,10 @@
 // windows/UI/LanguagePage/LanguagePage.cpp
 // FR-35 语言页签 code-behind 实现（纯代码构建；控件清单见 .h 文件头）。
-// FR-37：界面语言卡片（engines.json 顶层 appLanguage 键，与通用页共用；
-// 切换即时生效 —— Localization 监听器会重建六页签 + 托盘/结果窗标题）。
+// 界面语言卡在通用页（mac 对齐）；本页只管翻译语言对，切换经 VM
+// patch 落盘 engines.json。
 #include "LanguagePage.h"
-#include "GeneralPageViewModel.hpp"  // AppLanguageOptions（界面语言下拉数据源）
 #include "SettingsFileStore.hpp"
 #include "SettingsUiKit.hpp"
-
-#include "tf/Localization.hpp"
 
 #include <winrt/Windows.Globalization.h>
 
@@ -63,19 +60,7 @@ void SelectRaw(Controls::ComboBox const& picker, const std::string& raw) {
 }
 
 /// engines.json 顶层 appLanguage（schema §2.1；缺省 "system"）。
-std::string ReadAppLanguage() {
-    if (auto v = store::EnginesKey("appLanguage"); v && v->is_string()) {
-        return v->get<std::string>();
-    }
-    return "system";
-}
-
-void WriteAppLanguage(const std::string& raw) {
-    store::WriteEnginesJsonAtomic(
-        store::MergeEnginesKey(store::ReadEnginesJson(), "appLanguage", raw));
-    // 即时生效（FR-37）：解析 "system" → 实际语言并通知监听器。
-    core::loc::Localization::instance().setLanguage(raw);
-}
+/// 读写只属于通用页的界面语言卡；本页不再触碰（mac 对齐）。
 
 }  // namespace
 
@@ -101,36 +86,8 @@ void LanguagePage::BuildUi() {
     Controls::StackPanel root = kit::MakePageRoot(*this);
     root.Children().Append(kit::MakeSectionHeader(kit::Lx("settings.section.languages", L"语言").c_str()));
 
-    // ---- 界面语言（FR-37）----
-    {
-        kit::Card card = kit::MakeCard();
-        card.panel.Children().Append(kit::MakeLabelBlock(
-            kit::Lx("settings.language", L"界面语言").c_str(),
-            kit::Lx("win.settings.language.hint", L"设置窗口与托盘菜单的显示语言，切换立即生效").c_str()));
-        uiLanguagePicker_ = Controls::ComboBox();
-        uiLanguagePicker_.MinWidth(200.0);
-        for (const AppLanguageOption& option : GeneralPageViewModel::AppLanguageOptions()) {
-            // “跟随系统”行本地化；语言名用原生名（English/简体中文/…，
-            // 语言选择器惯例），与通用页下拉同源。
-            const std::wstring display =
-                option.raw == "system"
-                    ? std::wstring(kit::Lx("settings.language.system", L"跟随系统").c_str())
-                    : option.displayName;
-            Controls::ComboBoxItem item;
-            item.Content(winrt::box_value(display));
-            item.Tag(winrt::box_value(winrt::to_hstring(option.raw)));
-            uiLanguagePicker_.Items().Append(item);
-        }
-        uiLanguagePicker_.SelectionChanged([this](auto&&, auto&&) {
-            if (updating_) return;  // 回填初始选中不落库
-            auto item = uiLanguagePicker_.SelectedItem().try_as<Controls::ComboBoxItem>();
-            if (!item) return;
-            WriteAppLanguage(TagOf(item));
-        });
-        card.panel.Children().Append(uiLanguagePicker_);
-        root.Children().Append(card.border);
-    }
-
+    // 界面语言卡在通用页（mac 对齐：AppLanguagePicker 只在
+    // GeneralSettingsTab.swift:21）；本页只保留翻译语言对。
     kit::Card card = kit::MakeCard();
     card.panel.Children().Append(kit::MakeLabelBlock(
         kit::Lx("win.language.translation.title", L"翻译语言").c_str(),
@@ -198,7 +155,6 @@ void LanguagePage::SyncFromConfig() {
     SelectRaw(globalTargetPicker_, vm_.GlobalTargetLanguage());
     SelectRaw(insertSourcePicker_, vm_.InsertSourceLanguage());
     SelectRaw(insertTargetPicker_, vm_.InsertTargetLanguage());
-    SelectRaw(uiLanguagePicker_, ReadAppLanguage());
     updating_ = false;
 }
 
