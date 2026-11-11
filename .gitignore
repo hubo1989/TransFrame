@@ -111,3 +111,6 @@ hubert/
 /smoke_*.obj
 /smoke_*.png
 /Microsoft.WindowsAppRuntime.Bootstrap.dll
+
+# scratch repro binaries
+*.obj
