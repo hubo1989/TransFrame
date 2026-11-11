@@ -151,7 +151,14 @@ python windows/scripts/build_msix.py `
 ```
 
 - 证书需已存在于 CurrentUser/My，Publisher 必须与证书 Subject 完全相符。
-  脚本不会生成证书、修改信任设置或上传文件；签名验证失败会停止。
+  签名验证失败会停止；脚本不会上传文件。
+- **测试自签（仅本地/CI 验证，禁止分发）**：加 `--self-signed-test-cert` 时脚本会
+  生成一次性自签证书（Subject = `--publisher`）、信任到 CurrentUser/Root 并用它签名，
+  使 `signtool verify /pa` 在本机通过。**该证书私钥不出本机存储，任何其它机器都会
+  签名验证失败**——产物只能用来在本机/CI 验证打包链路，发布必须换回真实证书 +
+  `--certificate-thumbprint`。打包前自检强制 EXE、对应架构的
+  `Microsoft.WindowsAppRuntime.Bootstrap.dll`、图标与 `Assets\Strings\*.json`
+  全部入包，缺失直接报错而非打出坏包。
 - ARM64 使用 `/p:Platform=ARM64`、对应 EXE 和 `--arch arm64`，输出独立更新源。
 - 每次发布递增四段版本号，保持包 Name、Publisher、架构及更新源 URL 稳定。
 - 先上传版本化 `.msix` 和生成目录中的 VCLibs `.appx`，再替换同架构的 `TransFrame-x64.appinstaller`

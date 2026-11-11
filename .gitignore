@@ -114,3 +114,7 @@ hubert/
 
 # scratch repro binaries
 *.obj
+
+# Release/MSIX local artifacts
+downloads/
+dist-test/

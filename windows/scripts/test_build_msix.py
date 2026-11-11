@@ -3,7 +3,58 @@ import unittest
 import zipfile
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from build_msix import write_descriptors, validate, read_vclibs, NS, FEED_NS, VCLIBS_NAME, VCLIBS_PUBLISHER
+from build_msix import (write_descriptors, validate, read_vclibs,
+                        check_stage_content, NS, FEED_NS, VCLIBS_NAME,
+                        VCLIBS_PUBLISHER)
+
+
+class StageContentTests(unittest.TestCase):
+    """check_stage_content: packaging must fail loudly on incomplete content."""
+
+    def _stage(self, root, with_bootstrap=True, with_strings=True):
+        stage = root / 'stage'
+        (stage / 'Assets' / 'Strings').mkdir(parents=True)
+        exe = stage / 'TransFrame.App.exe'
+        exe.write_bytes(b'MZ' + bytes(62))  # minimal PE stub
+        if with_bootstrap:
+            (stage / 'Microsoft.WindowsAppRuntime.Bootstrap.dll').write_bytes(b'MZfake')
+        for name in ('Square150x150Logo.png', 'Square44x44Logo.png', 'StoreLogo.png'):
+            (stage / 'Assets' / name).write_bytes(b'png')
+        if with_strings:
+            for lang in ('en.json', 'zh-Hans.json'):
+                (stage / 'Assets' / 'Strings' / lang).write_text('{}')
+        manifest = (Path(__file__).resolve().parents[1] / 'App' / 'Package.appxmanifest'
+                    ).read_text(encoding='utf-8')
+        (stage / 'AppxManifest.xml').write_text(manifest, encoding='utf-8')
+        return stage
+
+    def test_complete_stage_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory))
+            check_stage_content(stage, 'x64')  # must not raise
+
+    def test_missing_bootstrap_dll_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory), with_bootstrap=False)
+            with self.assertRaises(ValueError):
+                check_stage_content(stage, 'x64')
+
+    def test_missing_localization_tables_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory), with_strings=False)
+            with self.assertRaises(ValueError):
+                check_stage_content(stage, 'x64')
+
+    def test_declared_logo_missing_from_stage_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = self._stage(Path(directory))
+            (stage / 'Assets' / 'StoreLogo.png').unlink()
+            # StoreLogo is the Package/Properties/Logo; the visual
+            # elements keep their own files, so remove one of those
+            # too to hit the declared-logo check.
+            (stage / 'Assets' / 'Square44x44Logo.png').unlink()
+            with self.assertRaises(ValueError):
+                check_stage_content(stage, 'x64')
 
 
 class InstallerTests(unittest.TestCase):
