@@ -74,6 +74,7 @@
   <ItemGroup>
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="EngineBootstrap.cpp" />
+    <ClCompile Include="SmartRedactionFlow.cpp" />
     <ClCompile Include="UpdateService.cpp" />
     <ResourceCompile Include="App.rc" />
     <!-- Unpackaged runs statically import the dynamic-dependency bootstrap

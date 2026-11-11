@@ -10,6 +10,7 @@
 #ifndef TF_PREVIEW_WINDOW_HPP
 #define TF_PREVIEW_WINDOW_HPP
 
+#include "Annotation.h"  // FR-10 applySmartRedaction seam (tf::core::Annotation)
 #include "tf/CoreTypes.hpp"
 
 #include <functional>
@@ -42,6 +43,14 @@ public:
     /// FR-31 hook: fires with the composited (annotated) pixels when the
     /// toolbar 上传 button is clicked. AppMain owns the upload provider.
     void setUploadHandler(std::function<void(std::shared_ptr<PixelBuffer>)> handler);
+
+    /// FR-10 hook: fires with the preview's base pixels when the toolbar
+    /// 智能打码 button is clicked. AppMain owns the VLM detection worker.
+    void setSmartRedactHandler(std::function<void(std::shared_ptr<PixelBuffer>)> handler);
+
+    /// FR-10: appends a mosaic batch as ONE undo transaction (Ctrl+Z clears
+    /// the whole batch) and repaints the canvas.
+    void applySmartRedaction(std::vector<core::Annotation> batch);
 
     void close();
     bool isVisible() const;

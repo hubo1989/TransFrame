@@ -183,6 +183,14 @@ void AnnotationDocument::add(Annotation a) {
     annotations_.push_back(std::move(a));
 }
 
+void AnnotationDocument::addAll(std::vector<Annotation> batch) {
+    if (batch.empty()) return;
+    pushUndo();  // one snapshot for the whole batch — undo() clears it all
+    annotations_.insert(annotations_.end(),
+                        std::make_move_iterator(batch.begin()),
+                        std::make_move_iterator(batch.end()));
+}
+
 bool AnnotationDocument::remove(const Uuid& id) {
     const auto it = std::find_if(annotations_.begin(), annotations_.end(),
                                  [&id](const Annotation& a) { return a.id() == id; });

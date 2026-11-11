@@ -95,6 +95,7 @@
     <ClInclude Include="include\tf\ImageUploadProvider.hpp" />
     <ClInclude Include="include\tf\Localization.hpp" />
     <ClInclude Include="include\tf\Onboarding.hpp" />
+    <ClInclude Include="include\tf\SmartRedaction.hpp" />
     <ClInclude Include="vendor\sqlite\sqlite3.h" />
   </ItemGroup>
   <ItemGroup>
@@ -168,6 +169,10 @@
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
     <ClCompile Include="src\OcrEngines.cpp">
+      <ObjectFileName>$(IntDir)src\</ObjectFileName>
+    </ClCompile>
+    <!-- FR-10 智能打码: VLM privacy detection → mosaic batch (one undo step). -->
+    <ClCompile Include="src\SmartRedaction.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
     <ClCompile Include="src\TextSelectionInsertion.cpp">

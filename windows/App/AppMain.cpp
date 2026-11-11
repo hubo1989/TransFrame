@@ -84,6 +84,9 @@
 #include "tf/Win32Locale.hpp"
 #include <nlohmann/json.hpp>
 
+// FR-10 智能打码 worker flow (owns the VLM call; AppMain only wires it).
+#include "SmartRedactionFlow.hpp"
+
 #include <fstream>
 #include <shlobj.h>
 #include "tf/WinHttpTransport.h"
@@ -267,6 +270,7 @@ bool writeTextFileAtomic(const std::wstring& path, const std::string& content) {
 
 constexpr UINT kShowResult = WM_APP + 0x101;
 constexpr UINT kUploadDone = WM_APP + 0x104;  // FR-31 worker finished an upload
+constexpr UINT kSmartRedactDone = WM_APP + 0x105;  // FR-10 worker finished detection
 
 /// Worker -> main hop for a finished upload (clipboard + history + notice
 /// all run on the UI thread; the worker only talks HTTP).
@@ -276,6 +280,7 @@ struct UploadDoneBox {
     std::wstring clipboard;  // URL or markdown, written on success
     tf::core::TranslationHistory entry{};  // upload history record (ok only)
 };
+// FR-10's worker hop is tf::app::SmartRedactResult (SmartRedactionFlow.hpp).
 
 /// Defined below (ResultBox plumbing); the tray helpers forward to it.
 void showResultOnMain(const tf::ResultWindowContent& c);
@@ -865,6 +870,7 @@ void runImageUpload(std::shared_ptr<tf::PixelBuffer> pixels) {
     postUploadDone(true, L"上传成功，已复制到剪贴板：\n" + toWide(result.url),
                    toWide(clip), entry);
 }
+// FR-10 智能打码 worker body lives in SmartRedactionFlow.cpp (runSmartRedaction).
 
 /// FR-05 toolbar action handler (main thread; overlay window already hidden
 /// by the controller so captures see the clean desktop).
@@ -1342,6 +1348,44 @@ LRESULT CALLBACK mainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         }
+        case kSmartRedactDone: {
+            // FR-10: the mosaic batch lands on the preview document in ONE
+            // undo transaction (Ctrl+Z clears the whole batch); failures
+            // surface as notices, unconfigured VLM routes to the settings.
+            auto* box = reinterpret_cast<tf::app::SmartRedactResult*>(lp);
+            if (box) {
+                if (box->ok && !box->batch.empty()) {
+                    tf::PreviewWindowController::instance().applySmartRedaction(
+                        std::move(box->batch));
+                    tf::appnotify::notify(
+                        L"TransFrame",
+                        tf::core::loc::tw("win.preview.smartRedact.done", L"智能打码完成"),
+                        tf::appnotify::Type::Success);
+                } else if (box->ok) {
+                    tf::appnotify::notify(
+                        L"TransFrame",
+                        tf::core::loc::tw("win.preview.smartRedact.none", L"未检测到敏感内容"),
+                        tf::appnotify::Type::Info);
+                } else if (box->noImage) {
+                    tf::appnotify::notify(
+                        L"TransFrame",
+                        tf::core::loc::tw("win.preview.smartRedact.noImage",
+                                          L"没有可分析的图像数据"),
+                        tf::appnotify::Type::Warning);
+                } else if (box->error) {
+                    tf::appnotify::notify(
+                        L"TransFrame",
+                        tf::core::loc::tw("win.preview.smartRedact.failed", L"智能打码失败：") +
+                            describeUploadError(*box->error),
+                        tf::appnotify::Type::Warning);
+                    if (box->error->category == tf::ErrorCategory::Configuration) {
+                        tf::ui::OpenSettingsWindow(g.hwnd);
+                    }
+                }
+                delete box;
+            }
+            return 0;
+        }
         case WM_APP + 0x5446:  // tray callback ('TF' — matches TrayIcon.cpp)
             if (lp == NIN_BALLOONUSERCLICK) {
                 // Picker-completion toast jump entry (spec §4.1 entry #2).
@@ -1614,6 +1658,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 std::lock_guard<std::mutex> lock(g.workersMutex);
                 g.workers.emplace_back(
                     [px = std::move(pixels)]() mutable { runImageUpload(std::move(px)); });
+            }
+        });
+
+    // FR-10 智能打码: preview button -> VLM detection worker; the mosaic
+    // batch returns to the UI thread via kSmartRedactDone (one undo step).
+    tf::PreviewWindowController::instance().setSmartRedactHandler(
+        [](std::shared_ptr<tf::PixelBuffer> pixels) {
+            tf::app::SmartRedactContext ctx;  // snapshot; worker reads no globals
+            ctx.transport = g.transport;
+            ctx.credentials = g.credentials;
+            ctx.vlm = g.engineConfig.vlm;
+            {
+                std::lock_guard<std::mutex> lock(g.workersMutex);
+                g.workers.emplace_back([ctx = std::move(ctx),
+                                        px = std::move(pixels)]() mutable {
+                    tf::app::runSmartRedaction(g.hwnd, kSmartRedactDone, std::move(ctx),
+                                               std::move(px));
+                });
             }
         });
 
