@@ -1,0 +1,114 @@
+{
+  "_source": "Ordered fallback chain vectors from TransFrameTests/OrderedChainTranslationTests.swift (macOS V2). macOS's .apple slot does not exist on Windows (PRD §6.12 removes Apple Translation), so the first-chain-position engines are adapted to mtran/openai exactly like windows/Tests/TranslationSchedulerTests.cpp. testEmptyChainFallsBackToApple is apple-specific and intentionally not portable.",
+  "_fullFieldContract": "Every case asserts the complete observable outcome: success flag, primary engine, per-result order (resultCount + firstResultFailed), the full successful-engine list, the full per-engine failure list (order preserved), and exact call counts where macOS asserts request counts. No sampling.",
+  "_macOSWiringNote": "macOS reads this via a future TransFrameTests loader (resolve relative to #filePath), substituting its own engine set (mtran/openai map back to the first/second chain slots, apple where applicable); until then the embedded vectors in OrderedChainTranslationTests.swift are the macOS-side source of truth and this file must be updated in lock-step.",
+  "cases": [
+    {
+      "name": "testFirstFailureFallsThroughToSecondEngine",
+      "source": "OrderedChainTranslationTests.testFirstFailureFallsThroughToSecondEngine",
+      "providers": {
+        "mtran": {"behavior": "fail", "errorText": "not available"},
+        "openai": {"behavior": "ok"}
+      },
+      "chain": [
+        {"kind": "builtin", "engine": "mtran"},
+        {"kind": "builtin", "engine": "openai"}
+      ],
+      "texts": ["Hello"],
+      "expected": {
+        "success": true,
+        "primaryEngine": "openai",
+        "resultCount": 2,
+        "successfulEngines": ["openai"]
+      }
+    },
+    {
+      "name": "testFirstSuccessStopsTheChain",
+      "source": "OrderedChainTranslationTests.testFirstSuccessStopsTheChain",
+      "providers": {
+        "mtran": {"behavior": "ok"},
+        "openai": {"behavior": "ok"}
+      },
+      "chain": [
+        {"kind": "builtin", "engine": "mtran"},
+        {"kind": "builtin", "engine": "openai"}
+      ],
+      "texts": ["Hello"],
+      "expected": {
+        "success": true,
+        "primaryEngine": "mtran",
+        "resultCount": 1,
+        "engineCalls": {"openai": 0}
+      }
+    },
+    {
+      "name": "testUnavailableMemberIsSkippedNotFatal",
+      "source": "OrderedChainTranslationTests.testUnavailableMemberIsSkippedNotFatal",
+      "providers": {
+        "mtran": {"behavior": "unavailable"},
+        "openai": {"behavior": "ok"}
+      },
+      "chain": [
+        {"kind": "builtin", "engine": "mtran"},
+        {"kind": "builtin", "engine": "openai"}
+      ],
+      "texts": ["Hello"],
+      "expected": {
+        "success": true,
+        "primaryEngine": "openai",
+        "resultCount": 2,
+        "firstResultFailed": true,
+        "successfulEngines": ["openai"]
+      }
+    },
+    {
+      "name": "testAllFailuresThrowAggregatedError",
+      "source": "OrderedChainTranslationTests.testAllFailuresThrowAggregatedError",
+      "providers": {
+        "mtran": {"behavior": "fail", "errorText": "boom"},
+        "openai": {"behavior": "fail", "errorText": "rate limited"}
+      },
+      "chain": [
+        {"kind": "builtin", "engine": "mtran"},
+        {"kind": "builtin", "engine": "openai"}
+      ],
+      "texts": ["Hello"],
+      "expected": {
+        "success": false,
+        "failureCount": 2,
+        "failureEngines": ["mtran", "openai"]
+      }
+    },
+    {
+      "name": "testDanglingCompatibleUUIDIsSkippedAndNextEngineUsed",
+      "source": "OrderedChainTranslationTests.testDanglingCompatibleUUIDIsSkippedAndNextEngineUsed",
+      "providers": {
+        "mtran": {"behavior": "ok"}
+      },
+      "compatibleConfigs": [
+        {"id": "11111111-2222-3333-4444-555555555555", "displayName": "deleted-instance"}
+      ],
+      "chain": [
+        {"kind": "compatible", "compatibleId": "11111111-2222-3333-4444-555555555555"},
+        {"kind": "builtin", "engine": "mtran"}
+      ],
+      "texts": ["Hello"],
+      "expected": {
+        "success": true,
+        "primaryEngine": "mtran"
+      }
+    }
+  ],
+  "resolvedEngineCases": [
+    {
+      "source": "OrderedChainTranslationTests.testResolvedEngineSurfacesBuiltinAndCustom",
+      "entry": {"kind": "builtin", "engine": "mtran"},
+      "expected": "mtran"
+    },
+    {
+      "source": "OrderedChainTranslationTests.testResolvedEngineSurfacesBuiltinAndCustom",
+      "entry": {"kind": "compatible", "compatibleId": "11111111-2222-3333-4444-555555555555"},
+      "expected": "custom"
+    }
+  ]
+}

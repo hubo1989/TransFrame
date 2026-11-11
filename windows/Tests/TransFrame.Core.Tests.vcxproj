@@ -72,6 +72,9 @@
     <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
     <ClCompile Include="TranslationPromptConfigTests.cpp" />
     <ClCompile Include="VisualLineGroupingTests.cpp" />
+    <!-- FR-10 智能打码 core coverage + PRD §11 cross-platform snapshot gate. -->
+    <ClCompile Include="SmartRedactionTests.cpp" />
+    <ClCompile Include="CrossPlatformSnapshotTests.cpp" />
     <ClCompile Include="PerformanceRecorderTests.cpp" />
     <ClCompile Include="..\App\EngineBootstrap.cpp" />
 
@@ -104,9 +107,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="fixtures\visual-line-grouping.json">
-      <CopyFileToOutputDirectory>PreserveNewest</CopyFileToOutputDirectory>
-    </None>
+    <Content Include="fixtures\visual-line-grouping.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- PRD §11 shared vectors (extracted from macOS TransFrameTests).
+         Content+CopyToOutputDirectory is the pattern that actually copies
+         (None+CopyFileToOutputDirectory above never lands in the output). -->
+    <Content Include="fixtures\crossplatform\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <!-- FR-37 schema test reads every shipped language table. -->
     <Content Include="..\UI\Strings\*.json">
       <Link>Strings\%(Filename)%(Extension)</Link>

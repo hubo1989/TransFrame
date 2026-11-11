@@ -14,10 +14,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 file(GLOB CORE_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Core/src/*.cpp)
 # Model-layer sources live in Core/ root (mirrors Core.vcxproj; the src/
-# glob above misses them).
+# glob above misses them). Both stacks are needed: Core/root .cpp implement
+# tf::core (Geometry/Annotation/CaptureDocument/VisualLineGrouping models),
+# Core/src .cpp implement the tf provider stack.
 set(CORE_MODEL_SRC
+    Core/Annotation.cpp
     Core/AnnotationDocument.cpp
+    Core/CaptureDocument.cpp
+    Core/Json.cpp
+    Core/LLMTranslationCore.cpp
     Core/PerformanceRecorder.cpp
+    Core/TranslationHistory.cpp
+    Core/TranslationResultBundle.cpp
+    Core/VLMProviderType.cpp
+    Core/VisualLineGrouping.cpp
 )
 # Settings ViewModels are pure C++ (no WinUI): the portable runner links
 # them so the *PageViewModelTests cover GCC too.
@@ -36,6 +46,8 @@ set(TEST_SRC
     Tests/OcrAndTextSelectionTests.cpp
     Tests/EngineBootstrapTests.cpp
     Tests/AnnotationDocumentTests.cpp
+    Tests/SmartRedactionTests.cpp
+    Tests/CrossPlatformSnapshotTests.cpp
     Tests/EngineConfigStoreTests.cpp
     Tests/HotkeySettingsStoreTests.cpp
     Tests/HistoryStoreTests.cpp
@@ -108,6 +120,15 @@ endif()
 
 enable_testing()
 add_test(NAME translation_tests COMMAND translation_tests)
+
+# PRD §11 shared vectors + the FR-07 grouping fixture land next to the test
+# binary so the fixture loaders' exe-relative paths resolve under CMake too
+# (MSBuild CopyFileToOutputDirectory does the same for the vcxproj build).
+add_custom_command(TARGET translation_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tests/fixtures
+            $<TARGET_FILE_DIR:translation_tests>/fixtures
+)
 
 # ---------------------------------------------------------------------------
 # NativeShell (Win32/WinRT TUs) — Windows only. Compile + link a smoke

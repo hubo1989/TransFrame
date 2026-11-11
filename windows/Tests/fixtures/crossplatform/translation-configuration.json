@@ -1,0 +1,35 @@
+{
+  "_source": "Prompt placeholder expansion vectors from TransFrameTests/TranslationConfigurationTests.swift (macOS): layered resolution (scene > compatible instance > engine > default) + {source_language}/{target_language}/{text} substitution with the exact resolved prompt string.",
+  "_fullFieldContract": "expected is the complete resolved prompt (byte-exact, including separators and spacing) — not a containment check.",
+  "_macOSWiringNote": "macOS reads this via a future TransFrameTests loader (resolve relative to #filePath); until then the embedded vectors in TranslationConfigurationTests.swift are the macOS-side source of truth and this file must be updated in lock-step.",
+  "cases": [
+    {
+      "name": "testScenePromptTakesPriorityOverEngineAndCompatiblePrompts",
+      "source": "TranslationConfigurationTests.testScenePromptTakesPriorityOverEngineAndCompatiblePrompts",
+      "enginePrompts": [["openai", "Engine prompt {text}"]],
+      "compatibleEnginePrompts": {"compatible-0": "Compatible prompt {text}"},
+      "scenePrompts": [["screenshot", "Scene prompt {source_language} -> {target_language}: {text}"]],
+      "engine": "openai",
+      "scene": "screenshot",
+      "sourceLanguage": "English",
+      "targetLanguage": "Chinese",
+      "text": "Hello",
+      "compatiblePromptId": "compatible-0",
+      "expected": "Scene prompt English -> Chinese: Hello"
+    },
+    {
+      "name": "testCompatiblePromptIsUsedForCustomEngineInstances",
+      "source": "TranslationConfigurationTests.testCompatiblePromptIsUsedForCustomEngineInstances",
+      "enginePrompts": [],
+      "compatibleEnginePrompts": {"compatible-2": "Compatible prompt {text}"},
+      "scenePrompts": [],
+      "engine": "custom",
+      "scene": "text_selection",
+      "sourceLanguage": "English",
+      "targetLanguage": "Japanese",
+      "text": "Hello",
+      "compatiblePromptId": "compatible-2",
+      "expected": "Compatible prompt Hello"
+    }
+  ]
+}
