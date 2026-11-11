@@ -69,6 +69,11 @@ public:
     /// which validates on drag-completion, not on model add).
     void add(Annotation a);
 
+    /// Append a batch as ONE undo transaction (FR-10 智能打码: a single
+    /// undo/redo step covers the whole mosaic batch). Empty batches push no
+    /// history entry.
+    void addAll(std::vector<Annotation> batch);
+
     /// Remove by id. Returns false (without touching history) when absent.
     bool remove(const Uuid& id);
 
