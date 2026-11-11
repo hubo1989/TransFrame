@@ -176,3 +176,82 @@ jobs:
             -DCMAKE_CXX_COMPILER=g++-13
           cmake --build windows/build-c --parallel
           windows/build-c/translation_tests
+  msix-package:
+    # FR-38 packaging leg: per-architecture MSIX + App Installer feed,
+    # signed with a disposable self-signed test certificate (CI has no
+    # real cert; the artifacts are install-test only, never shipped).
+    name: MSIX package (${{ matrix.platform }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+    env:
+      PUBLISHER: CN=TransFrame CI Test
+      BASE_URL: https://transframe.example/downloads/windows
+      VCLIBS_VERSION: 14.0.33728.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build solution (Release)
+        working-directory: windows
+        run: msbuild TransFrame.sln /m /restore /p:Configuration=Release /p:Platform=${{ matrix.platform }} /warnaserror /verbosity:minimal
+
+      - name: Download VCLibs Desktop runtime (fixed version)
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.platform }}'.ToLower()
+          $url = "https://www.nuget.org/api/v2/package/Microsoft.VCLibs.Desktop/$env:VCLIBS_VERSION"
+          $out = "vclibs-$arch.appx"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 120
+          } catch {
+            Write-Error "Failed to download VCLibs Desktop $env:VCLIBS_VERSION from $url : $_"
+            exit 1
+          }
+          if ((Get-Item $out).Length -eq 0) { Write-Error "Downloaded $out is empty"; exit 1 }
+          $zip = "$out.zip"
+          Rename-Item $out $zip
+          Expand-Archive $zip -DestinationPath "vclibs-$arch" -Force
+          $appx = Get-ChildItem "vclibs-$arch/tools/AppX" -Filter "*$arch.appx" | Select-Object -First 1
+          if (-not $appx) { Write-Error "No $arch appx inside the VCLibs nupkg"; exit 1 }
+          Copy-Item $appx.FullName "vclibs-$arch-extracted.appx"
+          Write-Host "VCLibs: $($appx.Name)"
+
+      - name: Package + sign MSIX (self-signed test cert)
+        shell: pwsh
+        run: |
+          $exe = "windows/build/${{ matrix.platform }}/Release/TransFrame.App/TransFrame.App.exe"
+          if (-not (Test-Path $exe)) { Write-Error "EXE not found: $exe"; exit 1 }
+          $bootstrap = Join-Path (Split-Path $exe) "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+          if (-not (Test-Path $bootstrap)) { Write-Error "Bootstrap DLL missing next to EXE: $bootstrap"; exit 1 }
+          $arch = '${{ matrix.platform }}'.ToLower()
+          python3 windows/scripts/build_msix.py `
+            --exe $exe `
+            --output "dist/${{ matrix.platform }}" `
+            --vclibs "vclibs-$arch-extracted.appx" `
+            --version 1.0.4.0 --arch $arch `
+            --publisher $env:PUBLISHER `
+            --base-url $env:BASE_URL `
+            --self-signed-test-cert
+
+      - name: List package contents
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem "dist/${{ matrix.platform }}" -Filter *.msix | Select-Object -First 1
+          Write-Host "MSIX: $($msix.FullName) ($($msix.Length) bytes)"
+          tar -tf $msix.FullName
+
+      - name: Upload MSIX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-${{ matrix.platform }}
+          path: |
+            dist/${{ matrix.platform }}/*.msix
+            dist/${{ matrix.platform }}/*.appinstaller
+            dist/${{ matrix.platform }}/*.appx
+          if-no-files-found: error
