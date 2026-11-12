@@ -821,6 +821,11 @@ bool SelectionOverlayController::precreate() {
     }
 
     // Hidden at start: the hotkey path only calls ShowWindow (fast path).
+    // LAYERED must be initialized with SetLayeredWindowAttributes (alpha
+    // 255, same as the color picker): an uninitialized layered window is
+    // mouse click-THROUGH everywhere — the never-set alpha surface counts
+    // as fully transparent to hit testing, so drags fell through to the
+    // windows below while the DComp dim kept rendering.
     impl.hwnd = ::CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         Impl::kClassName, L"TransFrame Selection Overlay",
@@ -830,6 +835,7 @@ bool SelectionOverlayController::precreate() {
         initLog("CreateWindowExW", static_cast<long>(::GetLastError()));
         return false;
     }
+    ::SetLayeredWindowAttributes(impl.hwnd, 0, 255, LWA_ALPHA);
     initLog("CreateWindowExW-ok", 0);
 
     if (!impl.createDeviceStack()) {
