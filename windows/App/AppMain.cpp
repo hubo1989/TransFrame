@@ -300,6 +300,25 @@ void refreshTrayPinned() {
     if (g.tray) g.tray->setPinnedWindows(pinnedSnapshotsForTray());
 }
 
+/// mac NSMenu parity: the tray capture rows show the live key equivalent
+/// (right-aligned). Call after applySpecs and after settings saves.
+void refreshTrayShortcutHints() {
+    if (!g.tray) return;
+    tf::TrayShortcutHints hints;
+    for (const auto& spec : g.hotkeySpecs) {
+        if (!spec.enabled) continue;
+        const std::wstring text = tf::formatHotkeySpec(spec);
+        switch (spec.action) {
+            case tf::HotkeyAction::FullScreen:      hints.fullScreen = text; break;
+            case tf::HotkeyAction::Region:          hints.region = text; break;
+            case tf::HotkeyAction::Translate:       hints.translate = text; break;
+            case tf::HotkeyAction::TextSelection:   hints.textSelection = text; break;
+            case tf::HotkeyAction::TranslateInsert: hints.translateInsert = text; break;
+        }
+    }
+    g.tray->setShortcutHints(std::move(hints));
+}
+
 void refreshTrayRecents() {
     if (g.tray && g.history) g.tray->setRecentShots(tf::shots::trayRecentShots(*g.history));
 }
@@ -1696,6 +1715,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     g.hotkeys->setHandler([](tf::HotkeyAction action) { dispatchAction(action); });
     g.hotkeyReport = g.hotkeys->applySpecs(g.hotkeySpecs);
+    refreshTrayShortcutHints();
 
     // Settings persistence (shared by the WinUI 3 page ViewModels once
     // they are wired in): engines.json + hotkey settings, atomic writes.
@@ -1730,6 +1750,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         }
         g.hotkeySpecs = std::move(specs);
         g.hotkeyReport = report;
+        refreshTrayShortcutHints();
         return report;
     };
 

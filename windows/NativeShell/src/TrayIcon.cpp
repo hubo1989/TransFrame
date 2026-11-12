@@ -6,6 +6,8 @@
 
 #include <shellapi.h>
 
+#pragma comment(lib, "advapi32.lib")  // applyMenuTheme registry read
+
 namespace tf {
 
 // ---------------------------------------------------------------------------
@@ -16,6 +18,33 @@ namespace {
 
 constexpr UINT kTrayIconId = 1;
 constexpr UINT kTrayCallbackMessage = WM_APP + 0x5446;  // 'TF'
+
+/// Win11 dark-mode context menus: the undocumented-but-stable uxtheme
+/// ordinal 135 (SetPreferredAppMode) — the same route PowerToys/Notepad++
+/// take. A light HMENU on a dark system reads as broken chrome, and the mac
+/// NSMenu always follows the appearance; light systems keep the default.
+void applyMenuTheme() {
+    DWORD appsLight = 1;
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER,
+                        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                        0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+        DWORD size = sizeof(appsLight);
+        if (::RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, nullptr,
+                               reinterpret_cast<BYTE*>(&appsLight), &size) != ERROR_SUCCESS) {
+            appsLight = 1;
+        }
+        ::RegCloseKey(key);
+    }
+    using SetPreferredAppModeFn = int(WINAPI*)(int);
+    const auto setPreferredAppMode = reinterpret_cast<SetPreferredAppModeFn>(
+        ::GetProcAddress(::GetModuleHandleW(L"uxtheme.dll"),
+                         reinterpret_cast<LPCSTR>(135)));
+    if (setPreferredAppMode) {
+        // 0=Default 1=AllowDark 2=ForceDark 3=ForceLight.
+        setPreferredAppMode(appsLight == 0 ? 2 : 0);
+    }
+}
 
 HMENU buildHMenu(const TrayMenuModel& model) {
     HMENU menu = ::CreatePopupMenu();
@@ -122,8 +151,13 @@ void TrayIconService::setPinnedWindows(std::vector<PinnedSnapshot> pinned) {
     pinned_ = std::move(pinned);
 }
 
+void TrayIconService::setShortcutHints(TrayShortcutHints hints) {
+    hints_ = std::move(hints);
+}
+
 void TrayIconService::showMenuAtCursor() {
-    const TrayMenuModel model = buildTrayMenuModel(recent_, pinned_);
+    applyMenuTheme();
+    const TrayMenuModel model = buildTrayMenuModel(recent_, pinned_, hints_);
     const auto owner = static_cast<HWND>(callbackWindow_);
     if (!owner) return;
     HMENU menu = buildHMenu(model);

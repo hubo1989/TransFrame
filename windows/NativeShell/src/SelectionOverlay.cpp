@@ -118,7 +118,6 @@ struct SelectionOverlayController::Impl {
     // FR-05: toolbar wiring + interaction state (main thread only).
     OverlayActionHandler actionHandler;
     std::optional<OverlayToolbarAction> autoAction;  // FR-04 auto path
-    bool actionInFlight = false;  // window hidden for an action; ignore KILLFOCUS
     int hoverSlot = -1;
     bool hoverClose = false;
 
@@ -243,12 +242,11 @@ struct SelectionOverlayController::Impl {
                     return 0;
                 }
                 break;
-            case WM_KILLFOCUS:
-                // The window hides itself while an action captures the
-                // desktop — that focus loss must not end the session.
-                if (actionInFlight) return 0;
-                if (sessionActive) endSessionInternal();
-                return 0;
+            // No WM_KILLFOCUS dismissal: the overlay is a non-activating
+            // topmost layer (mac nonactivating NSPanel parity), and the
+            // foreground-lock focus bounce right after ShowWindow would kill
+            // every session before the user sees anything. Esc, click-away
+            // and explicit cancel remain the dismissal paths.
             case WM_SETCURSOR: {
                 // Confirmed UI gets an arrow/hand; selection modes keep cross.
                 if (LOWORD(lp) == HTCLIENT &&
@@ -310,7 +308,6 @@ struct SelectionOverlayController::Impl {
             return;
         }
         const auto selection = state.selection();
-        actionInFlight = true;
         hoverSlot = -1;
         ::ShowWindow(hwnd, SW_HIDE);
         if (actionHandler && selection) {
@@ -320,30 +317,40 @@ struct SelectionOverlayController::Impl {
         } else {
             // No handler (or no selection — should not happen): fall through
             // to a plain cancel so the overlay never wedges.
-            actionInFlight = false;
             endSessionInternal();
         }
     }
 
+    /// Focus for a WS_EX_NOACTIVATE popup: plain SetFocus/SetForegroundWindow
+    /// bounce off the foreground lock when another process owns input (the
+    /// session then read like "hotkey did nothing"). Attach to the foreground
+    /// thread's queue first so both calls are honored; Esc must reach us
+    /// while the overlay owns all input (FR-01).
+    void takeKeyboardFocus() {
+        const DWORD myTid = ::GetCurrentThreadId();
+        DWORD fgPid = 0;
+        const HWND fg = ::GetForegroundWindow();
+        const DWORD fgTid = fg ? ::GetWindowThreadProcessId(fg, &fgPid) : 0;
+        const bool attached = fgTid != 0 && fgTid != myTid &&
+                              ::AttachThreadInput(myTid, fgTid, TRUE) != FALSE;
+        ::SetForegroundWindow(hwnd);
+        ::SetFocus(hwnd);
+        if (attached) ::AttachThreadInput(myTid, fgTid, FALSE);
+    }
+
     /// Bring the window back after an action hid it (main thread).
     void reshowAfterAction() {
-        actionInFlight = false;
         hoverSlot = -1;
         hoverClose = false;
         ::ShowWindow(hwnd, SW_SHOWNA);
-        ::SetFocus(hwnd);  // Esc must reach us while the panel is up
+        takeKeyboardFocus();  // Esc must reach us while the panel is up
         renderFrame();
     }
 
     /// Unified dismissal: drop panel + selection, hide, fire completion once.
-    /// State is cleared BEFORE ShowWindow: hiding a focused window delivers
-    /// WM_KILLFOCUS synchronously, and its handler re-enters here — the
-    /// early flags make that second visit a no-op instead of a double
-    /// completion.
     void endSessionInternal() {
         state.dismissResults();
         state.cancel();
-        actionInFlight = false;
         hoverSlot = -1;
         hoverClose = false;
         sessionActive = false;
@@ -841,7 +848,6 @@ bool SelectionOverlayController::beginSession(OverlayCompletion completion) {
 
     impl.completion = std::move(completion);
     impl.sessionActive = true;
-    impl.actionInFlight = false;
     impl.hoverSlot = -1;
     impl.hoverClose = false;
     impl.state.setMode(OverlayMode::Idle);
@@ -853,8 +859,7 @@ bool SelectionOverlayController::beginSession(OverlayCompletion completion) {
     // Overlay must receive keyboard for Esc: focus without activation is not
     // possible for a WS_EX_NOACTIVATE window; we grab it explicitly because
     // during selection the overlay owns all input (FR-01).
-    ::SetFocus(impl.hwnd);
-    ::SetForegroundWindow(impl.hwnd);
+    impl.takeKeyboardFocus();
     return true;
 }
 

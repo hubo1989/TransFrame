@@ -73,6 +73,17 @@ struct TrayMenuModel {
     std::vector<TrayMenuItem> pinnedItems;
 };
 
+/// Right-aligned key equivalents for the capture rows (mac NSMenu parity:
+/// the status menu shows each action's live shortcut). Empty string = no hint
+/// (action disabled or hotkey not registered).
+struct TrayShortcutHints {
+    std::wstring fullScreen;
+    std::wstring region;
+    std::wstring translate;
+    std::wstring textSelection;
+    std::wstring translateInsert;
+};
+
 /// Win32 popup menu IDs for the pinned submenu live above this base so they
 /// cannot collide with the flat item IDs (1..N).
 constexpr unsigned kPinnedMenuIdBase = 1000;
@@ -86,9 +97,11 @@ using TrayCommandHandler = std::function<void(TrayCommand command, int payloadIn
 /// stays a disabled placeholder — kept for the original call sites/tests).
 std::vector<TrayMenuItem> buildTrayMenu(const std::vector<RecentShot>& recentShots);
 
-/// Pure menu construction with the pinned-fleet submenu (FR-14).
+/// Pure menu construction with the pinned-fleet submenu (FR-14). `hints`
+/// renders as the right-aligned key-equivalent column ("" = none).
 TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
-                                 const std::vector<PinnedSnapshot>& pinned);
+                                 const std::vector<PinnedSnapshot>& pinned,
+                                 const TrayShortcutHints& hints = {});
 
 /// Pure 置顶管理 submenu: per-pin rows (序号+尺寸, interactive pins marked),
 /// then 切换穿透 / 聚拢到前台 / 全部关闭.
@@ -130,6 +143,10 @@ public:
     /// (empty = the placeholder stays disabled).
     void setPinnedWindows(std::vector<PinnedSnapshot> pinned);
 
+    /// Swap live hotkey hints; the capture rows show them right-aligned on
+    /// the next open (call after applySpecs / settings saves).
+    void setShortcutHints(TrayShortcutHints hints);
+
     /// Left-click and right-click both open the menu.
     void showMenuAtCursor();
 
@@ -146,6 +163,7 @@ private:
     TrayCommandHandler handler_;
     std::vector<RecentShot> recent_;
     std::vector<PinnedSnapshot> pinned_;
+    TrayShortcutHints hints_;
     void* callbackWindow_ = nullptr;  // HWND (void* keeps the header Win32-free)
     bool installed_ = false;
 };

@@ -26,15 +26,28 @@ void pushAction(std::vector<TrayMenuItem>& items, std::wstring label,
     items.push_back(std::move(item));
 }
 
-std::vector<TrayMenuItem> baseItems() {
+/// "全屏截图\tCtrl+Alt+F" — the tab stops align the shortcut into the
+/// right-hand key-equivalent column, mirroring the mac status menu.
+std::wstring withHint(std::wstring label, const std::wstring& hint) {
+    if (hint.empty()) return label;
+    return std::move(label) + L"\t" + hint;
+}
+
+std::vector<TrayMenuItem> baseItems(const TrayShortcutHints& hints) {
     // FR-34: full-screen / region / translate / text-selection / insert,
     // plus FR-32 eyedropper entry.
     std::vector<TrayMenuItem> items;
-    pushAction(items, tw("menu.capture.full.screen", L"全屏截图"), TrayCommand::FullScreen);
-    pushAction(items, tw("menu.capture.selection", L"区域截图"), TrayCommand::Region);
-    pushAction(items, tw("win.tray.translateMode", L"翻译模式"), TrayCommand::Translate);
-    pushAction(items, tw("win.tray.textSelection", L"划词翻译"), TrayCommand::TextSelection);
-    pushAction(items, tw("win.tray.translateInsert", L"翻译并插入"), TrayCommand::TranslateInsert);
+    pushAction(items, withHint(tw("menu.capture.full.screen", L"全屏截图"), hints.fullScreen),
+               TrayCommand::FullScreen);
+    pushAction(items, withHint(tw("menu.capture.selection", L"区域截图"), hints.region),
+               TrayCommand::Region);
+    pushAction(items, withHint(tw("win.tray.translateMode", L"翻译模式"), hints.translate),
+               TrayCommand::Translate);
+    pushAction(items, withHint(tw("win.tray.textSelection", L"划词翻译"), hints.textSelection),
+               TrayCommand::TextSelection);
+    pushAction(items,
+               withHint(tw("win.tray.translateInsert", L"翻译并插入"), hints.translateInsert),
+               TrayCommand::TranslateInsert);
     // FR-32 eyedropper entry (uploads-picker line; locale keys TBD - the
     // tw() default keeps the label until the string tables carry it).
     pushAction(items, tw("win.tray.pickColor", L"取色器"), TrayCommand::PickColor,
@@ -49,9 +62,10 @@ std::vector<TrayMenuItem> buildTrayMenu(const std::vector<RecentShot>& recentSho
 }
 
 TrayMenuModel buildTrayMenuModel(const std::vector<RecentShot>& recentShots,
-                                 const std::vector<PinnedSnapshot>& pinned) {
+                                 const std::vector<PinnedSnapshot>& pinned,
+                                 const TrayShortcutHints& hints) {
     TrayMenuModel model;
-    model.items = baseItems();
+    model.items = baseItems(hints);
 
     // Recent shots: up to 5 thumbnails (PRD FR-34), newest first.
     const std::size_t recentCount = std::min<std::size_t>(recentShots.size(), 5);
