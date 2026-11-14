@@ -1,6 +1,6 @@
 // tf/SelectionOverlay.hpp
 // Full-screen selection overlay window (FR-01/02): one WS_POPUP +
-// WS_EX_LAYERED + WS_EX_TOPMOST window spanning the entire virtual desktop,
+// WS_EX_NOREDIRECTIONBITMAP + WS_EX_TOPMOST window spanning the virtual desktop,
 // rendered with Direct2D 1.1 + DirectComposition.
 //
 // This header is the Win32-side controller; it compiles only on Windows.

@@ -316,8 +316,29 @@ PixelBuffer renderComposited(const PixelBuffer& base,
     ComPtr<ID2D1RenderTarget> rt;
     if (FAILED(d2d->CreateWicBitmapRenderTarget(wicBitmap.Get(), props, &rt))) return out;
 
+    // Upload the captured pixels from a separate source. The WIC bitmap above
+    // is the fresh output surface and contains no captured image. PixelBuffer
+    // carries straight BGRA; D2D consumes premultiplied BGRA, so convert before
+    // upload (opaque screenshots pass through unchanged).
+    ComPtr<IWICBitmap> sourceBitmap;
+    if (FAILED(wic->CreateBitmapFromMemory(
+            static_cast<UINT>(base.width), static_cast<UINT>(base.height),
+            GUID_WICPixelFormat32bppBGRA, static_cast<UINT>(base.stride),
+            static_cast<UINT>(base.byteSize()), base.data.get(), &sourceBitmap))) {
+        return out;
+    }
+    ComPtr<IWICFormatConverter> premultipliedSource;
+    if (FAILED(wic->CreateFormatConverter(&premultipliedSource)) ||
+        FAILED(premultipliedSource->Initialize(
+            sourceBitmap.Get(), GUID_WICPixelFormat32bppPBGRA,
+            WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+        return out;
+    }
     ComPtr<ID2D1Bitmap> baseBitmap;
-    if (FAILED(rt->CreateBitmapFromWicBitmap(wicBitmap.Get(), &baseBitmap))) return out;
+    if (FAILED(rt->CreateBitmapFromWicBitmap(premultipliedSource.Get(),
+                                            &baseBitmap))) {
+        return out;
+    }
     rt->BeginDraw();
     rt->Clear(D2D1_COLOR_F{1, 1, 1, 1});
     rt->DrawBitmap(baseBitmap.Get(),

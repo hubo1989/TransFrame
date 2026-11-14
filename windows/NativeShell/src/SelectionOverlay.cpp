@@ -1,7 +1,7 @@
 // SelectionOverlay.cpp — Win32 overlay window + D2D 1.1 / DComp renderer.
 //
-// Window: one WS_POPUP | WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE |
-// WS_EX_TOOLWINDOW window sized to the virtual desktop (SM_XVIRTUALSCREEN..),
+// Window: one WS_POPUP | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST |
+// WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, sized to the virtual desktop (SM_XVIRTUALSCREEN..),
 // pre-created hidden at app start. Hotkey path: ShowWindow + first frame
 // (<= 60ms budget: no window creation, no device creation on the hot path).
 //
@@ -443,7 +443,7 @@ struct SelectionOverlayController::Impl {
         scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         scd.BufferCount = 2;
         scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-        scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;  // WS_EX_LAYERED via DComp
+        scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;  // DComp owns per-pixel transparency
         ComPtr<IDXGIAdapter> adapter;
         ComPtr<IDXGIFactory2> factory;
         dxgiDevice->GetAdapter(adapter.GetAddressOf());
@@ -820,14 +820,13 @@ bool SelectionOverlayController::precreate() {
         impl.registered = true;
     }
 
-    // Hidden at start: the hotkey path only calls ShowWindow (fast path).
-    // LAYERED must be initialized with SetLayeredWindowAttributes (alpha
-    // 255, same as the color picker): an uninitialized layered window is
-    // mouse click-THROUGH everywhere — the never-set alpha surface counts
-    // as fully transparent to hit testing, so drags fell through to the
-    // windows below while the DComp dim kept rendering.
+    // DComp supplies the entire window surface, including per-pixel alpha.
+    // NOREDIRECTIONBITMAP avoids an opaque Win32 redirection surface behind
+    // the swap chain and keeps hit testing rectangular even where selection
+    // pixels are transparent. LAYERED + global alpha 255 made that surface
+    // opaque, covering the desktop with a solid color.
     impl.hwnd = ::CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         Impl::kClassName, L"TransFrame Selection Overlay",
         WS_POPUP,
         0, 0, 1, 1, nullptr, nullptr, hInst, &impl);
@@ -835,7 +834,6 @@ bool SelectionOverlayController::precreate() {
         initLog("CreateWindowExW", static_cast<long>(::GetLastError()));
         return false;
     }
-    ::SetLayeredWindowAttributes(impl.hwnd, 0, 255, LWA_ALPHA);
     initLog("CreateWindowExW-ok", 0);
 
     if (!impl.createDeviceStack()) {
