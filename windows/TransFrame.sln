@@ -1,0 +1,75 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.0.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TransFrame.Core", "Core\TransFrame.Core.vcxproj", "{A0000000-0000-0000-0000-00000000000A}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TransFrame.NativeShell", "NativeShell\TransFrame.NativeShell.vcxproj", "{A0000000-0000-0000-0000-00000000000B}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TransFrame.App", "App\TransFrame.App.vcxproj", "{A0000000-0000-0000-0000-00000000000C}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TransFrame.Core.Tests", "Tests\TransFrame.Core.Tests.vcxproj", "{A0000000-0000-0000-0000-00000000000D}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WinUI3Shell", "UI\WinUI3Shell.vcxproj", "{A0000000-0000-0000-0000-00000000000F}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TransFrame.NativeShell.Tests", "NativeShell\TransFrame.NativeShell.Tests.vcxproj", "{B0000000-0000-0000-0000-00000000000C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+		Debug|ARM64 = Debug|ARM64
+		Release|ARM64 = Release|ARM64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A0000000-0000-0000-0000-00000000000A}.Debug|x64.ActiveCfg = Debug|x64
+		{A0000000-0000-0000-0000-00000000000A}.Debug|x64.Build.0 = Debug|x64
+		{A0000000-0000-0000-0000-00000000000A}.Release|x64.ActiveCfg = Release|x64
+		{A0000000-0000-0000-0000-00000000000A}.Release|x64.Build.0 = Release|x64
+		{A0000000-0000-0000-0000-00000000000A}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000A}.Debug|ARM64.Build.0 = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000A}.Release|ARM64.ActiveCfg = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000A}.Release|ARM64.Build.0 = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000B}.Debug|x64.ActiveCfg = Debug|x64
+		{A0000000-0000-0000-0000-00000000000B}.Debug|x64.Build.0 = Debug|x64
+		{A0000000-0000-0000-0000-00000000000B}.Release|x64.ActiveCfg = Release|x64
+		{A0000000-0000-0000-0000-00000000000B}.Release|x64.Build.0 = Release|x64
+		{A0000000-0000-0000-0000-00000000000B}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000B}.Debug|ARM64.Build.0 = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000B}.Release|ARM64.ActiveCfg = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000B}.Release|ARM64.Build.0 = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000C}.Debug|x64.ActiveCfg = Debug|x64
+		{A0000000-0000-0000-0000-00000000000C}.Debug|x64.Build.0 = Debug|x64
+		{A0000000-0000-0000-0000-00000000000C}.Release|x64.ActiveCfg = Release|x64
+		{A0000000-0000-0000-0000-00000000000C}.Release|x64.Build.0 = Release|x64
+		{A0000000-0000-0000-0000-00000000000C}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000C}.Debug|ARM64.Build.0 = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000C}.Release|ARM64.ActiveCfg = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000C}.Release|ARM64.Build.0 = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000D}.Debug|x64.ActiveCfg = Debug|x64
+		{A0000000-0000-0000-0000-00000000000D}.Debug|x64.Build.0 = Debug|x64
+		{A0000000-0000-0000-0000-00000000000D}.Release|x64.ActiveCfg = Release|x64
+		{A0000000-0000-0000-0000-00000000000D}.Release|x64.Build.0 = Release|x64
+		{A0000000-0000-0000-0000-00000000000D}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000D}.Debug|ARM64.Build.0 = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000D}.Release|ARM64.ActiveCfg = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000D}.Release|ARM64.Build.0 = Release|ARM64
+			{A0000000-0000-0000-0000-00000000000F}.Debug|x64.ActiveCfg = Debug|x64
+		{A0000000-0000-0000-0000-00000000000F}.Debug|x64.Build.0 = Debug|x64
+		{A0000000-0000-0000-0000-00000000000F}.Release|x64.ActiveCfg = Release|x64
+		{A0000000-0000-0000-0000-00000000000F}.Release|x64.Build.0 = Release|x64
+		{A0000000-0000-0000-0000-00000000000F}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000F}.Debug|ARM64.Build.0 = Debug|ARM64
+		{A0000000-0000-0000-0000-00000000000F}.Release|ARM64.ActiveCfg = Release|ARM64
+		{A0000000-0000-0000-0000-00000000000F}.Release|ARM64.Build.0 = Release|ARM64
+		{B0000000-0000-0000-0000-00000000000C}.Debug|x64.ActiveCfg = Debug|x64
+		{B0000000-0000-0000-0000-00000000000C}.Debug|x64.Build.0 = Debug|x64
+		{B0000000-0000-0000-0000-00000000000C}.Release|x64.ActiveCfg = Release|x64
+		{B0000000-0000-0000-0000-00000000000C}.Release|x64.Build.0 = Release|x64
+		{B0000000-0000-0000-0000-00000000000C}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{B0000000-0000-0000-0000-00000000000C}.Release|ARM64.ActiveCfg = Release|ARM64
+EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

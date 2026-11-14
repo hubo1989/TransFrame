@@ -282,6 +282,7 @@
 "settings.shortcut.translation.mode" = "번역 모드";
 "settings.shortcut.text.selection.translation" = "텍스트 선택 번역";
 "settings.shortcut.translate.and.insert" = "번역하고 삽입";
+"settings.shortcut.pick.color" = "Screen Color Pick";
 "settings.shortcut.recording" = "키를 누르세요...";
 "settings.shortcut.reset" = "기본값으로 재설정";
 "settings.shortcut.error.no.modifier" = "단축키에는 Command, Control 또는 Option이 포함되어야 합니다";
@@ -960,3 +961,27 @@
 "translation.provider.recovery.translationFailed" = "번역에 실패했습니다. 다시 시도하세요.";
 "translation.provider.recovery.unsupportedLanguage" = "지원되지 않는 언어 쌍입니다. 다른 대상 언어를 선택하세요.";
 "translation.unknown" = "알 수 없음";
+
+/* Color History Window — TODO: translate (English placeholder) */
+"menu.color.history" = "Color History";
+"colorHistory.title" = "Color History";
+"colorHistory.search.placeholder" = "Search colors (HEX)...";
+"colorHistory.filter.favoritesOnly" = "Favorites only";
+"colorHistory.copy.format" = "Copy format";
+"colorHistory.format.hex" = "HEX";
+"colorHistory.format.rgb" = "RGB";
+"colorHistory.clear.all" = "Clear all colors";
+"colorHistory.clear.alert.title" = "Clear Color History";
+"colorHistory.clear.alert.message" = "Are you sure you want to delete all picked colors? Translation and screenshot history will not be affected. This action cannot be undone.";
+"colorHistory.copy.hex" = "Copy HEX";
+"colorHistory.copy.rgb" = "Copy RGB";
+"colorHistory.favorite" = "Favorite";
+"colorHistory.unfavorite" = "Unfavorite";
+"colorHistory.copied" = "Copied";
+"colorHistory.empty.title" = "No Picked Colors";
+"colorHistory.empty.message" = "Use the eyedropper to pick a screen color and it will appear here";
+"colorHistory.empty.shortcut" = "Press %@ anywhere to pick a screen color";
+"colorHistory.empty.trayHint" = "Pick from the tray menu: Screen Color Pick";
+"colorHistory.no.results.title" = "No Matching Colors";
+"colorHistory.no.results.message" = "No colors match your search";
+"colorHistory.toast.viewHistory" = "View History";

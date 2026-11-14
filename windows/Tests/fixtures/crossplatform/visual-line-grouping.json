@@ -1,0 +1,153 @@
+{
+  "_source": "Vectors extracted verbatim from TransFrameTests/VisualLineGroupingTests.swift (macOS). This file is the PRD §11 cross-platform snapshot contract: same inputs → same FULL outputs on both platforms.",
+  "_coordinateSystem": "Normalized bounding boxes 0..1, top-left origin, y grows down.",
+  "_fullFieldContract": "Every case carries `expected`: the complete ordered output segment list. Each expected entry compares text, minX/maxX/minY/maxY (1e-9), confidence and isUserEdited — nothing is sampled.",
+  "_macOSWiringNote": "macOS reads this via a future TransFrameTests loader (URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(\"windows/Tests/fixtures/crossplatform/visual-line-grouping.json\")); until then the embedded vectors in VisualLineGroupingTests.swift are the macOS-side source of truth and this file must be updated in lock-step.",
+  "cases": [
+    {
+      "name": "testSameLineFragmentsMergeIntoSingleSegment",
+      "source": "VisualLineGroupingTests.testSameLineFragmentsMergeIntoSingleSegment",
+      "input": [
+        {"text": "installed metadata. Prefer a commit SHA in place of", "x": 0.10, "y": 0.40, "width": 0.50, "height": 0.020},
+        {"text": "main", "x": 0.61, "y": 0.401, "width": 0.04, "height": 0.019},
+        {"text": "for a fixed package revision.", "x": 0.66, "y": 0.402, "width": 0.25, "height": 0.020}
+      ],
+      "expected": [
+        {"text": "installed metadata. Prefer a commit SHA in place of main for a fixed package revision.", "minX": 0.10, "maxX": 0.91, "minY": 0.40, "maxY": 0.422, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testMergedBoundingBoxIsUnionOfFragments",
+      "source": "VisualLineGroupingTests.testMergedBoundingBoxIsUnionOfFragments",
+      "input": [
+        {"text": "installed metadata. Prefer a commit SHA in place of", "x": 0.10, "y": 0.40, "width": 0.50, "height": 0.020},
+        {"text": "main", "x": 0.61, "y": 0.401, "width": 0.04, "height": 0.019},
+        {"text": "for a fixed package revision.", "x": 0.66, "y": 0.402, "width": 0.25, "height": 0.020}
+      ],
+      "expected": [
+        {"text": "installed metadata. Prefer a commit SHA in place of main for a fixed package revision.", "minX": 0.10, "maxX": 0.91, "minY": 0.40, "maxY": 0.422, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testDistinctLinesStaySeparate",
+      "source": "VisualLineGroupingTests.testDistinctLinesStaySeparate",
+      "input": [
+        {"text": "first line", "x": 0.1, "y": 0.10, "width": 0.4, "height": 0.02},
+        {"text": "second line", "x": 0.1, "y": 0.20, "width": 0.4, "height": 0.02},
+        {"text": "third line", "x": 0.1, "y": 0.30, "width": 0.4, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "first line", "minX": 0.1, "maxX": 0.5, "minY": 0.10, "maxY": 0.12, "confidence": 1.0, "isUserEdited": false},
+        {"text": "second line", "minX": 0.1, "maxX": 0.5, "minY": 0.20, "maxY": 0.22, "confidence": 1.0, "isUserEdited": false},
+        {"text": "third line", "minX": 0.1, "maxX": 0.5, "minY": 0.30, "maxY": 0.32, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testDistantColumnsOnSameBaselineDoNotMerge",
+      "source": "VisualLineGroupingTests.testDistantColumnsOnSameBaselineDoNotMerge",
+      "input": [
+        {"text": "left column", "x": 0.05, "y": 0.50, "width": 0.20, "height": 0.02},
+        {"text": "right column", "x": 0.70, "y": 0.50, "width": 0.25, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "left column", "minX": 0.05, "maxX": 0.25, "minY": 0.50, "maxY": 0.52, "confidence": 1.0, "isUserEdited": false},
+        {"text": "right column", "minX": 0.70, "maxX": 0.95, "minY": 0.50, "maxY": 0.52, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testNearbyFragmentsOnSameBaselineMerge",
+      "source": "VisualLineGroupingTests.testNearbyFragmentsOnSameBaselineMerge",
+      "input": [
+        {"text": "Name", "x": 0.10, "y": 0.50, "width": 0.10, "height": 0.02},
+        {"text": "Value", "x": 0.15, "y": 0.50, "width": 0.10, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "Name Value", "minX": 0.10, "maxX": 0.25, "minY": 0.50, "maxY": 0.52, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testMergedLineKeepsTouchingIdentifierIntact",
+      "source": "VisualLineGroupingTests.testMergedLineKeepsTouchingIdentifierIntact",
+      "input": [
+        {"text": "set", "x": 0.10, "y": 0.50, "width": 0.03, "height": 0.02},
+        {"text": "DESIGMA_PLUGINS_TOKEN", "x": 0.132, "y": 0.50, "width": 0.20, "height": 0.02},
+        {"text": "to any", "x": 0.34, "y": 0.50, "width": 0.06, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "set DESIGMA_PLUGINS_TOKEN to any", "minX": 0.10, "maxX": 0.40, "minY": 0.50, "maxY": 0.52, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testOutputIsSortedTopToBottom",
+      "source": "VisualLineGroupingTests.testOutputIsSortedTopToBottom",
+      "input": [
+        {"text": "bottom", "x": 0.1, "y": 0.60, "width": 0.3, "height": 0.02},
+        {"text": "top", "x": 0.1, "y": 0.10, "width": 0.3, "height": 0.02},
+        {"text": "middle", "x": 0.1, "y": 0.35, "width": 0.3, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "top", "minX": 0.1, "maxX": 0.4, "minY": 0.10, "maxY": 0.12, "confidence": 1.0, "isUserEdited": false},
+        {"text": "middle", "minX": 0.1, "maxX": 0.4, "minY": 0.35, "maxY": 0.37, "confidence": 1.0, "isUserEdited": false},
+        {"text": "bottom", "minX": 0.1, "maxX": 0.4, "minY": 0.60, "maxY": 0.62, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testSingleSegmentPassesThrough",
+      "source": "VisualLineGroupingTests.testSingleSegmentPassesThrough",
+      "input": [
+        {"text": "solo", "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "solo", "minX": 0.1, "maxX": 0.3, "minY": 0.1, "maxY": 0.12, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testEmptyInputReturnsEmpty",
+      "source": "VisualLineGroupingTests.testEmptyInputReturnsEmpty",
+      "input": [],
+      "expected": []
+    },
+    {
+      "name": "testZeroSizeBoxesAreKeptAsIs",
+      "source": "VisualLineGroupingTests.testZeroSizeBoxesAreKeptAsIs",
+      "input": [
+        {"text": "no box", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0},
+        {"text": "normal", "x": 0.1, "y": 0.1, "width": 0.3, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "no box", "minX": 0.0, "maxX": 0.0, "minY": 0.0, "maxY": 0.0, "confidence": 1.0, "isUserEdited": false},
+        {"text": "normal", "minX": 0.1, "maxX": 0.4, "minY": 0.1, "maxY": 0.12, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testLowVerticalOverlapDoesNotMerge",
+      "source": "VisualLineGroupingTests.testLowVerticalOverlapDoesNotMerge",
+      "input": [
+        {"text": "upper", "x": 0.1, "y": 0.100, "width": 0.3, "height": 0.02},
+        {"text": "lower", "x": 0.5, "y": 0.115, "width": 0.3, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "upper", "minX": 0.1, "maxX": 0.4, "minY": 0.100, "maxY": 0.120, "confidence": 1.0, "isUserEdited": false},
+        {"text": "lower", "minX": 0.5, "maxX": 0.8, "minY": 0.115, "maxY": 0.135, "confidence": 1.0, "isUserEdited": false}
+      ]
+    },
+    {
+      "name": "testUserEditedFlagPropagatesToMergedSegment",
+      "source": "VisualLineGroupingTests.testUserEditedFlagPropagatesToMergedSegment",
+      "input": [
+        {"text": "edited", "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.02, "confidence": 0.9, "isUserEdited": true},
+        {"text": "plain", "x": 0.35, "y": 0.1, "width": 0.2, "height": 0.02}
+      ],
+      "expected": [
+        {"text": "edited plain", "minX": 0.1, "maxX": 0.55, "minY": 0.1, "maxY": 0.12, "confidence": 0.95, "isUserEdited": true}
+      ]
+    }
+  ],
+  "joinTextCases": [
+    {"source": "VisualLineGroupingTests.testLatinFragmentsJoinWithSpace", "lhs": "set", "rhs": "TOKEN to any", "expected": "set TOKEN to any"},
+    {"source": "VisualLineGroupingTests.testCJKFragmentsJoinWithoutSpace", "lhs": "该注册表是公开的", "rhs": "因此不需要令牌", "expected": "该注册表是公开的因此不需要令牌"},
+    {"source": "VisualLineGroupingTests.testCJKAndLatinBoundaryGetsSpace", "lhs": "令牌", "rhs": "TOKEN", "expected": "令牌 TOKEN"},
+    {"source": "VisualLineGroupingTests.testTouchingIdentifierFragmentsGlueWithoutSpace.gluesDirectly", "lhs": "DESIGMA", "rhs": "_PLUGINS_TOKEN", "gluesDirectly": true, "expected": "DESIGMA_PLUGINS_TOKEN"},
+    {"source": "VisualLineGroupingTests.testTouchingIdentifierFragmentsGlueWithoutSpace.spacedWordsStaySpaced", "lhs": "of", "rhs": "main", "gluesDirectly": true, "expected": "of main"}
+  ]
+}

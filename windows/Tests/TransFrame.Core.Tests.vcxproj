@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Catch2 v3 unit tests for TransFrame.Core (task A). The fixture file
+       Tests/fixtures/visual-line-grouping.json is copied to the output
+       directory so the fixture test can open it relative to the exe. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration><Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration><Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A0000000-0000-0000-0000-00000000000D}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>TransFrame</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\$(ProjectName)\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IncludePath>$(ProjectDir);$(ProjectDir)vendor;$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor\nlohmann;$(ProjectDir)..\App;$(ProjectDir)..\external;$(IncludePath)</IncludePath>
+
+    <IncludePath>$(ProjectDir);$(ProjectDir)..;$(ProjectDir)..\Core;$(ProjectDir)..\Core\include;$(ProjectDir)..\Core\vendor;$(ProjectDir)..\external;$(ProjectDir)..\UI\GeneralPage;$(ProjectDir)..\UI\EnginesPage;$(ProjectDir)..\UI\PromptsPage;$(ProjectDir)..\UI\LanguagePage;$(ProjectDir)..\UI\ShortcutsPage;$(ProjectDir)..\UI\AdvancedPage;$(ProjectDir)..\NativeShell\include;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ConformanceMode>true</ConformanceMode>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
+      <AdditionalOptions>/Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <!-- Uuid.cpp uses BCryptGenRandom; the #pragma comment(lib) inside a
+           static lib does not always propagate, so link bcrypt explicitly. -->
+      <AdditionalDependencies>bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="TestMain.cpp" />
+    <ClCompile Include="CoreModelsTests.cpp" />
+    <ClCompile Include="EngineBootstrapTests.cpp" />
+    <ClCompile Include="AnnotationDocumentTests.cpp" />
+    <ClCompile Include="LLMTranslationCoreTestsA.cpp" />
+    <ClCompile Include="TranslationPromptConfigTests.cpp" />
+    <ClCompile Include="VisualLineGroupingTests.cpp" />
+    <!-- FR-10 智能打码 core coverage + PRD §11 cross-platform snapshot gate. -->
+    <ClCompile Include="SmartRedactionTests.cpp" />
+    <ClCompile Include="CrossPlatformSnapshotTests.cpp" />
+    <ClCompile Include="PerformanceRecorderTests.cpp" />
+    <ClCompile Include="..\App\EngineBootstrap.cpp" />
+
+    <!-- wt-settings: config/history stores (needs Core\include for tf/). -->
+    <ClCompile Include="EngineConfigStoreTests.cpp" />
+    <ClCompile Include="HotkeySettingsStoreTests.cpp" />
+    <ClCompile Include="HistoryStoreTests.cpp" />
+    <ClCompile Include="ImageUploadProviderTests.cpp" />
+
+    <!-- FR-37/39: localization tables + onboarding pure logic. The shipped
+         10-language tables copy to the output dir (Strings\) for the schema
+         test below. -->
+    <ClCompile Include="LocalizationTests.cpp" />
+    <ClCompile Include="OnboardingTests.cpp" />
+
+    <!-- FR-35 six-tab settings: page ViewModels (pure C++, WinRT-free) +
+         their implementation TUs. UI headers live in ../UI/&lt;Page&gt;,
+         NativeShell\include for HotkeyManager.hpp (shortcuts VM). -->
+    <ClCompile Include="GeneralPageViewModelTests.cpp" />
+    <ClCompile Include="LanguagePageViewModelTests.cpp" />
+    <ClCompile Include="ShortcutsPageViewModelTests.cpp" />
+    <ClCompile Include="PromptsPageViewModelTests.cpp" />
+    <ClCompile Include="AdvancedPageViewModelTests.cpp" />
+    <ClCompile Include="EnginesPageViewModelTests.cpp" />
+    <ClCompile Include="..\UI\GeneralPage\GeneralPageViewModel.cpp" />
+    <ClCompile Include="..\UI\EnginesPage\EnginesPageViewModel.cpp" />
+    <ClCompile Include="..\external\catch2\catch_amalgamated.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="fixtures\visual-line-grouping.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- PRD §11 shared vectors (extracted from macOS TransFrameTests).
+         Content+CopyToOutputDirectory is the pattern that actually copies
+         (None+CopyFileToOutputDirectory above never lands in the output). -->
+    <Content Include="fixtures\crossplatform\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- FR-37 schema test reads every shipped language table. -->
+    <Content Include="..\UI\Strings\*.json">
+      <Link>Strings\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\TransFrame.Core.vcxproj">
+      <Project>{A0000000-0000-0000-0000-00000000000A}</Project>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

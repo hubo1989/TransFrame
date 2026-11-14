@@ -100,3 +100,26 @@ build_artifacts/
 .omd/
 *.dmg
 scripts/e2e/eventsynth
+
+# Windows installer output and Python packaging tools
+windows/dist/
+__pycache__/
+hubert/
+
+# Manual smoke artifacts (built and run from the repo root)
+/smoke_*.exe
+/smoke_*.obj
+/smoke_*.png
+/Microsoft.WindowsAppRuntime.Bootstrap.dll
+
+# scratch repro binaries
+*.obj
+
+# Release/MSIX local artifacts
+downloads/
+dist-test/
+/dist/
+
+# settings screenshot audit artifacts (smoke_settings_shots)
+/shots_*/
+/Assets/

@@ -1,0 +1,121 @@
+{
+  "format": 1,
+  "restore": {
+    "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\WinUI3Shell.vcxproj": {}
+  },
+  "projects": {
+    "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj": {
+      "restore": {
+        "projectUniqueName": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj",
+        "projectName": "TransFrame.Core",
+        "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj",
+        "UsingMicrosoftNETSdk": false,
+        "frameworks": {
+          "native": {
+            "projectReferences": {}
+          }
+        }
+      },
+      "frameworks": {
+        "native": {}
+      }
+    },
+    "D:\\MY CODE\\TransFrame\\sablefish\\windows\\NativeShell\\TransFrame.NativeShell.vcxproj": {
+      "restore": {
+        "projectUniqueName": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\NativeShell\\TransFrame.NativeShell.vcxproj",
+        "projectName": "TransFrame.NativeShell",
+        "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\NativeShell\\TransFrame.NativeShell.vcxproj",
+        "UsingMicrosoftNETSdk": false,
+        "frameworks": {
+          "native": {
+            "projectReferences": {
+              "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj": {
+                "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj"
+              }
+            }
+          }
+        }
+      },
+      "frameworks": {
+        "native": {}
+      }
+    },
+    "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\WinUI3Shell.vcxproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\WinUI3Shell.vcxproj",
+        "projectName": "WinUI3Shell",
+        "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\WinUI3Shell.vcxproj",
+        "packagesPath": "C:\\Users\\hubo1\\.nuget\\packages\\",
+        "outputPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\obj\\",
+        "projectStyle": "PackageReference",
+        "skipContentFileWrite": true,
+        "UsingMicrosoftNETSdk": false,
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\Users\\hubo1\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "native"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "native": {
+            "projectReferences": {
+              "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj": {
+                "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\Core\\TransFrame.Core.vcxproj"
+              },
+              "D:\\MY CODE\\TransFrame\\sablefish\\windows\\NativeShell\\TransFrame.NativeShell.vcxproj": {
+                "projectPath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\NativeShell\\TransFrame.NativeShell.vcxproj"
+              }
+            }
+          }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "native": {
+          "dependencies": {
+            "Microsoft.Windows.CppWinRT": {
+              "target": "Package",
+              "version": "[2.0.250303.1, )"
+            },
+            "Microsoft.Windows.SDK.BuildTools": {
+              "target": "Package",
+              "version": "[10.0.26100.1742, )"
+            },
+            "Microsoft.WindowsAppSDK": {
+              "target": "Package",
+              "version": "[1.6.250205002, )"
+            }
+          }
+        }
+      },
+      "runtimes": {
+        "win": {
+          "#import": []
+        },
+        "win-arm64": {
+          "#import": []
+        },
+        "win-x64": {
+          "#import": []
+        },
+        "win-x86": {
+          "#import": []
+        }
+      }
+    }
+  }
+}
