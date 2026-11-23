@@ -44,6 +44,14 @@ struct ShortcutSettingsContent: View {
                 onRecord: { viewModel.startRecordingTranslateAndInsertShortcut() },
                 onReset: { viewModel.resetTranslateAndInsertShortcut() }
             )
+            Divider().opacity(0.1)
+            ShortcutRecorder(
+                label: localized("settings.shortcut.pick.color"),
+                shortcut: viewModel.pickColorShortcut,
+                isRecording: viewModel.isRecordingPickColorShortcut,
+                onRecord: { viewModel.startRecordingPickColorShortcut() },
+                onReset: { viewModel.resetPickColorShortcut() }
+            )
         }
         .macosGroupedCard()
     }

@@ -50,6 +50,7 @@ final class AppSettings {
         static let translationModeShortcut = prefix + "translationModeShortcut"
         static let textSelectionTranslationShortcut = prefix + "textSelectionTranslationShortcut"
         static let translateAndInsertShortcut = prefix + "translateAndInsertShortcut"
+        static let pickColorShortcut = prefix + "pickColorShortcut"
         static let strokeColor = prefix + "strokeColor"
         static let strokeWidth = prefix + "strokeWidth"
         static let textSize = prefix + "textSize"
@@ -152,6 +153,12 @@ final class AppSettings {
     /// Global hotkey for translate clipboard and insert
     var translateAndInsertShortcut: KeyboardShortcut {
         didSet { saveShortcut(translateAndInsertShortcut, forKey: Keys.translateAndInsertShortcut) }
+    }
+
+    /// Global hotkey for the screen color picker (eyedropper). Referenced by
+    /// the color history empty state (spec §4.2).
+    var pickColorShortcut: KeyboardShortcut {
+        didSet { saveShortcut(pickColorShortcut, forKey: Keys.pickColorShortcut) }
     }
 
     /// Default annotation stroke color
@@ -535,6 +542,8 @@ final class AppSettings {
             ?? KeyboardShortcut.textSelectionTranslationDefault
         translateAndInsertShortcut = Self.loadShortcut(forKey: Keys.translateAndInsertShortcut)
             ?? KeyboardShortcut.translateAndInsertDefault
+        pickColorShortcut = Self.loadShortcut(forKey: Keys.pickColorShortcut)
+            ?? KeyboardShortcut.pickColorDefault
 
         // Load annotation defaults
         strokeColor = Self.loadColor(forKey: Keys.strokeColor) ?? .red
@@ -685,6 +694,7 @@ final class AppSettings {
         translationModeShortcut = .translationModeDefault
         textSelectionTranslationShortcut = .textSelectionTranslationDefault
         translateAndInsertShortcut = .translateAndInsertDefault
+        pickColorShortcut = .pickColorDefault
         strokeColor = .red
         strokeWidth = 2.0
         textSize = 14.0

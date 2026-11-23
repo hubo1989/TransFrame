@@ -231,12 +231,16 @@ struct PreviewStyleCustomizationBar: View {
         .customTooltip(target == .fill ? "\(colorName(for: color)) (\(String(localized: "preview.fill.color")))" : colorName(for: color))
     }
 
-    /// Screen eyedropper: samples a pixel anywhere on screen into the target color
+    /// Screen eyedropper: samples a pixel anywhere on screen into the target
+    /// color; the pick also flows into the color history via the shared
+    /// pipeline (spec §4.5). Clipboard untouched — the annotation color
+    /// binding is the outcome here.
     private func eyedropperButton(target: ColorTarget) -> some View {
         Button {
             NSColorSampler().show { selectedColor in
                 guard let nsColor = selectedColor else { return }
                 applyColor(CodableColor(Color(nsColor: nsColor)), to: target)
+                ColorPickFlow.complete(nsColor, writeToPasteboard: false)
             }
         } label: {
             Image(systemName: "eyedropper")

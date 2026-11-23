@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "V7Ym7KueEcM=",
+  "success": true,
+  "projectFilePath": "D:\\MY CODE\\TransFrame\\sablefish\\windows\\UI\\WinUI3Shell.vcxproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\hubo1\\.nuget\\packages\\microsoft.web.webview2\\1.0.2651.64\\microsoft.web.webview2.1.0.2651.64.nupkg.sha512",
+    "C:\\Users\\hubo1\\.nuget\\packages\\microsoft.windows.cppwinrt\\2.0.250303.1\\microsoft.windows.cppwinrt.2.0.250303.1.nupkg.sha512",
+    "C:\\Users\\hubo1\\.nuget\\packages\\microsoft.windows.sdk.buildtools\\10.0.26100.1742\\microsoft.windows.sdk.buildtools.10.0.26100.1742.nupkg.sha512",
+    "C:\\Users\\hubo1\\.nuget\\packages\\microsoft.windowsappsdk\\1.6.250205002\\microsoft.windowsappsdk.1.6.250205002.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -1,0 +1,128 @@
+{
+  "_source": "Vectors extracted verbatim from TransFrameTests/VisualLineGroupingTests.swift (macOS v1.0.4). Each case carries the same segments and the same expected outcome as the XCTest case of the same name.",
+  "_coordinateSystem": "Normalized bounding boxes 0..1, top-left origin, y grows down.",
+  "cases": [
+    {
+      "name": "testSameLineFragmentsMergeIntoSingleSegment",
+      "source": "VisualLineGroupingTests.testSameLineFragmentsMergeIntoSingleSegment",
+      "input": [
+        {"text": "installed metadata. Prefer a commit SHA in place of", "x": 0.10, "y": 0.40,  "width": 0.50, "height": 0.020},
+        {"text": "main",                                        "x": 0.61, "y": 0.401, "width": 0.04, "height": 0.019},
+        {"text": "for a fixed package revision.",               "x": 0.66, "y": 0.402, "width": 0.25, "height": 0.020}
+      ],
+      "expectedCount": 1,
+      "expectedFirstText": "installed metadata. Prefer a commit SHA in place of main for a fixed package revision."
+    },
+    {
+      "name": "testMergedBoundingBoxIsUnionOfFragments",
+      "source": "VisualLineGroupingTests.testMergedBoundingBoxIsUnionOfFragments",
+      "input": [
+        {"text": "installed metadata. Prefer a commit SHA in place of", "x": 0.10, "y": 0.40,  "width": 0.50, "height": 0.020},
+        {"text": "main",                                        "x": 0.61, "y": 0.401, "width": 0.04, "height": 0.019},
+        {"text": "for a fixed package revision.",               "x": 0.66, "y": 0.402, "width": 0.25, "height": 0.020}
+      ],
+      "expectedCount": 1,
+      "expectedFirstBox": {"minX": 0.10, "maxX": 0.91, "minY": 0.40, "maxY": 0.422}
+    },
+    {
+      "name": "testDistinctLinesStaySeparate",
+      "source": "VisualLineGroupingTests.testDistinctLinesStaySeparate",
+      "input": [
+        {"text": "first line",  "x": 0.1, "y": 0.10, "width": 0.4, "height": 0.02},
+        {"text": "second line", "x": 0.1, "y": 0.20, "width": 0.4, "height": 0.02},
+        {"text": "third line",  "x": 0.1, "y": 0.30, "width": 0.4, "height": 0.02}
+      ],
+      "expectedCount": 3,
+      "expectedTexts": ["first line", "second line", "third line"]
+    },
+    {
+      "name": "testDistantColumnsOnSameBaselineDoNotMerge",
+      "source": "VisualLineGroupingTests.testDistantColumnsOnSameBaselineDoNotMerge",
+      "input": [
+        {"text": "left column",  "x": 0.05, "y": 0.50, "width": 0.20, "height": 0.02},
+        {"text": "right column", "x": 0.70, "y": 0.50, "width": 0.25, "height": 0.02}
+      ],
+      "expectedCount": 2
+    },
+    {
+      "name": "testNearbyFragmentsOnSameBaselineMerge",
+      "source": "VisualLineGroupingTests.testNearbyFragmentsOnSameBaselineMerge",
+      "input": [
+        {"text": "Name",  "x": 0.10, "y": 0.50, "width": 0.10, "height": 0.02},
+        {"text": "Value", "x": 0.15, "y": 0.50, "width": 0.10, "height": 0.02}
+      ],
+      "expectedCount": 1,
+      "expectedFirstText": "Name Value"
+    },
+    {
+      "name": "testOutputIsSortedTopToBottom",
+      "source": "VisualLineGroupingTests.testOutputIsSortedTopToBottom",
+      "input": [
+        {"text": "bottom", "x": 0.1, "y": 0.60, "width": 0.3, "height": 0.02},
+        {"text": "top",    "x": 0.1, "y": 0.10, "width": 0.3, "height": 0.02},
+        {"text": "middle", "x": 0.1, "y": 0.35, "width": 0.3, "height": 0.02}
+      ],
+      "expectedTexts": ["top", "middle", "bottom"]
+    },
+    {
+      "name": "testSingleSegmentPassesThrough",
+      "source": "VisualLineGroupingTests.testSingleSegmentPassesThrough",
+      "input": [
+        {"text": "solo", "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.02}
+      ],
+      "expectedCount": 1,
+      "expectedFirstText": "solo"
+    },
+    {
+      "name": "testEmptyInputReturnsEmpty",
+      "source": "VisualLineGroupingTests.testEmptyInputReturnsEmpty",
+      "input": [],
+      "expectedCount": 0
+    },
+    {
+      "name": "testZeroSizeBoxesAreKeptAsIs",
+      "source": "VisualLineGroupingTests.testZeroSizeBoxesAreKeptAsIs",
+      "input": [
+        {"text": "no box", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0},
+        {"text": "normal", "x": 0.1, "y": 0.1, "width": 0.3, "height": 0.02}
+      ],
+      "expectedCount": 2,
+      "expectedTextsAnyOrder": ["no box", "normal"]
+    },
+    {
+      "name": "testLowVerticalOverlapDoesNotMerge",
+      "source": "VisualLineGroupingTests.testLowVerticalOverlapDoesNotMerge",
+      "input": [
+        {"text": "upper", "x": 0.1, "y": 0.100, "width": 0.3, "height": 0.02},
+        {"text": "lower", "x": 0.5, "y": 0.115, "width": 0.3, "height": 0.02}
+      ],
+      "expectedCount": 2
+    },
+    {
+      "name": "testTouchingIdentifierFragmentsGlueWithoutSpace",
+      "source": "VisualLineGroupingTests.testTouchingIdentifierFragmentsGlueWithoutSpace",
+      "input": [
+        {"text": "set",                  "x": 0.10,  "y": 0.50, "width": 0.03, "height": 0.02},
+        {"text": "DESIGMA_PLUGINS_TOKEN", "x": 0.132, "y": 0.50, "width": 0.20, "height": 0.02},
+        {"text": "to any",               "x": 0.34,  "y": 0.50, "width": 0.06, "height": 0.02}
+      ],
+      "expectedCount": 1,
+      "expectedFirstText": "set DESIGMA_PLUGINS_TOKEN to any"
+    },
+    {
+      "name": "testUserEditedFlagPropagatesToMergedSegment",
+      "source": "VisualLineGroupingTests.testUserEditedFlagPropagatesToMergedSegment",
+      "input": [
+        {"text": "edited", "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.02, "confidence": 0.9, "isUserEdited": true},
+        {"text": "plain",  "x": 0.35, "y": 0.1, "width": 0.2, "height": 0.02}
+      ],
+      "expectedCount": 1,
+      "expectedFirstUserEdited": true
+    }
+  ],
+  "joinTextCases": [
+    {"source": "testLatinFragmentsJoinWithSpace",          "lhs": "set", "rhs": "TOKEN to any", "expected": "set TOKEN to any"},
+    {"source": "testCJKFragmentsJoinWithoutSpace",         "lhs": "该注册表是公开的", "rhs": "因此不需要令牌", "expected": "该注册表是公开的因此不需要令牌"},
+    {"source": "testCJKAndLatinBoundaryGetsSpace",         "lhs": "令牌", "rhs": "TOKEN", "expected": "令牌 TOKEN"}
+  ]
+}

@@ -14,6 +14,7 @@ enum ShortcutRecordingType: Equatable {
     case translationMode
     case textSelectionTranslation
     case translateAndInsert
+    case pickColor
 }
 
 /// ViewModel for the Settings view.
@@ -63,6 +64,11 @@ final class SettingsViewModel {
     /// Whether translate and insert shortcut is being recorded (for UI binding)
     var isRecordingTranslateAndInsertShortcut: Bool {
         recordingType == .translateAndInsert
+    }
+
+    /// Whether screen color pick shortcut is being recorded (for UI binding)
+    var isRecordingPickColorShortcut: Bool {
+        recordingType == .pickColor
     }
 
     /// Error message to display
@@ -254,6 +260,16 @@ final class SettingsViewModel {
             settings.translateAndInsertShortcut = newValue
             appDelegate?.updateHotkeys()
             settings.saveShortcut(newValue, forKey: AppSettings.Keys.translateAndInsertShortcut)
+        }
+    }
+
+    /// Screen color pick shortcut (color history empty state references it)
+    var pickColorShortcut: KeyboardShortcut {
+        get { settings.pickColorShortcut }
+        set {
+            settings.pickColorShortcut = newValue
+            appDelegate?.updateHotkeys()
+            settings.saveShortcut(newValue, forKey: AppSettings.Keys.pickColorShortcut)
         }
     }
 
@@ -675,6 +691,11 @@ final class SettingsViewModel {
         startRecording(.translateAndInsert)
     }
 
+    /// Starts recording a keyboard shortcut for screen color pick
+    func startRecordingPickColorShortcut() {
+        startRecording(.pickColor)
+    }
+
     /// Cancels shortcut recording
     func cancelRecording() {
         recordingType = nil
@@ -726,6 +747,8 @@ final class SettingsViewModel {
             textSelectionTranslationShortcut = shortcut
         case .translateAndInsert:
             translateAndInsertShortcut = shortcut
+        case .pickColor:
+            pickColorShortcut = shortcut
         case .none:
             break
         }
@@ -760,6 +783,11 @@ final class SettingsViewModel {
         translateAndInsertShortcut = .translateAndInsertDefault
     }
 
+    /// Resets screen color pick shortcut to default
+    func resetPickColorShortcut() {
+        pickColorShortcut = .pickColorDefault
+    }
+
     /// Resets all settings to defaults
     func resetAllToDefaults() {
         settings.resetToDefaults()
@@ -777,6 +805,7 @@ final class SettingsViewModel {
         case .translationMode: return translationModeShortcut
         case .textSelectionTranslation: return textSelectionTranslationShortcut
         case .translateAndInsert: return translateAndInsertShortcut
+        case .pickColor: return pickColorShortcut
         case .none: return nil
         }
     }
@@ -789,7 +818,8 @@ final class SettingsViewModel {
     private func hasShortcutConflict(_ shortcut: KeyboardShortcut, excluding: KeyboardShortcut?) -> Bool {
         let allShortcuts = [
             fullScreenShortcut, selectionShortcut, translationModeShortcut,
-            textSelectionTranslationShortcut, translateAndInsertShortcut
+            textSelectionTranslationShortcut, translateAndInsertShortcut,
+            pickColorShortcut
         ].filter { $0 != excluding }
         return allShortcuts.contains(shortcut)
     }

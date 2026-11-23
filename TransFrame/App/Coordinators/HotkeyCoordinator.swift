@@ -37,6 +37,7 @@ final class HotkeyCoordinator {
         case translationMode
         case textSelectionTranslation
         case translateAndInsert
+        case pickColor
     }
 
     // MARK: - Properties
@@ -119,6 +120,18 @@ final class HotkeyCoordinator {
         ) { [weak self] in
             Task { @MainActor in
                 self?.appDelegate?.textTranslationCoordinator?.translateClipboardAndInsert()
+            }
+        }
+
+        // Register screen color pick hotkey (spec §4.2 empty-state hint,
+        // spec §4.5 pick → history flow)
+        await registerHotkey(
+            type: .pickColor,
+            shortcut: settings.pickColorShortcut,
+            description: "Screen Color Pick"
+        ) { [weak self] in
+            Task { @MainActor in
+                self?.appDelegate?.pickScreenColor()
             }
         }
 

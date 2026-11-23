@@ -107,11 +107,13 @@ final class MenuBarController {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Color Picker
+        // Color Picker — shows the configurable global hotkey (spec §4.2
+        // empty-state hint points here too)
         menu.addItem(createMenuItem(
             titleKey: "menu.pick.color",
             comment: "Pick Color from Screen",
             action: #selector(AppDelegate.pickScreenColor),
+            shortcut: settings.pickColorShortcut,
             target: appDelegate,
             imageName: "eyedropper"
         ))
@@ -138,6 +140,15 @@ final class MenuBarController {
             modifierMask: [.command, .shift],
             target: appDelegate,
             imageName: "clock.arrow.circlepath"
+        ))
+
+        // Color History (spec §4.1: tray entry right after Translation History)
+        menu.addItem(createMenuItem(
+            titleKey: "menu.color.history",
+            comment: "Color History",
+            action: #selector(AppDelegate.openColorHistory),
+            target: appDelegate,
+            imageName: "paintpalette"
         ))
 
         menu.addItem(NSMenuItem.separator())

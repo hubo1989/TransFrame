@@ -212,19 +212,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Color Picker & Image Editing Actions
 
-    /// Triggers the native macOS color picker to copy a hex color code
+    /// Triggers the native macOS color picker to copy a hex color code.
+    /// Routes through the shared pick pipeline (spec §4.5): clipboard +
+    /// history insert + toast, same as every other eyedropper surface.
     @objc func pickScreenColor() {
         NSColorSampler().show { selectedColor in
             guard let color = selectedColor else { return }
-            guard let rgbColor = color.usingColorSpace(.sRGB) else { return }
-            let r = Int(round(rgbColor.redComponent * 255))
-            let g = Int(round(rgbColor.greenComponent * 255))
-            let b = Int(round(rgbColor.blueComponent * 255))
-            let hex = String(format: "#%02X%02X%02X", r, g, b)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(hex, forType: .string)
-            NotificationCenter.default.post(name: .colorDidPick, object: hex)
+            ColorPickFlow.complete(color)
         }
+    }
+
+    /// Opens the independent color history window (spec §4.1)
+    @objc func openColorHistory() {
+        Logger.ui.debug("Opening color history window")
+
+        ColorHistoryWindowController.shared.showColorHistory()
     }
 
     /// Opens an image file from disk and launches the annotation editor

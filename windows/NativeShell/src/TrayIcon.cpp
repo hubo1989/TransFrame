@@ -1,0 +1,209 @@
+// TrayIcon.cpp — Shell_NotifyIcon plumbing (Windows only).
+// The portable menu model lives in src/TrayMenu.cpp (buildTrayMenu).
+#include "pch.h"
+
+#include "tf/TrayIcon.hpp"
+
+#include <shellapi.h>
+
+#pragma comment(lib, "advapi32.lib")  // applyMenuTheme registry read
+
+namespace tf {
+
+// ---------------------------------------------------------------------------
+// Windows plumbing
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr UINT kTrayIconId = 1;
+constexpr UINT kTrayCallbackMessage = WM_APP + 0x5446;  // 'TF'
+
+/// Win11 dark-mode context menus: the undocumented-but-stable uxtheme
+/// ordinal 135 (SetPreferredAppMode) — the same route PowerToys/Notepad++
+/// take. A light HMENU on a dark system reads as broken chrome, and the mac
+/// NSMenu always follows the appearance; light systems keep the default.
+void applyMenuTheme() {
+    DWORD appsLight = 1;
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER,
+                        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                        0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+        DWORD size = sizeof(appsLight);
+        if (::RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, nullptr,
+                               reinterpret_cast<BYTE*>(&appsLight), &size) != ERROR_SUCCESS) {
+            appsLight = 1;
+        }
+        ::RegCloseKey(key);
+    }
+    using SetPreferredAppModeFn = int(WINAPI*)(int);
+    const auto setPreferredAppMode = reinterpret_cast<SetPreferredAppModeFn>(
+        ::GetProcAddress(::GetModuleHandleW(L"uxtheme.dll"),
+                         reinterpret_cast<LPCSTR>(135)));
+    if (setPreferredAppMode) {
+        // 0=Default 1=AllowDark 2=ForceDark 3=ForceLight.
+        setPreferredAppMode(appsLight == 0 ? 2 : 0);
+    }
+}
+
+HMENU buildHMenu(const TrayMenuModel& model) {
+    HMENU menu = ::CreatePopupMenu();
+    // The pinned submenu owns IDs kPinnedMenuIdBase+1..; its parent entry
+    // consumes one flat index (unselectable, MF_POPUP) so the flat item IDs
+    // stay aligned with trayMenuItemForId.
+    HMENU pinnedSub = nullptr;
+    if (!model.pinnedItems.empty()) {
+        pinnedSub = ::CreatePopupMenu();
+        unsigned subIndex = 1;
+        for (const auto& sub : model.pinnedItems) {
+            const UINT flags = MF_STRING | (sub.enabled ? MF_ENABLED : MF_GRAYED);
+            ::AppendMenuW(pinnedSub, flags, kPinnedMenuIdBase + subIndex,
+                          sub.label.c_str());
+            if (sub.separatorAfter) ::AppendMenuW(pinnedSub, MF_SEPARATOR, 0, nullptr);
+            ++subIndex;
+        }
+    }
+    UINT index = 1;
+    for (const auto& item : model.items) {
+        UINT flags = MF_STRING | (item.enabled ? MF_ENABLED : MF_GRAYED);
+        if (item.command == TrayCommand::PinnedManager && pinnedSub) {
+            // Popup entry: never returns from TrackPopupMenu itself, but the
+            // flat index is still consumed so trayMenuItemForId stays aligned.
+            ::AppendMenuW(menu, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(pinnedSub),
+                          item.label.c_str());
+            pinnedSub = nullptr;  // ownership passes to `menu`
+        } else {
+            ::AppendMenuW(menu, flags, index, item.label.c_str());
+        }
+        ++index;
+        if (item.separatorAfter) {
+            ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        }
+    }
+    if (pinnedSub) ::DestroyMenu(pinnedSub);  // no parent consumed it (disabled)
+    return menu;
+}
+
+} // namespace
+
+TrayIconService::TrayIconService(TrayCommandHandler handler)
+    : handler_(std::move(handler)) {}
+
+TrayIconService::~TrayIconService() {
+    remove();
+}
+
+bool TrayIconService::install() {
+    if (installed_) return true;
+
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    // Callback parent: the App's hidden message window when provided (the
+    // reliable route — GetForegroundWindow can be null/destroyed by the time
+    // the user clicks the icon).
+    nid.hWnd = callbackWindow_ ? static_cast<HWND>(callbackWindow_) : ::GetForegroundWindow();
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = kTrayCallbackMessage;
+    nid.hIcon = ::LoadIconW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    if (!nid.hIcon) return false;
+    ::wcscpy_s(nid.szTip, L"TransFrame");
+
+    installed_ = ::Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
+    return installed_;
+}
+
+void TrayIconService::setCallbackWindow(void* hwnd) {
+    const bool reinstall = installed_;
+    if (reinstall) remove();
+    callbackWindow_ = static_cast<HWND>(hwnd);
+    if (reinstall) install();
+}
+
+void TrayIconService::remove() {
+    if (!installed_) return;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
+    nid.uID = kTrayIconId;
+    ::Shell_NotifyIconW(NIM_DELETE, &nid);
+    installed_ = false;
+}
+
+void TrayIconService::setRecentShots(std::vector<RecentShot> shots) {
+    recent_ = std::move(shots);
+}
+
+void TrayIconService::showBalloon(const std::wstring& title, const std::wstring& text) {
+    if (!installed_ || !callbackWindow_) return;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_INFO;
+    ::wcsncpy_s(nid.szInfoTitle, title.c_str(), _TRUNCATE);
+    ::wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
+    ::Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+void TrayIconService::setPinnedWindows(std::vector<PinnedSnapshot> pinned) {
+    pinned_ = std::move(pinned);
+}
+
+void TrayIconService::setShortcutHints(TrayShortcutHints hints) {
+    hints_ = std::move(hints);
+}
+
+void TrayIconService::showMenuAtCursor() {
+    applyMenuTheme();
+    const TrayMenuModel model = buildTrayMenuModel(recent_, pinned_, hints_);
+    const auto owner = static_cast<HWND>(callbackWindow_);
+    if (!owner) return;
+    HMENU menu = buildHMenu(model);
+    if (!menu) return;
+    POINT pt;
+    ::GetCursorPos(&pt);
+    // TPM_RIGHTBUTTON + return-on-click; SetForegroundWindow is required by
+    // the Shell_NotifyIcon contract so the menu dismisses when clicking away.
+    ::SetForegroundWindow(owner);
+    const BOOL picked = ::TrackPopupMenuEx(
+        menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        pt.x, pt.y, owner, nullptr);
+    ::DestroyMenu(menu);
+    ::PostMessageW(owner, WM_NULL, 0, 0);
+    const unsigned id = static_cast<unsigned>(picked);
+    if (const auto* sub = trayMenuPinnedItemForId(model.pinnedItems, id)) {
+        dispatch(sub->command, sub->pinnedIndex);
+        return;
+    }
+    if (const auto* item = trayMenuItemForId(model.items, id)) {
+        dispatch(item->command, item->recentIndex);
+    }
+}
+
+
+bool TrayIconService::showBalloon(const std::wstring& title, const std::wstring& text,
+                                  BalloonIcon icon) {
+    if (!installed_) return false;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = static_cast<HWND>(callbackWindow_);
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_INFO;
+    switch (icon) {
+        case BalloonIcon::Warning: nid.dwInfoFlags = NIIF_WARNING; break;
+        case BalloonIcon::Error:   nid.dwInfoFlags = NIIF_ERROR;   break;
+        default:                   nid.dwInfoFlags = NIIF_INFO;    break;
+    }
+    wcsncpy_s(nid.szInfoTitle, title.c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
+    return ::Shell_NotifyIconW(NIM_MODIFY, &nid) != FALSE;
+}
+
+
+void TrayIconService::dispatch(TrayCommand command, int payloadIndex) {
+    if (handler_) handler_(command, payloadIndex);
+}
+
+} // namespace tf

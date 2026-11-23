@@ -1,0 +1,75 @@
+{
+  "_source": "Vectors extracted verbatim from TransFrameTests/LLMResponseTruncationTests.swift (macOS): LLM translation batching splits + completion-state response parsing. The compatible-instance HTTP fixture (testCompatibleBatchRequestsKeepOriginalSegments) is a URLSession mock, not a pure vector — it is intentionally NOT portable here.",
+  "_fullFieldContract": "batchingCases carry exact expected batch lists (order + contents) or, for the emoji-splitting vector, the exact macOS property assertions (minBatches + flat-join equality). parserCases compare ok/errorCategory and the full extracted text — never a substring.",
+  "_macOSWiringNote": "macOS reads this via a future TransFrameTests loader (resolve relative to #filePath like the visual-line-grouping.json note); until then the embedded vectors in LLMResponseTruncationTests.swift are the macOS-side source of truth and this file must be updated in lock-step.",
+  "batchingCases": [
+    {
+      "name": "testBatchingRespectsBudgetAndPreservesAllSourceText",
+      "source": "LLMResponseTruncationTests.testBatchingRespectsBudgetAndPreservesAllSourceText",
+      "texts": ["汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉", "字字字字字字字字字字字字字字字字字字字字", "third", "fourth"],
+      "maxOutputTokens": 20,
+      "promptTemplate": "",
+      "expectedBatches": [
+        ["汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉"],
+        ["字字字字字字字字字字字字字字字字字字字字"],
+        ["third", "fourth"]
+      ]
+    },
+    {
+      "name": "testLongSingleSegmentIsSplitAndCanBeRecombined",
+      "source": "LLMResponseTruncationTests.testLongSingleSegmentIsSplitAndCanBeRecombined",
+      "_note": "Input is 漢 (U+6F22) followed by the U+1F468 ZWJ U+1F469 ZWJ U+1F467 ZWJ U+1F46B family, repeated 100x. Expected values are the macOS property assertions (pieces recombine exactly); surrogate-pair literals are not spelled out to keep this file reviewable.",
+      "texts": ["<U+6F22 familyEmoji repeated 100 times>"],
+      "maxOutputTokens": 32,
+      "promptTemplate": "",
+      "expectedMinBatches": 2,
+      "expectedFlatJoinEqualsInput": true
+    },
+    {
+      "name": "testLongCustomPromptStillSplitsWithoutDroppingSource",
+      "source": "LLMResponseTruncationTests.testLongCustomPromptStillSplitsWithoutDroppingSource",
+      "texts": ["汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉", "字字字字字字字字字字字字字字字字字字字字"],
+      "maxOutputTokens": 32,
+      "promptTemplate": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp{text}",
+      "expectedBatches": [
+        ["汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉"],
+        ["字字字字字字字字字字字字字字字字字字字字"]
+      ]
+    }
+  ],
+  "parserCases": [
+    {
+      "name": "testOpenAIAndClaudeLengthResponsesAreRejected.openai",
+      "source": "LLMResponseTruncationTests.testOpenAIAndClaudeLengthResponsesAreRejected",
+      "engine": "openai",
+      "body": "{\"choices\":[{\"message\":{\"content\":\"部分译文\"},\"finish_reason\":\"length\"}]}",
+      "expectOk": false,
+      "expectedErrorCategory": "content"
+    },
+    {
+      "name": "testOpenAIAndClaudeLengthResponsesAreRejected.claude",
+      "source": "LLMResponseTruncationTests.testOpenAIAndClaudeLengthResponsesAreRejected",
+      "engine": "claude",
+      "body": "{\"content\":[{\"type\":\"text\",\"text\":\"partial\"}],\"stop_reason\":\"max_tokens\"}",
+      "expectOk": false,
+      "expectedErrorCategory": "content"
+    },
+    {
+      "name": "testOpenAISSETruncationCannotBeReportedAsSuccess",
+      "source": "LLMResponseTruncationTests.testOpenAISSETruncationCannotBeReportedAsSuccess",
+      "engine": "openai",
+      "body": "data: {\"choices\":[{\"delta\":{\"content\":\"part\"},\"finish_reason\":null}]}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\ndata: [DONE]\n",
+      "expectOk": false,
+      "expectedErrorCategory": "content"
+    },
+    {
+      "name": "testJSONBodyContainingDataLineIsNotTreatedAsSSE",
+      "source": "LLMResponseTruncationTests.testJSONBodyContainingDataLineIsNotTreatedAsSSE",
+      "engine": "claude",
+      "_note": "The HTTP payload is JSON, so the newline inside text is backslash-n ON THE WIRE; the parser must decode it (not treat the embedded data: line as SSE).",
+      "body": "{\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\"日志示例\\ndata: 123\"}]}",
+      "expectOk": true,
+      "expectedText": "日志示例\ndata: 123"
+    }
+  ]
+}
