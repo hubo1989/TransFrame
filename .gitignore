@@ -123,3 +123,6 @@ dist-test/
 # settings screenshot audit artifacts (smoke_settings_shots)
 /shots_*/
 /Assets/
+
+# Design-tool scratch artifacts (not part of the product)
+.design/

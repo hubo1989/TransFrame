@@ -1,6 +1,0 @@
-{
-    "version": 1,
-    "packageManager": "npm",
-    "defaultProject": "hubert",
-    "projectTemplate": "typescript"
-}
